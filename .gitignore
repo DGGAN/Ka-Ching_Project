@@ -1,0 +1,11 @@
+# Ignore all Node.js downloaded dependency packages
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Ignore environment variable files containing sensitive info (like database passwords)
+.env
+backend/.env
+
+# Ignore Mac system auto-generated hidden files
+.DS_Store
