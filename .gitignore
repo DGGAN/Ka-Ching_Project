@@ -9,3 +9,7 @@ backend/.env
 
 # Ignore Mac system auto-generated hidden files
 .DS_Store
+
+
+note.md
+tdo.md
