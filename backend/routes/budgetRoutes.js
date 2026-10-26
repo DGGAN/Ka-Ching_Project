@@ -1,11 +1,13 @@
-const express = require('express');
+// Import express Router and budget controller
+const express = require("express");
 const router = express.Router();
-const budgetController = require('../controllers/budgetController');
+const budgetController = require("../controllers/budgetController");
 
-// Set or update budget (POST)
-router.post('/', budgetController.setBudget);
+// Endpoint to set or update monthly budget and savings target
+router.post("/", budgetController.setBudget);
 
-// Get budget for specific user and period (GET，Example：/api/budgets/用户ID/2026-10)
-router.get('/:userId/:period', budgetController.getBudget);
+// Endpoint to get user budget progress and AI Auto-Recommendation
+router.get("/:userId", budgetController.getBudget);
 
+// Export router module
 module.exports = router;

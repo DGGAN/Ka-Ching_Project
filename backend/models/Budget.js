@@ -1,39 +1,49 @@
-// Import the mongoose core library
-const mongoose = require('mongoose');
+// Import mongoose to define the database schema
+const mongoose = require("mongoose");
 
-// Strictly define the budget model according to Table 4.3 of the document
-const budgetSchema = new mongoose.Schema({
-    // Foreign Key referencing the Users collection
+// Define the Budget collection schema, aligned with the Budgets specification in the proposal report
+const budgetSchema = new mongoose.Schema(
+  {
+    // Reference to the unique user identifier in the Users collection (Foreign Key)
     userId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
     },
-    // Total maximum allowed expense limit
-    limitAmount: {
-        type: Number,
-        required: true
+    // Monthly spending limit amount in RM
+    monthlyLimit: {
+      type: Number,
+      required: true,
+      min: 0,
     },
-    // Targeted monthly financial savings milestone
+    // Monthly target savings amount in RM
     savingsTarget: {
-        type: Number,
-        required: true
+      type: Number,
+      default: 0,
+      min: 0,
     },
-    // Dynamic scheduling time marker formatted as "YYYY-MM"
+    // Budget period type (defaults to MONTHLY, aligned with Budget Period in Screen 6)
     period: {
-        type: String,
-        required: true
+      type: String,
+      enum: ["MONTHLY", "WEEKLY"],
+      default: "MONTHLY",
     },
-    // The absolute first initialization day of the budget cycle
-    startDate: {
-        type: Date,
-        required: true
+    // Target calendar month for the budget (1 - 12)
+    month: {
+      type: Number,
+      default: () => new Date().getMonth() + 1,
     },
-    // The final calendar expiration cutoff day of the budget cycle
-    endDate: {
-        type: Date,
-        required: true
-    }
-});
+    // Target calendar year for the budget (e.g., 2026)
+    year: {
+      type: Number,
+      default: () => new Date().getFullYear(),
+    },
+  },
+  { timestamps: true },
+);
 
-module.exports = mongoose.model('Budget', budgetSchema);
+// Create index on userId to speed up budget lookup
+budgetSchema.index({ userId: 1 });
+
+// Export the Budget model for controller use
+module.exports = mongoose.model("Budget", budgetSchema);
