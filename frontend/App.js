@@ -1,45 +1,133 @@
-// 导入 React、原生组件与我们编写的 LoginScreen
-// Import React, native UI components, and our LoginScreen
-import React, { useState } from "react";
-import { SafeAreaView, View, Text, StyleSheet, StatusBar } from "react-native";
+// Import React hooks, native UI components with Animated engine, and screen components
+import React, { useState, useEffect, useRef } from "react";
+import { SafeAreaView, View, Text, Animated, StyleSheet, StatusBar } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import LoginScreen from "./src/screens/LoginScreen";
+import DashboardScreen from "./src/screens/DashboardScreen";
+import AddTransactionScreen from "./src/screens/AddTransactionScreen";
+import TransactionsScreen from "./src/screens/TransactionsScreen";
+import BudgetScreen from "./src/screens/BudgetScreen";
 import { COLORS, FONTS } from "./src/theme/theme";
-import { WireBox, WireButton } from "./src/components/WireUI";
+import { TopHeader, BottomNav, IngestionModal, WireBox, WireButton } from "./src/components/WireUI";
 
-// App 主入口组件：控制用户登录状态与页面切换
-// Main App entry component: Controls user authentication state and screen switching
+// Main App entry component: Includes smooth screen transition animations and global navigation
 export default function App() {
-  // 保存当前已登录的用户信息（若为 null 则显示登录页）
-  // Store currently logged-in user info (shows LoginScreen if null)
+  // Currently logged-in user state and active tab key
   const [currentUser, setCurrentUser] = useState(null);
+  const [activeTab, setActiveTab] = useState("home");
+  const [showAddModal, setShowAddModal] = useState(false);
 
-  // 退出登录函数：清除本地 Token 并退回登录页
-  // Logout function: Clear local Token and return to LoginScreen
+  // Define Animated values for screen fade-in and subtle upward slide on tab change
+  const screenFade = useRef(new Animated.Value(1)).current;
+  const screenSlide = useRef(new Animated.Value(0)).current;
+
+  // Trigger a 180ms smooth transition animation whenever activeTab changes
+  useEffect(() => {
+    screenFade.setValue(0.25);
+    screenSlide.setValue(10);
+    Animated.parallel([
+      Animated.timing(screenFade, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.spring(screenSlide, {
+        toValue: 0,
+        damping: 20,
+        stiffness: 220,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [activeTab]);
+
   const handleLogout = async () => {
     await AsyncStorage.removeItem("userToken");
     await AsyncStorage.removeItem("userData");
     setCurrentUser(null);
+    setActiveTab("home");
+  };
+
+  const handleSelectIngestionMethod = (methodId) => {
+    if (methodId === "manual") {
+      setActiveTab("add");
+    } else {
+      setActiveTab("add");
+    }
+  };
+
+  const renderMainContent = () => {
+    if (activeTab === "home") {
+      return (
+        <DashboardScreen user={currentUser} onSeeAllTransactions={() => setActiveTab("transactions")} onPressAddQuick={() => setShowAddModal(true)} />
+      );
+    }
+
+    if (activeTab === "transactions") {
+      return <TransactionsScreen user={currentUser} />;
+    }
+
+    if (activeTab === "budget") {
+      return <BudgetScreen user={currentUser} />;
+    }
+
+    if (activeTab === "add") {
+      return <AddTransactionScreen user={currentUser} onTransactionSaved={() => setActiveTab("home")} />;
+    }
+
+    return (
+      <View style={styles.placeholderContainer}>
+        <WireBox style={{ width: "100%", marginBottom: 20 }}>
+          <Text style={styles.placeholderTitle}>Screen: {activeTab.toUpperCase()}</Text>
+          <Text style={styles.placeholderSub}>User: {currentUser.username}</Text>
+        </WireBox>
+        <WireButton label="Sign Out" onPress={handleLogout} variant="outline" />
+      </View>
+    );
+  };
+
+  const getHeaderTitle = () => {
+    if (activeTab === "add") return "Add Transaction";
+    if (activeTab === "transactions") return "Transactions";
+    if (activeTab === "budget") return "Budget Planning";
+    if (activeTab === "insights") return "AI Insights";
+    if (activeTab === "profile") return "Profile & Settings";
+    return "Ka-Ching!";
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
       {!currentUser ? (
-        // 未登录时：显示 Screen 1 登录/注册页
-        // When not logged in: Display Screen 1 Login/Register screen
         <LoginScreen onLoginSuccess={(user) => setCurrentUser(user)} />
       ) : (
-        // 登录成功后：显示成功提示（下一步我们将这里替换成完整的 Screen 2 Dashboard！）
-        // After login success: Show welcome card (Next we will replace this with full Screen 2 Dashboard!)
-        <View style={styles.loggedInContainer}>
-          <WireBox style={{ width: "100%", marginBottom: 20 }}>
-            <Text style={styles.welcomeTitle}>🎉 Ka-Ching! Connected!</Text>
-            <Text style={styles.userInfo}>Username: {currentUser.username}</Text>
-            <Text style={styles.userInfo}>Email: {currentUser.email}</Text>
-            <Text style={styles.userInfo}>User ID: {currentUser.id}</Text>
-          </WireBox>
-          <WireButton label="Sign Out" onPress={handleLogout} variant="outline" />
+        <View style={styles.mainLayout}>
+          <TopHeader
+            title={getHeaderTitle()}
+            showBack={activeTab !== "home"}
+            onBackPress={() => setActiveTab("home")}
+            onBellPress={() => setActiveTab("notifications")}
+            onProfilePress={() => setActiveTab("profile")}
+          />
+
+          {/* Animated main content container with fade and subtle slide transition */}
+          <Animated.View
+            style={[
+              styles.contentArea,
+              {
+                opacity: screenFade,
+                transform: [{ translateY: screenSlide }],
+              },
+            ]}
+          >
+            {renderMainContent()}
+          </Animated.View>
+
+          <BottomNav
+            activeTab={activeTab === "add" ? "home" : activeTab}
+            onSelectTab={(tabId) => setActiveTab(tabId)}
+            onPressAdd={() => setShowAddModal(true)}
+          />
+          <IngestionModal visible={showAddModal} onClose={() => setShowAddModal(false)} onSelectMethod={handleSelectIngestionMethod} />
         </View>
       )}
     </SafeAreaView>
@@ -51,23 +139,29 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  loggedInContainer: {
+  mainLayout: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  contentArea: {
+    flex: 1,
+  },
+  placeholderContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     padding: 24,
   },
-  welcomeTitle: {
+  placeholderTitle: {
     fontFamily: FONTS.mono,
     fontSize: 16,
     fontWeight: "bold",
     color: COLORS.text,
-    marginBottom: 12,
+    marginBottom: 8,
   },
-  userInfo: {
+  placeholderSub: {
     fontFamily: FONTS.mono,
     fontSize: 12,
     color: COLORS.textMuted,
-    marginBottom: 6,
   },
 });

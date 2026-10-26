@@ -1,81 +1,94 @@
-// Import the mongoose core library
-const mongoose = require('mongoose');
+// Import mongoose to define the database schema
+const mongoose = require("mongoose");
 
-// Strictly define the transaction model according to Table 4.2 of the document
-const transactionSchema = new mongoose.Schema({
-    // Foreign Key referencing the Users collection
+// Define the Transaction collection schema, 100% strictly aligned with Table 4.2 specification
+const transactionSchema = new mongoose.Schema(
+  {
+    // Reference to the unique user identifier in the Users collection (Foreign Key)
     userId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
     },
-    // Numerical transaction cost value
+    // Numerical transaction cost value stored up to two decimal places (Not Null)
     amount: {
-        type: Number,
-        required: true
+      type: Number,
+      required: true,
+      min: 0.01,
     },
-    // Direction flow tracking parameter (Income / Expense)
+    // Direction flow tracking parameter: INCOME or EXPENSE
     type: {
-        type: String,
-        required: true,
-        enum: ['INCOME', 'EXPENSE']
+      type: String,
+      enum: ["INCOME", "EXPENSE"],
+      required: true,
     },
-    // Fixed category choice tracking spending patterns
+    // Fixed category choice enum values (5 INCOME categories + 8 EXPENSE categories)
     category: {
-        type: String,
-        required: true,
-        enum: [
-            'SALARY', 'ALLOWANCE', 'INVESTMENT', 'GIFT', 'OTHER_INCOME', // Income categories
-            'FOOD_AND_BEVERAGE', 'TRANSPORT', 'SHOPPING', 'LEISURE_AND_ENTERTAINMENT', 
-            'BILLS_AND_UTILITIES', 'HEALTH_AND_EDUCATION', 'SAVINGS_AND_INVESTMENT', 'OTHER_EXPENSE' // Expense categories
-        ]
+      type: String,
+      enum: [
+        // Allowed values for INCOME
+        "SALARY",
+        "ALLOWANCE",
+        "INVESTMENT",
+        "GIFT",
+        "OTHER_INCOME",
+        // Allowed values for EXPENSE
+        "FOOD_AND_BEVERAGE",
+        "TRANSPORT",
+        "SHOPPING",
+        "LEISURE_AND_ENTERTAINMENT",
+        "BILLS_AND_UTILITIES",
+        "HEALTH_AND_EDUCATION",
+        "SAVINGS_AND_INVESTMENT",
+        "OTHER_EXPENSE",
+      ],
+      required: true,
     },
-    // Identified retail store name
+    // Identified retail store name or recipient business entity
     merchantName: {
-        type: String,
-        required: true
+      type: String,
+      required: true,
+      trim: true,
     },
-    // Optional custom notes
+    // Optional text area where users can type extra custom notes (Nullable)
     description: {
-        type: String,
-        default: null
+      type: String,
+      default: null,
+      trim: true,
     },
-    // True historical calendar day when the transaction took place
+    // True historical calendar day when the transaction actually took place
     date: {
-        type: Date,
-        required: true
+      type: Date,
+      default: Date.now,
+      required: true,
     },
-    // Ingestion pathway channel
+    // Ingestion pathway channel: MANUAL, NOTIFICATION, or OCR
     source: {
-        type: String,
-        required: true,
-        enum: ['MANUAL', 'NOTIFICATION', 'OCR']
+      type: String,
+      enum: ["MANUAL", "NOTIFICATION", "OCR"],
+      default: "MANUAL",
+      required: true,
     },
-    // System state flag for verification workflows
+    // System state flag for verification flow: PENDING_VERIFICATION or VERIFIED
     status: {
-        type: String,
-        required: true,
-        enum: ['PENDING_VERIFICATION', 'VERIFIED'],
-
-        // Ensure only OCR-scanned transactions (e.g., batch imports) can have a 'PENDING_VERIFICATION' status for user approval.
-        // Manual entries and notification captures have explicit data and must strictly be 'VERIFIED'.
-        validate: {
-            validator: function(value) {
-                // If source is MANUAL or NOTIFICATION, status must be VERIFIED
-                if (this.source === 'MANUAL' || this.source === 'NOTIFICATION') {
-                    return value === 'VERIFIED';
-                }
-                // If source is OCR, both are allowed
-                return true; 
-            },
-            message: 'Transactions from MANUAL or NOTIFICATION sources must have VERIFIED status.'
-        }
+      type: String,
+      enum: ["PENDING_VERIFICATION", "VERIFIED"],
+      default: "VERIFIED",
+      required: true,
     },
-    // Optical recognition reliability rating
+    // Optical recognition reliability rating between 0.0 and 1.0 (Defaults to 1.0)
     confidenceScore: {
-        type: Number,
-        default: 1.0
-    }
-});
+      type: Number,
+      default: 1.0,
+      min: 0.0,
+      max: 1.0,
+    },
+  },
+  { timestamps: true },
+);
 
-module.exports = mongoose.model('Transaction', transactionSchema);
+// Create compound index on userId (asc) and date (desc) to speed up multi-user queries
+transactionSchema.index({ userId: 1, date: -1 });
+
+// Export the Transaction model for controller use
+module.exports = mongoose.model("Transaction", transactionSchema);

@@ -33,10 +33,10 @@ exports.register = async (req, res) => {
     username = username.trim();
     email = email.trim().toLowerCase();
 
-    // Validation 2: Check username length (at least 3 characters)
-    if (username.length < 3) {
+    // Validation 2: Check username length (at least 5 characters)
+    if (username.length < 5) {
       return res.status(400).json({
-        message: "Username must be at least 3 characters long.",
+        message: "Username must be at least 5 characters long.",
       });
     }
 
@@ -246,8 +246,8 @@ exports.updateUserProfile = async (req, res) => {
     // If user wants to change username, check if the new username is already taken by others
     if (username && username.trim() !== user.username) {
       const cleanUsername = username.trim();
-      if (cleanUsername.length < 3) {
-        return res.status(400).json({ message: "Username must be at least 3 characters." });
+      if (cleanUsername.length < 5) {
+        return res.status(400).json({ message: "Username must be at least 5 characters." });
       }
       const taken = await User.findOne({ username: cleanUsername });
       if (taken) {
