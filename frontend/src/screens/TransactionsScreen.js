@@ -4,13 +4,13 @@ import { View, Text, TextInput, TouchableOpacity, FlatList, ScrollView, Modal, A
 import { Search, X, Pencil, Trash2, AlertTriangle, Check, ChevronDown, Filter, Calendar as CalendarIcon } from "lucide-react-native";
 import apiClient from "../api/client";
 import { COLORS, SHAPES, FONTS } from "../theme/theme";
-import { WireBox, WireInput, WireButton, WireChip } from "../components/WireUI";
+import { WireBox, WireInput, WireButton, WireChip, FloatingToast, useFloatingToast, CalendarPicker } from "../components/WireUI";
 import { CATEGORY_CONFIG, EXPENSE_CATEGORY_KEYS, INCOME_CATEGORY_KEYS, CategoryBadge } from "../utils/categoryIcons";
 
-// Number of records fetched per page for Lazy Loading (15 items ensures instant load & low RAM)
+// Number of records fetched per page for Lazy Loading
 const PAGE_SIZE = 15;
 
-// Helper function: Format ISO date into grouped headers matching design ("Today — 17 Oct", etc.)
+// Helper function: Format ISO date into grouped headers ("Today — 27 Oct", "Yesterday — 26 Oct", etc.)
 const formatDateGroupHeader = (isoDateString) => {
   const txDate = new Date(isoDateString);
   const today = new Date();
@@ -42,9 +42,8 @@ const getRecentMonthFilters = () => {
 
 const RECENT_MONTHS = getRecentMonthFilters();
 
-// Transaction History Screen (Supports 10,000+ records FlatList lazy loading, multi-filters, edit & delete)
+// Transaction History Screen (Supports FlatList lazy loading, multi-filters, edit with shared CalendarPicker & delete)
 export default function TransactionsScreen({ user }) {
-  // State variables for paginated lazy-loaded transaction list
   const [transactions, setTransactions] = useState([]);
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
@@ -52,34 +51,37 @@ export default function TransactionsScreen({ user }) {
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  // Multi-dimensional filter states: search keyword, type, time period/month, and category
+  // Multi-dimensional filter states
   const [searchQuery, setSearchQuery] = useState("");
   const [activeType, setActiveType] = useState("ALL");
   const [activeTimeFilter, setActiveTimeFilter] = useState("ALL");
   const [activeCategoryFilter, setActiveCategoryFilter] = useState("ALL");
   const [showCategoryFilterModal, setShowCategoryFilterModal] = useState(false);
 
-  // State variables for Edit Transaction Modal
+  // Edit Transaction Modal states
   const [editingTx, setEditingTx] = useState(null);
   const [editType, setEditType] = useState("EXPENSE");
   const [editAmount, setEditAmount] = useState("");
   const [editCategory, setEditCategory] = useState("FOOD_AND_BEVERAGE");
   const [editMerchant, setEditMerchant] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [editDate, setEditDate] = useState(new Date());
+  const [showEditCalendar, setShowEditCalendar] = useState(false);
   const [showEditCategoryList, setShowEditCategoryList] = useState(false);
   const [editError, setEditError] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
 
-  // State variables for Delete Confirmation Modal
+  // Delete Confirmation Modal states
   const [deletingTx, setDeletingTx] = useState(null);
   const [deletingLoading, setDeletingLoading] = useState(false);
 
-  // Whenever any filter condition changes, reset to Page 1 and fetch fresh data from backend
+  // Global floating toast hook
+  const { toast, slideAnim, showToast } = useFloatingToast();
+
   useEffect(() => {
     fetchTransactionsPage(1, true);
   }, [activeType, activeTimeFilter, activeCategoryFilter, searchQuery]);
 
-  // Core paginated fetch function: replaces list when replace=true, appends items when replace=false
   const fetchTransactionsPage = async (targetPage = 1, replace = false) => {
     try {
       if (replace) {
@@ -88,7 +90,6 @@ export default function TransactionsScreen({ user }) {
         setLoadingMore(true);
       }
 
-      // Parse whether the active time filter is a preset period or a specific month key
       let periodParam = "ALL";
       let monthKeyParam = "";
       if (activeTimeFilter.startsWith("MONTH_")) {
@@ -125,14 +126,12 @@ export default function TransactionsScreen({ user }) {
     }
   };
 
-  // Triggered when user scrolls near the bottom of FlatList to lazy-load the next page
   const handleLoadMore = () => {
     if (!loadingInitial && !loadingMore && hasMore) {
       fetchTransactionsPage(page + 1, false);
     }
   };
 
-  // Reset all active filters back to default
   const handleClearAllFilters = () => {
     setSearchQuery("");
     setActiveType("ALL");
@@ -140,14 +139,17 @@ export default function TransactionsScreen({ user }) {
     setActiveCategoryFilter("ALL");
   };
 
-  // Open Edit Modal and pre-populate fields with selected transaction data
+  // Open Edit Modal and pre-populate all fields including the transaction's existing date
   const handleOpenEditModal = (tx) => {
+    const existingDate = tx.date ? new Date(tx.date) : new Date();
     setEditingTx(tx);
     setEditType(tx.type);
     setEditAmount(String(tx.amount));
     setEditCategory(tx.category);
     setEditMerchant(tx.merchantName || tx.merchant || "");
     setEditDescription(tx.description || "");
+    setEditDate(existingDate);
+    setShowEditCalendar(false);
     setShowEditCategoryList(false);
     setEditError("");
   };
@@ -161,6 +163,7 @@ export default function TransactionsScreen({ user }) {
     setEditAmount(rawText);
   };
 
+  // Submit updated transaction (including updated date) to backend PUT /api/transactions/:id
   const handleSaveEdit = async () => {
     setEditError("");
     const parsedAmt = parseFloat(editAmount);
@@ -182,9 +185,11 @@ export default function TransactionsScreen({ user }) {
         category: editCategory,
         merchantName: editMerchant.trim(),
         description: editDescription.trim() ? editDescription.trim() : null,
+        date: editDate.toISOString(),
       });
 
       setEditingTx(null);
+      showToast("success", "Transaction updated successfully!");
       fetchTransactionsPage(1, true);
     } catch (error) {
       setEditError(error.response?.data?.message || "Failed to update transaction.");
@@ -199,15 +204,16 @@ export default function TransactionsScreen({ user }) {
       setDeletingLoading(true);
       await apiClient.delete(`/transactions/${deletingTx._id}`);
       setDeletingTx(null);
+      showToast("success", "Transaction deleted.");
       fetchTransactionsPage(1, true);
     } catch (error) {
       console.log("Failed to delete transaction:", error.message);
+      showToast("error", "Failed to delete transaction.");
     } finally {
       setDeletingLoading(false);
     }
   };
 
-  // Render each transaction item in FlatList (automatically renders date header when day changes)
   const renderTransactionItem = ({ item: tx, index }) => {
     const currentHeader = formatDateGroupHeader(tx.date);
     const prevHeader = index > 0 ? formatDateGroupHeader(transactions[index - 1].date) : null;
@@ -263,11 +269,10 @@ export default function TransactionsScreen({ user }) {
 
   return (
     <View style={styles.screenWrapper}>
-      {/* ================================================ */}
+      <FloatingToast toast={toast} slideAnim={slideAnim} />
+
       {/* Top Multi-Dimensional Filter Control Panel */}
-      {/* ================================================ */}
       <View style={styles.topControlsSection}>
-        {/* Row 1: Real-time Search Input + Category Filter Modal Trigger */}
         <View style={styles.searchAndCatRow}>
           <View style={styles.searchBarBox}>
             <Search size={15} color={COLORS.textMuted} strokeWidth={2.5} />
@@ -297,7 +302,6 @@ export default function TransactionsScreen({ user }) {
           </TouchableOpacity>
         </View>
 
-        {/* Row 2: Horizontal Scrollable Time & Month Filter Pills */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.timeFilterScroll}>
           {[
             { id: "ALL", label: "All Time" },
@@ -319,7 +323,6 @@ export default function TransactionsScreen({ user }) {
           })}
         </ScrollView>
 
-        {/* Row 3: ALL / EXPENSE / INCOME Chips + Total Matching Record Count */}
         <View style={styles.filterChipsRow}>
           <View style={{ flexDirection: "row" }}>
             {["ALL", "EXPENSE", "INCOME"].map((filterKey) => (
@@ -340,9 +343,7 @@ export default function TransactionsScreen({ user }) {
         </View>
       </View>
 
-      {/* ================================================================= */}
-      {/* High-Performance Virtualized FlatList (Supports 10,000+ records Lazy Loading) */}
-      {/* ================================================================= */}
+      {/* Virtualized FlatList */}
       {loadingInitial ? (
         <ActivityIndicator size="small" color={COLORS.primary} style={{ marginTop: 40 }} />
       ) : (
@@ -386,9 +387,7 @@ export default function TransactionsScreen({ user }) {
         />
       )}
 
-      {/* ================================================ */}
-      {/* Category Filter Modal */}
-      {/* ================================================ */}
+      {/* Modal 1: Category Filter Modal */}
       <Modal visible={showCategoryFilterModal} transparent={true} animationType="fade" onRequestClose={() => setShowCategoryFilterModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -436,12 +435,10 @@ export default function TransactionsScreen({ user }) {
         </View>
       </Modal>
 
-      {/* ================================================ */}
-      {/* Edit Transaction Modal */}
-      {/* ================================================ */}
+      {/* Modal 2: Edit Transaction Modal (Uses shared CalendarPicker from WireUI.js) */}
       <Modal visible={!!editingTx} transparent={true} animationType="fade" onRequestClose={() => setEditingTx(null)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, { maxHeight: "90%" }]}>
             <View style={styles.modalHeaderRow}>
               <Text style={styles.modalTitle}>EDIT TRANSACTION</Text>
               <TouchableOpacity onPress={() => setEditingTx(null)}>
@@ -449,76 +446,126 @@ export default function TransactionsScreen({ user }) {
               </TouchableOpacity>
             </View>
 
-            {editError ? (
-              <View style={styles.errorBanner}>
-                <Text style={styles.errorBannerText}>{editError}</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {editError ? (
+                <View style={styles.errorBanner}>
+                  <Text style={styles.errorBannerText}>{editError}</Text>
+                </View>
+              ) : null}
+
+              <View style={styles.editTypeRow}>
+                <TouchableOpacity
+                  style={[styles.editTypeBtn, editType === "EXPENSE" && styles.editTypeBtnActive]}
+                  onPress={() => {
+                    setEditType("EXPENSE");
+                    setEditCategory("FOOD_AND_BEVERAGE");
+                    setShowEditCategoryList(false);
+                  }}
+                >
+                  <Text style={[styles.editTypeBtnText, editType === "EXPENSE" && styles.editTypeBtnTextActive]}>EXPENSE</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.editTypeBtn, editType === "INCOME" && styles.editTypeBtnActive]}
+                  onPress={() => {
+                    setEditType("INCOME");
+                    setEditCategory("SALARY");
+                    setShowEditCategoryList(false);
+                  }}
+                >
+                  <Text style={[styles.editTypeBtnText, editType === "INCOME" && styles.editTypeBtnTextActive]}>INCOME</Text>
+                </TouchableOpacity>
               </View>
-            ) : null}
 
-            <View style={styles.editTypeRow}>
-              <TouchableOpacity
-                style={[styles.editTypeBtn, editType === "EXPENSE" && styles.editTypeBtnActive]}
-                onPress={() => {
-                  setEditType("EXPENSE");
-                  setEditCategory("FOOD_AND_BEVERAGE");
-                  setShowEditCategoryList(false);
-                }}
-              >
-                <Text style={[styles.editTypeBtnText, editType === "EXPENSE" && styles.editTypeBtnTextActive]}>EXPENSE</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.editTypeBtn, editType === "INCOME" && styles.editTypeBtnActive]}
-                onPress={() => {
-                  setEditType("INCOME");
-                  setEditCategory("SALARY");
-                  setShowEditCategoryList(false);
-                }}
-              >
-                <Text style={[styles.editTypeBtnText, editType === "INCOME" && styles.editTypeBtnTextActive]}>INCOME</Text>
-              </TouchableOpacity>
-            </View>
+              <WireInput label="Amount (RM)" placeholder="0.00" keyboardType="decimal-pad" value={editAmount} onChangeText={handleEditAmountChange} />
 
-            <WireInput label="Amount (RM)" placeholder="0.00" keyboardType="decimal-pad" value={editAmount} onChangeText={handleEditAmountChange} />
+              {/* Category Selector */}
+              <View style={{ marginBottom: 14 }}>
+                <Text style={styles.fieldLabel}>CATEGORY</Text>
+                <TouchableOpacity
+                  style={styles.editCategoryTrigger}
+                  onPress={() => {
+                    setShowEditCategoryList(!showEditCategoryList);
+                    setShowEditCalendar(false);
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                    <CategoryBadge category={editCategory} size={30} iconSize={15} />
+                    <Text style={styles.editCategoryTriggerText}>{currentEditCatConfig.label}</Text>
+                  </View>
+                  <ChevronDown size={15} color={COLORS.textMuted} strokeWidth={2.5} />
+                </TouchableOpacity>
 
-            <View style={{ marginBottom: 14 }}>
-              <Text style={styles.fieldLabel}>CATEGORY</Text>
-              <TouchableOpacity style={styles.editCategoryTrigger} onPress={() => setShowEditCategoryList(!showEditCategoryList)}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                  <CategoryBadge category={editCategory} size={30} iconSize={15} />
-                  <Text style={styles.editCategoryTriggerText}>{currentEditCatConfig.label}</Text>
-                </View>
-                <ChevronDown size={15} color={COLORS.textMuted} strokeWidth={2.5} />
-              </TouchableOpacity>
+                {showEditCategoryList && (
+                  <View style={styles.editCatGrid}>
+                    {editCategoryKeys.map((catKey) => {
+                      const cfg = CATEGORY_CONFIG[catKey];
+                      const isSelected = editCategory === catKey;
+                      return (
+                        <TouchableOpacity
+                          key={catKey}
+                          style={[styles.editCatOption, isSelected && styles.editCatOptionSelected]}
+                          onPress={() => {
+                            setEditCategory(catKey);
+                            setShowEditCategoryList(false);
+                          }}
+                        >
+                          <CategoryBadge category={catKey} size={26} iconSize={13} />
+                          <Text style={styles.editCatOptionText} numberOfLines={1}>
+                            {cfg.label}
+                          </Text>
+                          {isSelected && <Check size={12} color={COLORS.primary} strokeWidth={3} />}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
 
-              {showEditCategoryList && (
-                <View style={styles.editCatGrid}>
-                  {editCategoryKeys.map((catKey) => {
-                    const cfg = CATEGORY_CONFIG[catKey];
-                    const isSelected = editCategory === catKey;
-                    return (
-                      <TouchableOpacity
-                        key={catKey}
-                        style={[styles.editCatOption, isSelected && styles.editCatOptionSelected]}
-                        onPress={() => {
-                          setEditCategory(catKey);
-                          setShowEditCategoryList(false);
-                        }}
-                      >
-                        <CategoryBadge category={catKey} size={26} iconSize={13} />
-                        <Text style={styles.editCatOptionText} numberOfLines={1}>
-                          {cfg.label}
-                        </Text>
-                        {isSelected && <Check size={12} color={COLORS.primary} strokeWidth={3} />}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
-            </View>
+              {/* Date Selector using shared CalendarPicker from WireUI.js */}
+              <View style={{ marginBottom: 14 }}>
+                <Text style={styles.fieldLabel}>DATE</Text>
+                <TouchableOpacity
+                  style={styles.editCategoryTrigger}
+                  onPress={() => {
+                    setShowEditCalendar(!showEditCalendar);
+                    setShowEditCategoryList(false);
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                    <View style={styles.editCalIconBox}>
+                      <CalendarIcon size={15} color={COLORS.primary} strokeWidth={2.2} />
+                    </View>
+                    <View>
+                      <Text style={styles.editCategoryTriggerText}>
+                        {editDate.toLocaleDateString("en-GB", {
+                          weekday: "short",
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                      </Text>
+                      <Text style={styles.editDateHintText}>{showEditCalendar ? "Tap a day below to change" : "Tap to open calendar"}</Text>
+                    </View>
+                  </View>
+                  <ChevronDown size={15} color={COLORS.textMuted} strokeWidth={2.5} />
+                </TouchableOpacity>
 
-            <WireInput label="Merchant / Payee" placeholder="e.g. Starbucks" value={editMerchant} onChangeText={setEditMerchant} />
+                {showEditCalendar && (
+                  <CalendarPicker
+                    selectedDate={editDate}
+                    onSelectDate={(picked) => {
+                      setEditDate(picked);
+                      setShowEditCalendar(false);
+                    }}
+                    style={styles.inlineCalendarBox}
+                  />
+                )}
+              </View>
 
-            <WireInput label="Description (Optional)" placeholder="Add a note..." value={editDescription} onChangeText={setEditDescription} />
+              <WireInput label="Merchant / Payee" placeholder="e.g. Starbucks" value={editMerchant} onChangeText={setEditMerchant} />
+
+              <WireInput label="Description (Optional)" placeholder="Add a note..." value={editDescription} onChangeText={setEditDescription} />
+            </ScrollView>
 
             <View style={styles.modalFooterBtns}>
               <View style={{ flex: 1 }}>
@@ -532,9 +579,7 @@ export default function TransactionsScreen({ user }) {
         </View>
       </Modal>
 
-      {/* ================================================ */}
-      {/* Delete Confirmation Modal */}
-      {/* ================================================ */}
+      {/* Modal 3: Delete Confirmation Modal */}
       <Modal visible={!!deletingTx} transparent={true} animationType="fade" onRequestClose={() => setDeletingTx(null)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -551,7 +596,7 @@ export default function TransactionsScreen({ user }) {
                 <Text style={{ fontWeight: "bold", color: COLORS.text }}>
                   {deletingTx.merchantName || deletingTx.merchant} (RM {Number(deletingTx.amount).toFixed(2)})
                 </Text>
-                ? This action will also update your balance and AI forecast.
+                ? This action will also update your balance and spending forecast.
               </Text>
             )}
 
@@ -572,11 +617,11 @@ export default function TransactionsScreen({ user }) {
   );
 }
 
-// Stylesheet: Includes virtualized list items, horizontal month filter chips, and category filter modal
 const styles = StyleSheet.create({
   screenWrapper: {
     flex: 1,
     backgroundColor: COLORS.background,
+    position: "relative",
   },
   topControlsSection: {
     paddingHorizontal: 16,
@@ -919,12 +964,36 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: COLORS.text,
   },
+  editDateHintText: {
+    fontFamily: FONTS.mono,
+    fontSize: 8.5,
+    color: COLORS.textMuted,
+    marginTop: 1,
+  },
+  editCalIconBox: {
+    width: 30,
+    height: 30,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    borderRadius: SHAPES.chipRadius,
+    backgroundColor: COLORS.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inlineCalendarBox: {
+    marginTop: 8,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    borderRadius: SHAPES.inputRadius,
+    backgroundColor: COLORS.card,
+    padding: 10,
+  },
   editCatGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
     gap: 6,
-    marginTop: 4,
+    marginTop: 6,
   },
   editCatOption: {
     width: "48.5%",
@@ -951,7 +1020,7 @@ const styles = StyleSheet.create({
   modalFooterBtns: {
     flexDirection: "row",
     gap: 10,
-    marginTop: 6,
+    marginTop: 10,
   },
   deleteWarningHeader: {
     flexDirection: "row",

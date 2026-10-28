@@ -6,6 +6,7 @@ import LoginScreen from "./src/screens/LoginScreen";
 import DashboardScreen from "./src/screens/DashboardScreen";
 import AddTransactionScreen from "./src/screens/AddTransactionScreen";
 import TransactionsScreen from "./src/screens/TransactionsScreen";
+import InsightsScreen from "./src/screens/InsightsScreen";
 import BudgetScreen from "./src/screens/BudgetScreen";
 import { COLORS, FONTS } from "./src/theme/theme";
 import { TopHeader, BottomNav, IngestionModal, WireBox, WireButton } from "./src/components/WireUI";
@@ -72,6 +73,10 @@ export default function App() {
 
     if (activeTab === "add") {
       return <AddTransactionScreen user={currentUser} onTransactionSaved={() => setActiveTab("home")} />;
+    }
+
+    if (activeTab === "insights") {
+      return <InsightsScreen user={currentUser} onNavigateToBudget={() => setActiveTab("budget")} />;
     }
 
     return (

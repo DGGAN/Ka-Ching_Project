@@ -1,9 +1,10 @@
-const express = require('express');
+// Import express Router and AI analytics controller
+const express = require("express");
 const router = express.Router();
-const analyticsController = require('../controllers/analyticsController');
+const analyticsController = require("../controllers/analyticsController");
 
-// 获取特定用户的 AI 分析与预测数据 (GET)
-// Get AI analytics and predictions for a specific user (GET)
-router.get('/:userId', analyticsController.getFinancialAnalytics);
+// Endpoint to get user's linear regression month-end forecast and 90-day habit insights
+router.get("/:userId", analyticsController.getUserAnalytics);
 
+// Export router module
 module.exports = router;

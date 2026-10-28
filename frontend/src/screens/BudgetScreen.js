@@ -7,7 +7,13 @@ import { COLORS, SHAPES, FONTS } from "../theme/theme";
 import { WireBox, WireInput, WireButton, FloatingToast, useFloatingToast } from "../components/WireUI";
 import { CATEGORY_CONFIG, EXPENSE_CATEGORY_KEYS, CategoryBadge } from "../utils/categoryIcons";
 
-// Define budget allocation plans strictly aligned with the 50/30/20 rule (50% Needs + 30% Wants = 80% Limit, 20% Savings)
+// Minimum number of expense records required before leaving Cold-Start baseline mode
+const MIN_EXPENSE_RECORDS_FOR_HISTORY_AI = 5;
+
+// Default monthly income baseline (RM) used during Cold-Start when no income is logged
+const COLD_START_BASELINE_INCOME = 2500;
+
+// Define budget allocation plans aligned with the 50/30/20 financial rule
 const RATIO_PRESETS = [
   {
     id: "STANDARD_50_30_20",
@@ -41,7 +47,7 @@ const RATIO_PRESETS = [
   },
 ];
 
-// Budget Planning Screen (Uses global FloatingToast, strictly aligned with 50/30/20 rule & Monthly period)
+// Budget Planning Screen (Screen 6) with Cold-Start threshold & non-negative safety floor
 export default function BudgetScreen({ user }) {
   const [currentBudget, setCurrentBudget] = useState(null);
   const [previousBudgetBackup, setPreviousBudgetBackup] = useState(null);
@@ -53,7 +59,6 @@ export default function BudgetScreen({ user }) {
   const [saving, setSaving] = useState(false);
   const [selectedPresetId, setSelectedPresetId] = useState("STANDARD_50_30_20");
 
-  // Invoke global FloatingToast hook from WireUI.js
   const { toast, slideAnim, showToast } = useFloatingToast();
 
   useEffect(() => {
@@ -116,7 +121,7 @@ export default function BudgetScreen({ user }) {
   const activeIncomeMonthsSet = new Set();
   let threeMonthTotalExpense = 0;
   let threeMonthTotalIncome = 0;
-  let threeMonthWantsExpense = 0;
+  let threeMonthExpenseCount = 0;
 
   transactions.forEach((tx) => {
     const amt = Number(tx.amount) || 0;
@@ -136,10 +141,8 @@ export default function BudgetScreen({ user }) {
     if (txDate >= threeMonthsAgo) {
       if (tx.type === "EXPENSE") {
         threeMonthTotalExpense += amt;
+        threeMonthExpenseCount += 1;
         activeExpenseMonthsSet.add(mKey);
-        if (["SHOPPING", "LEISURE_AND_ENTERTAINMENT", "OTHER_EXPENSE"].includes(tx.category)) {
-          threeMonthWantsExpense += amt;
-        }
       } else if (tx.type === "INCOME") {
         threeMonthTotalIncome += amt;
         activeIncomeMonthsSet.add(mKey);
@@ -147,26 +150,37 @@ export default function BudgetScreen({ user }) {
     }
   });
 
-  // 3-Tier trigger logic for AI Auto-Recommendation
+  // AI Auto-Recommendation Engine with Cold-Start Threshold & Safety Cushion
   const activePreset = RATIO_PRESETS.find((p) => p.id === selectedPresetId) || RATIO_PRESETS[0];
   const numExpenseMonths = Math.max(1, activeExpenseMonthsSet.size);
   const numIncomeMonths = Math.max(1, activeIncomeMonthsSet.size);
   const avgMonthlyExpense = threeMonthTotalExpense / numExpenseMonths;
   const avgMonthlyIncome = threeMonthTotalIncome / numIncomeMonths;
 
-  let aiBaseIncome = 2500;
-  let aiModeDescription = "Starter Baseline: Based on RM 2,500 monthly income (Log transactions to personalize)";
+  const hasEnoughExpenseHistory = threeMonthExpenseCount >= MIN_EXPENSE_RECORDS_FOR_HISTORY_AI;
+  const minViableBaseFromSpend = (thisMonthExpense * 1.15) / activePreset.limitRatio;
+  const hasViableMonthlyIncome = avgMonthlyIncome >= 500 && avgMonthlyIncome >= minViableBaseFromSpend;
 
-  if (avgMonthlyIncome > 0 && avgMonthlyExpense > 0) {
-    aiBaseIncome = Math.max(avgMonthlyIncome, avgMonthlyExpense * 1.15);
-    aiModeDescription = `Based on your ${activeExpenseMonthsSet.size}-month spending average (RM ${avgMonthlyExpense.toFixed(0)}/mo)`;
-  } else if (avgMonthlyIncome > 0) {
+  let aiBaseIncome = COLD_START_BASELINE_INCOME;
+  let aiModeDescription = "";
+
+  if (hasViableMonthlyIncome && hasEnoughExpenseHistory) {
+    // Case 1: User has both monthly income and regular spending history
     aiBaseIncome = avgMonthlyIncome;
-    aiModeDescription = `Based on your logged monthly income (RM ${avgMonthlyIncome.toFixed(0)})`;
-  } else if (avgMonthlyExpense > 0) {
-    const trimmedSpend = avgMonthlyExpense - (threeMonthWantsExpense / numExpenseMonths) * 0.1;
-    aiBaseIncome = trimmedSpend / activePreset.limitRatio;
-    aiModeDescription = `Based on ${activeExpenseMonthsSet.size}-month spending average (-10% non-essential trim)`;
+    aiModeDescription = `Personalized from your RM ${avgMonthlyIncome.toFixed(0)} monthly income and past spending habits`;
+  } else if (hasViableMonthlyIncome) {
+    // Case 2: User logged a realistic monthly income/allowance
+    aiBaseIncome = avgMonthlyIncome;
+    aiModeDescription = `Calculated from your RM ${avgMonthlyIncome.toFixed(0)} monthly income`;
+  } else if (hasEnoughExpenseHistory) {
+    // Case 3: User has regular expenses (>= 5 records), but hasn't logged their main income yet
+    const safeTargetSpend = Math.max(avgMonthlyExpense * 1.1, thisMonthExpense * 1.15);
+    aiBaseIncome = safeTargetSpend / activePreset.limitRatio;
+    aiModeDescription = `Personalized from your recent spending (includes a 15% extra buffer)`;
+  } else {
+    // Case 4: Starter Guide (< 5 expense records and no main income logged yet)
+    aiBaseIncome = Math.max(COLD_START_BASELINE_INCOME, minViableBaseFromSpend);
+    aiModeDescription = `Starter Guide: Estimated for a RM ${aiBaseIncome.toFixed(0)} monthly income (Log your income to customize)`;
   }
 
   const roundToTen = (val) => Math.max(50, Math.round(val / 10) * 10);
@@ -291,7 +305,6 @@ export default function BudgetScreen({ user }) {
 
   return (
     <View style={{ flex: 1, position: "relative" }}>
-      {/* Render globally reusable FloatingToast component */}
       <FloatingToast toast={toast} slideAnim={slideAnim} />
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
@@ -410,8 +423,7 @@ export default function BudgetScreen({ user }) {
           )}
         </WireBox>
 
-        {/* 模块 3：手动预算设置卡片（固定统一为 Monthly 周期） */}
-        {/* Section 3: Manual Budget Setup Card (Unified as Monthly Period) */}
+        {/* Section 3: Manual Budget Setup Card */}
         <WireBox style={styles.setupCard}>
           <View style={styles.setupHeaderBorder}>
             <Text style={styles.cardHeaderTitle}>MANUAL BUDGET SETUP</Text>
@@ -444,7 +456,7 @@ export default function BudgetScreen({ user }) {
           <WireButton label={saving ? "SAVING..." : "SAVE BUDGET"} variant="filled" onPress={handleSaveManualBudget} />
         </WireBox>
 
-        {/* Section 4: AI Auto-Recommendation Card (Strictly 50% Needs + 30% Wants = 80% Limit & 20% Savings) */}
+        {/* Section 4: AI Auto-Recommendation Card */}
         <WireBox style={styles.aiCard}>
           <View style={styles.aiHeaderRow}>
             <View style={styles.aiIconBadge}>

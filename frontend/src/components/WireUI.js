@@ -15,10 +15,12 @@ import {
   Pencil,
   AlertCircle,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react-native";
 import { COLORS, SHAPES, FONTS } from "../theme/theme";
 
-// 0. Globally reusable Floating Toast Hook & Component (Animated top alert for all screens)
+// 0. Globally reusable Floating Toast Hook & Component
 export const useFloatingToast = () => {
   const [toast, setToast] = useState({ visible: false, type: "error", text: "" });
   const slideAnim = useRef(new Animated.Value(-90)).current;
@@ -66,10 +68,10 @@ export const FloatingToast = ({ toast, slideAnim }) => {
   );
 };
 
-// 1. Universal card (automatically switches between sharp square and rounded corners)
+// 1. Universal card
 export const WireBox = ({ children, style }) => <View style={[styles.wireBox, style]}>{children}</View>;
 
-// 2. Universal input component (automatically applies theme border radius and font)
+// 2. Universal input component
 export const WireInput = ({ label, placeholder, value, onChangeText, secureTextEntry = false, keyboardType = "default" }) => (
   <View style={styles.inputContainer}>
     <Text style={styles.inputLabel}>{label}</Text>
@@ -88,7 +90,7 @@ export const WireInput = ({ label, placeholder, value, onChangeText, secureTextE
   </View>
 );
 
-// 3. Universal button component (automatically becomes a pill button in cute pink theme)
+// 3. Universal button component
 export const WireButton = ({ label, onPress, variant = "filled", style }) => {
   const isFilled = variant === "filled";
   return (
@@ -98,7 +100,7 @@ export const WireButton = ({ label, onPress, variant = "filled", style }) => {
   );
 };
 
-// 4. Universal category chip (automatically switches between square and rounded bubble)
+// 4. Universal category chip
 export const WireChip = ({ label, active = false, onPress }) => (
   <TouchableOpacity onPress={onPress} style={[styles.chipBase, active ? styles.chipActive : styles.chipInactive]}>
     <Text style={[styles.chipText, active ? styles.chipTextActive : styles.chipTextInactive]}>{label}</Text>
@@ -127,7 +129,6 @@ export const TopHeader = ({ title = "Ka-Ching!", showBack = false, onBackPress, 
   </View>
 );
 
-// 6. 底部导航栏组件
 // 6. Bottom Navigation bar component
 export const BottomNav = ({ activeTab = "home", onSelectTab, onPressAdd }) => {
   const leftTabs = [
@@ -171,8 +172,7 @@ export const BottomNav = ({ activeTab = "home", onSelectTab, onPressAdd }) => {
   );
 };
 
-// 7. 带从下往上丝滑弹出动画的记账方式选择弹窗
-// 7. Ingestion Method Bottom Sheet Modal with smooth slide-up animation
+// 7. Add Transaction Method Bottom Sheet Modal with smooth slide-up animation
 export const IngestionModal = ({ visible, onClose, onSelectMethod }) => {
   const slideAnim = useRef(new Animated.Value(350)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -218,20 +218,20 @@ export const IngestionModal = ({ visible, onClose, onSelectMethod }) => {
   const methods = [
     {
       id: "manual",
-      label: "Manual Expense Entry",
-      sub: "Enter transaction details manually",
+      label: "Type It In Manually",
+      sub: "Quickly enter an expense or income yourself",
       Icon: Pencil,
     },
     {
       id: "ocr_batch",
-      label: "Screenshot Batch Import",
-      sub: "Import multiple receipt images at once",
+      label: "Upload Receipt Photos",
+      sub: "Select one or more receipt screenshots from gallery",
       Icon: FileText,
     },
     {
       id: "camera",
-      label: "Single Receipt Camera",
-      sub: "Capture one receipt with live camera",
+      label: "Snap a Receipt Photo",
+      sub: "Use your camera to scan a physical receipt",
       Icon: Camera,
     },
   ];
@@ -246,8 +246,8 @@ export const IngestionModal = ({ visible, onClose, onSelectMethod }) => {
             <View style={styles.sheetHandle} />
           </View>
 
-          <Text style={styles.sheetTitle}>CHOOSE INGESTION METHOD</Text>
-          <Text style={styles.sheetSubtitle}>Select how you want to add a transaction</Text>
+          <Text style={styles.sheetTitle}>ADD A TRANSACTION</Text>
+          <Text style={styles.sheetSubtitle}>Choose how you would like to record this entry</Text>
 
           {methods.map(({ id, label, sub, Icon }) => (
             <TouchableOpacity key={id} style={styles.methodBtn} activeOpacity={0.8} onPress={() => handleAnimatedClose(() => onSelectMethod(id))}>
@@ -270,6 +270,115 @@ export const IngestionModal = ({ visible, onClose, onSelectMethod }) => {
     </Modal>
   );
 };
+
+// 8. Globally Reusable Interactive Calendar Picker & Modal (Shared by Add & Edit Transaction)
+export const CalendarPicker = ({ selectedDate, onSelectDate, style }) => {
+  const [viewDate, setViewDate] = useState(selectedDate ? new Date(selectedDate) : new Date());
+
+  useEffect(() => {
+    if (selectedDate) {
+      setViewDate(new Date(selectedDate));
+    }
+  }, [selectedDate]);
+
+  const viewYear = viewDate.getFullYear();
+  const viewMonth = viewDate.getMonth();
+  const firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay();
+  const totalDays = new Date(viewYear, viewMonth + 1, 0).getDate();
+
+  const daysGrid = [];
+  for (let i = 0; i < firstDayOfWeek; i++) daysGrid.push(null);
+  for (let d = 1; d <= totalDays; d++) daysGrid.push(d);
+
+  const monthTitle = viewDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  const changeMonth = (offset) => {
+    setViewDate(new Date(viewYear, viewMonth + offset, 1));
+  };
+
+  const handleQuickPick = (daysAgo) => {
+    const target = new Date();
+    target.setDate(target.getDate() - daysAgo);
+    setViewDate(target);
+    onSelectDate(target);
+  };
+
+  const handlePickDay = (dayNum) => {
+    if (!dayNum) return;
+    const picked = new Date(viewYear, viewMonth, dayNum, 12, 0, 0);
+    onSelectDate(picked);
+  };
+
+  return (
+    <View style={[styles.calendarContainer, style]}>
+      <View style={styles.quickDateRow}>
+        <TouchableOpacity style={styles.quickDateChip} onPress={() => handleQuickPick(0)}>
+          <Text style={styles.quickDateText}>Today</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.quickDateChip} onPress={() => handleQuickPick(1)}>
+          <Text style={styles.quickDateText}>Yesterday</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.calHeaderRow}>
+        <TouchableOpacity onPress={() => changeMonth(-1)} style={styles.calNavBtn}>
+          <ChevronLeft size={16} color={COLORS.text} strokeWidth={2.5} />
+        </TouchableOpacity>
+        <Text style={styles.calMonthTitle}>{monthTitle}</Text>
+        <TouchableOpacity onPress={() => changeMonth(1)} style={styles.calNavBtn}>
+          <ChevronRight size={16} color={COLORS.text} strokeWidth={2.5} />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.weekHeaderRow}>
+        {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((w) => (
+          <Text key={w} style={styles.weekHeaderText}>
+            {w}
+          </Text>
+        ))}
+      </View>
+
+      <View style={styles.daysGridContainer}>
+        {daysGrid.map((dayNum, idx) => {
+          const isChosen =
+            dayNum &&
+            selectedDate &&
+            selectedDate.getDate() === dayNum &&
+            selectedDate.getMonth() === viewMonth &&
+            selectedDate.getFullYear() === viewYear;
+
+          return (
+            <TouchableOpacity
+              key={idx}
+              disabled={!dayNum}
+              style={[styles.dayCell, isChosen && styles.dayCellSelected]}
+              onPress={() => handlePickDay(dayNum)}
+            >
+              <Text style={[styles.dayCellText, isChosen && styles.dayCellTextSelected]}>{dayNum || ""}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+};
+
+export const CalendarModal = ({ visible, selectedDate, onSelectDate, onClose }) => (
+  <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onClose}>
+    <View style={styles.centerModalOverlay}>
+      <View style={styles.calendarPopupCard}>
+        <CalendarPicker
+          selectedDate={selectedDate}
+          onSelectDate={(pickedDate) => {
+            onSelectDate(pickedDate);
+            onClose();
+          }}
+        />
+        <WireButton label="CLOSE CALENDAR" variant="outline" onPress={onClose} style={{ marginTop: 12 }} />
+      </View>
+    </View>
+  </Modal>
+);
 
 const styles = StyleSheet.create({
   floatingToast: {
@@ -482,6 +591,106 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.55)",
     justifyContent: "flex-end",
+  },
+  centerModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 18,
+  },
+  calendarPopupCard: {
+    width: "100%",
+    maxWidth: 350,
+    borderWidth: SHAPES.borderWidth,
+    borderColor: COLORS.border,
+    borderRadius: SHAPES.cardRadius,
+    backgroundColor: COLORS.card,
+    padding: 16,
+  },
+  calendarContainer: {
+    width: "100%",
+  },
+  quickDateRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 10,
+  },
+  quickDateChip: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    borderRadius: SHAPES.chipRadius,
+    backgroundColor: COLORS.secondary,
+    paddingVertical: 6,
+    alignItems: "center",
+  },
+  quickDateText: {
+    fontFamily: FONTS.mono,
+    fontSize: 10,
+    fontWeight: "bold",
+    color: COLORS.text,
+  },
+  calHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderColor: COLORS.borderMuted,
+    borderStyle: "dashed",
+  },
+  calNavBtn: {
+    padding: 5,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: SHAPES.chipRadius,
+    backgroundColor: COLORS.inputBg,
+  },
+  calMonthTitle: {
+    fontFamily: FONTS.mono,
+    fontSize: 12,
+    fontWeight: "bold",
+    color: COLORS.text,
+  },
+  weekHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginBottom: 4,
+  },
+  weekHeaderText: {
+    width: "14.2%",
+    textAlign: "center",
+    fontFamily: FONTS.mono,
+    fontSize: 9,
+    fontWeight: "bold",
+    color: COLORS.textMuted,
+  },
+  daysGridContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  dayCell: {
+    width: "14.2%",
+    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: SHAPES.chipRadius,
+  },
+  dayCellSelected: {
+    backgroundColor: COLORS.primary,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+  },
+  dayCellText: {
+    fontFamily: FONTS.mono,
+    fontSize: 11,
+    color: COLORS.text,
+  },
+  dayCellTextSelected: {
+    color: COLORS.primaryText,
+    fontWeight: "bold",
   },
   bottomSheetCard: {
     backgroundColor: COLORS.card,
