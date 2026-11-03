@@ -8,6 +8,7 @@ import AddTransactionScreen from "./src/screens/AddTransactionScreen";
 import TransactionsScreen from "./src/screens/TransactionsScreen";
 import InsightsScreen from "./src/screens/InsightsScreen";
 import BudgetScreen from "./src/screens/BudgetScreen";
+import OCRScannerScreen from "./src/screens/OCRScannerScreen";
 import { COLORS, FONTS } from "./src/theme/theme";
 import { TopHeader, BottomNav, IngestionModal, WireBox, WireButton } from "./src/components/WireUI";
 
@@ -22,6 +23,7 @@ export default function App() {
   const screenFade = useRef(new Animated.Value(1)).current;
   const screenSlide = useRef(new Animated.Value(0)).current;
 
+  const [ocrMode, setOcrMode] = useState("ocr_batch");
   // Trigger a 180ms smooth transition animation whenever activeTab changes
   useEffect(() => {
     screenFade.setValue(0.25);
@@ -52,7 +54,8 @@ export default function App() {
     if (methodId === "manual") {
       setActiveTab("add");
     } else {
-      setActiveTab("add");
+      setOcrMode(methodId);
+      setActiveTab("ocr");
     }
   };
 
@@ -75,6 +78,10 @@ export default function App() {
       return <AddTransactionScreen user={currentUser} onTransactionSaved={() => setActiveTab("home")} />;
     }
 
+    if (activeTab === "ocr") {
+      return <OCRScannerScreen user={currentUser} initialMode={ocrMode} onTransactionsSaved={() => setActiveTab("home")} />;
+    }
+
     if (activeTab === "insights") {
       return <InsightsScreen user={currentUser} onNavigateToBudget={() => setActiveTab("budget")} />;
     }
@@ -92,6 +99,7 @@ export default function App() {
 
   const getHeaderTitle = () => {
     if (activeTab === "add") return "Add Transaction";
+    if (activeTab === "ocr") return "Receipt OCR Scanner";
     if (activeTab === "transactions") return "Transactions";
     if (activeTab === "budget") return "Budget Planning";
     if (activeTab === "insights") return "AI Insights";

@@ -12,7 +12,9 @@ const app = express();
 const PORT = 5000;
 
 app.use(cors());
-app.use(express.json());
+
+app.use(express.json({ limit: "15mb" }));
+app.use(express.urlencoded({ limit: "15mb", extended: true }));
 
 // Get the database connection string from the .env file
 const mongoURI = process.env.MONGO_URI;
@@ -21,29 +23,27 @@ const mongoURI = process.env.MONGO_URI;
 mongoose
   .connect(mongoURI)
   .then(() => {
-    // If the connection is successful, print a success message in the terminal
     console.log("MongoDB connected successfully!");
   })
   .catch((err) => {
-    // If the connection fails, print the error reason
     console.log("Database connection failed:", err);
   });
 
-// Import the transaction routes
+// Import routes
 const transactionRoutes = require("./routes/transactionRoutes");
 app.use("/api/transactions", transactionRoutes);
 
-// Import the auth routes
 const authRoutes = require("./routes/authRoutes");
 app.use("/api/auth", authRoutes);
 
-// Import the budget routes
 const budgetRoutes = require("./routes/budgetRoutes");
 app.use("/api/budgets", budgetRoutes);
 
-// Import the analytics routes
 const analyticsRoutes = require("./routes/analyticsRoutes");
 app.use("/api/analytics", analyticsRoutes);
+
+const ocrRoutes = require("./routes/ocrRoutes");
+app.use("/api/ocr", ocrRoutes);
 
 app.get("/", (req, res) => {
   res.send("Ka-Ching! Backend is running!");
