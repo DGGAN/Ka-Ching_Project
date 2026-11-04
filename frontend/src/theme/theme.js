@@ -1,102 +1,113 @@
-// Define high-contrast theme configurations including colors, shapes (border radius), and fonts
+// Import Platform utility to select the appropriate system monospace font
+import { Platform } from "react-native";
+
+// Default active theme key on startup
+export let ACTIVE_THEME = "pink";
+
+// Complete dictionary of available visual themes for runtime switching
 export const THEMES = {
-  // Theme 1: Wireframe Monochrome (Sharp square corners + Monospace font)
   wireframe: {
+    id: "wireframe",
     name: "Wireframe Mono",
+    subtitle: "High-contrast brutalist black & white",
+    previewColors: ["#111111", "#F4F4F4", "#FFFFFF"],
     colors: {
-      background: "#F0F0F0",
+      background: "#F4F4F4",
       card: "#FFFFFF",
       text: "#111111",
-      textMuted: "#555555",
+      textMuted: "#666666",
+      border: "#222222",
+      borderMuted: "#CCCCCC",
       primary: "#111111",
       primaryText: "#FFFFFF",
-      secondary: "#E2E2E2",
-      inputBg: "#F7F7F7",
-      border: "#111111",
-      borderMuted: "#BDBDBD",
-      danger: "#D4183D",
-      dangerBg: "#FFEBEE",
-      success: "#15803D",
+      secondary: "#E8E8E8",
+      inputBg: "#FAFAFA",
+      danger: "#D9381E",
+      dangerBg: "#FFF0EE",
+      success: "#111111",
     },
     shapes: {
-      cardRadius: 0,
-      inputRadius: 0,
-      buttonRadius: 0,
-      chipRadius: 0,
       borderWidth: 2,
-    },
-    fonts: {
-      regular: "monospace",
+      cardRadius: 4,
+      buttonRadius: 4,
+      inputRadius: 4,
+      chipRadius: 4,
     },
   },
 
-  // Theme 2: High-Contrast Cute Pastel Pink (Darkened text and borders for crisp readability)
-  pastelPink: {
-    name: "Sakura Cute Pink",
+  pink: {
+    id: "pink",
+    name: "Blossom Pink",
+    subtitle: "Soft pastel rose with rounded cards",
+    previewColors: ["#E87A90", "#FFF8FA", "#FFE5EC"],
     colors: {
-      background: "#FFF0F5", // Soft sakura pink background
-      card: "#FFFFFF", // Pure white card for maximum contrast
-      text: "#2B1420", // Deep espresso-plum text (super crisp)
-      textMuted: "#6E475B", // Deep muted berry text (clearly legible)
-      primary: "#E63E76", // Vibrant raspberry pink primary
-      primaryText: "#FFFFFF", // Crisp white button text
-      secondary: "#FFD6E4", // Distinct strawberry milk secondary block
-      inputBg: "#FFF9FB", // Subtle pink input background
-      border: "#C85A7C", // Crisp rose-pink solid border
-      borderMuted: "#E598B2", // Visible soft pink dashed divider
-      danger: "#D90429", // High-contrast error red
-      dangerBg: "#FFE5EC", // Light red error background
-      success: "#15803D", // High-contrast success green
+      background: "#FFF8FA",
+      card: "#FFFFFF",
+      text: "#4A2C35",
+      textMuted: "#9E7682",
+      border: "#F2BAC9",
+      borderMuted: "#FADCE4",
+      primary: "#E87A90",
+      primaryText: "#FFFFFF",
+      secondary: "#FFE5EC",
+      inputBg: "#FFFDFE",
+      danger: "#E11D48",
+      dangerBg: "#FFE4E6",
+      success: "#10B981",
     },
     shapes: {
+      borderWidth: 1.5,
       cardRadius: 18,
+      buttonRadius: 25,
       inputRadius: 14,
-      buttonRadius: 24,
-      chipRadius: 16,
-      borderWidth: 2, // 2px border for sharp definition
-    },
-    fonts: {
-      regular: "sans-serif",
+      chipRadius: 20,
     },
   },
 
-  // Theme 3: High-Contrast Ka-Ching Emerald Fintech
   emerald: {
-    name: "Emerald Fintech",
+    id: "emerald",
+    name: "Prosperity Green",
+    subtitle: "Fresh mint & emerald financial palette",
+    previewColors: ["#10B981", "#F2FBF7", "#D1FAE5"],
     colors: {
-      background: "#ECFDF5",
+      background: "#F2FBF7",
       card: "#FFFFFF",
-      text: "#062016", // Ultra-dark forest green text
-      textMuted: "#3B6352", // Crisp dark sage secondary text
-      primary: "#059669", // Rich emerald primary for crisp white text
+      text: "#064E3B",
+      textMuted: "#047857",
+      border: "#6EE7B7",
+      borderMuted: "#A7F3D0",
+      primary: "#10B981",
       primaryText: "#FFFFFF",
       secondary: "#D1FAE5",
-      inputBg: "#F8FAFC",
-      border: "#064E3B", // Deep emerald hard border
-      borderMuted: "#6EE7B7",
-      danger: "#DC2626",
-      dangerBg: "#FEF2F2",
-      success: "#047857",
+      inputBg: "#F9FEFC",
+      danger: "#EF4444",
+      dangerBg: "#FEE2E2",
+      success: "#059669",
     },
     shapes: {
-      cardRadius: 12,
-      inputRadius: 10,
-      buttonRadius: 10,
-      chipRadius: 8,
-      borderWidth: 2,
-    },
-    fonts: {
-      regular: "sans-serif",
+      borderWidth: 1.5,
+      cardRadius: 16,
+      buttonRadius: 14,
+      inputRadius: 12,
+      chipRadius: 16,
     },
   },
 };
 
-// Switch here between 'wireframe' | 'pastelPink' | 'emerald'
-export const ACTIVE_THEME_KEY = "wireframe";
+// Mutable exported COLORS and SHAPES objects so existing screens reflect updates when re-mounted
+export const COLORS = { ...THEMES[ACTIVE_THEME].colors };
+export const SHAPES = { ...THEMES[ACTIVE_THEME].shapes };
 
-// Export colors, shapes, and fonts of the currently active theme
-export const COLORS = THEMES[ACTIVE_THEME_KEY].colors;
-export const SHAPES = THEMES[ACTIVE_THEME_KEY].shapes;
+// Function to dynamically mutate COLORS and SHAPES at runtime when user selects a new theme
+export const applyTheme = (themeKey) => {
+  if (!THEMES[themeKey]) return;
+  ACTIVE_THEME = themeKey;
+  Object.assign(COLORS, THEMES[themeKey].colors);
+  Object.assign(SHAPES, THEMES[themeKey].shapes);
+};
+
+// Unified typography font configuration
 export const FONTS = {
-  mono: THEMES[ACTIVE_THEME_KEY].fonts.regular,
+  mono: Platform.OS === "ios" ? "Courier" : "monospace",
+  sans: Platform.OS === "ios" ? "Avenir Next" : "sans-serif-medium",
 };

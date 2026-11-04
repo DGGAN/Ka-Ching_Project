@@ -30,7 +30,7 @@ const GoogleColorfulIcon = () => (
 );
 
 // Login & Register Screen (Seamlessly blends duck Logo and classic black & colorful Google button)
-export default function LoginScreen({ onLoginSuccess }) {
+export default function AuthScreen({ onLoginSuccess }) {
   // State to toggle between "Login mode (false)" and "Register mode (true)"
   const [isRegistering, setIsRegistering] = useState(false);
 

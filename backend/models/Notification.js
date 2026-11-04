@@ -1,35 +1,42 @@
-// Import the mongoose core library
+// Import the Mongoose library to define the database schema
 const mongoose = require("mongoose");
 
-// Strictly define the notification model according to Table 4.5
-const notificationSchema = new mongoose.Schema({
-  // Foreign Key referencing the Users collection
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    required: true,
+// Define the Notification schema according to Table 4.5 specifications
+const notificationSchema = new mongoose.Schema(
+  {
+    // Foreign key referencing the User who owns this notification
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    // Short bold header summarizing the alert
+    title: {
+      type: String,
+      required: true,
+    },
+    // Detailed message body explaining the financial event or alert
+    message: {
+      type: String,
+      required: true,
+    },
+    // Category tag used by the frontend to render specific icons and colors
+    tag: {
+      type: String,
+      required: true,
+      enum: ["ALERT", "OCR", "AI", "TXN", "GOAL"],
+    },
+    // Tracks whether the user has tapped/viewed this notification
+    isRead: {
+      type: Boolean,
+      default: false,
+    },
   },
-  // Bold text layout header summary text
-  title: {
-    type: String,
-    required: true,
+  {
+    // Automatically adds createdAt and updatedAt timestamps for chronological sorting
+    timestamps: true,
   },
-  // Detailed explanatory alert body
-  message: {
-    type: String,
-    required: true,
-  },
-  // Architectural dispatch pipeline router flag
-  tag: {
-    type: String,
-    required: true,
-    enum: ["ALERT", "OCR", "AI", "TXN", "GOAL"],
-  },
-  // UI layout color sorting switch parameter tracking user interaction
-  isRead: {
-    type: Boolean,
-    default: false,
-  },
-});
+);
 
+// Export the compiled Notification model
 module.exports = mongoose.model("Notification", notificationSchema);

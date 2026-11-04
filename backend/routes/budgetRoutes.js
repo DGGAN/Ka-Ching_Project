@@ -1,13 +1,13 @@
-// Import express Router and budget controller
+// Import Express router and the budget controller
 const express = require("express");
 const router = express.Router();
 const budgetController = require("../controllers/budgetController");
 
-// Endpoint to set or update monthly budget and savings target
-router.post("/", budgetController.setBudget);
+// Route to create or update a monthly budget
+router.post("/", budgetController.setOrUpdateBudget);
 
-// Endpoint to get user budget progress and AI Auto-Recommendation
-router.get("/:userId", budgetController.getBudget);
+// Route to get the active budget for a specific user
+router.get("/:userId", budgetController.getUserBudget);
 
-// Export router module
+// Export the router module
 module.exports = router;
