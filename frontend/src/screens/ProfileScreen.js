@@ -1,32 +1,39 @@
-// Import React hooks, core React Native UI components, and Lucide icons
+// Import React hooks, core React Native UI components, Modal, and Lucide icons
 import React, { useState, useEffect } from "react";
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, StyleSheet } from "react-native";
-import { User, Mail, Palette, Check, ShieldCheck, LogOut, Wallet, ArrowLeftRight, Sparkles } from "lucide-react-native";
+import { View, Text, ScrollView, TouchableOpacity, Modal, ActivityIndicator, StyleSheet } from "react-native";
+import { Mail, Palette, Check, ShieldCheck, LogOut, Wallet, ArrowLeftRight, Sparkles, ChevronRight, X } from "lucide-react-native";
 import apiClient from "../api/client";
 import { COLORS, SHAPES, FONTS, THEMES, ACTIVE_THEME } from "../theme/theme";
 import { WireBox, WireButton, FloatingToast, useFloatingToast } from "../components/WireUI";
 
-// Screen 9: User Profile, Account Summary, and Runtime Theme Switcher
+// Screen 9: User Profile, Account Summary, and Modal-Based Theme Switcher
 export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
-  // State for user's quick financial stats and loading indicator
-  const [stats, setStats] = useState({ totalTxCount: 0, monthlyLimit: 0, savingsTarget: 0 });
+  // 1. State for user's quick financial stats, active theme, and Theme Picker Modal visibility
+  const [stats, setStats] = useState({
+    totalTxCount: 0,
+    monthlyLimit: 0,
+    savingsTarget: 0,
+  });
   const [loadingStats, setLoadingStats] = useState(true);
   const [selectedTheme, setSelectedTheme] = useState(ACTIVE_THEME);
+  const [showThemeModal, setShowThemeModal] = useState(false);
 
   // Global floating toast hook
   const { toast, slideAnim, showToast } = useFloatingToast();
 
-  // Load account statistics on mount
+  // 2. Load account statistics on mount
   useEffect(() => {
     fetchAccountStats();
   }, []);
 
-  // Fetch total transaction count and active budget settings for the profile summary card
+  // 3. Fetch total transaction count and active budget settings for the profile summary card
   const fetchAccountStats = async () => {
     try {
       setLoadingStats(true);
       const [txRes, budgetRes] = await Promise.all([
-        apiClient.get(`/transactions/${user.id}`, { params: { page: 1, limit: 1 } }),
+        apiClient.get(`/transactions/${user.id}`, {
+          params: { page: 1, limit: 1 },
+        }),
         apiClient.get(`/budgets/${user.id}`),
       ]);
 
@@ -45,9 +52,10 @@ export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
     }
   };
 
-  // Handle tapping a theme card to switch the app's visual palette
+  // 4. Handle selecting a theme inside the modal, apply immediately, and close modal
   const handleSelectTheme = (themeKey) => {
     setSelectedTheme(themeKey);
+    setShowThemeModal(false);
     if (onChangeTheme) {
       onChangeTheme(themeKey);
     }
@@ -55,9 +63,16 @@ export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
   };
 
   const userInitial = (user?.username || user?.email || "U").charAt(0).toUpperCase();
+  const activeThemeObj = THEMES[selectedTheme] || THEMES.pink;
 
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.background, position: "relative" }}>
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: COLORS.background,
+        position: "relative",
+      }}
+    >
       <FloatingToast toast={toast} slideAnim={slideAnim} />
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
@@ -112,48 +127,34 @@ export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
           )}
         </WireBox>
 
-        {/* Section 3: Interactive Visual Theme Switcher */}
+        {/* Section 3: Compact Theme Selector Row (Opens Theme Modal on Tap) */}
         <WireBox style={styles.sectionCard}>
           <View style={styles.cardHeaderRow}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Palette size={15} color={COLORS.primary} strokeWidth={2.5} />
               <Text style={styles.cardHeaderTitle}>APPEARANCE & THEME</Text>
             </View>
-            <Text style={styles.cardHeaderSub}>Tap to switch style</Text>
+            <Text style={styles.cardHeaderSub}>{Object.keys(THEMES).length} themes available</Text>
           </View>
 
-          <View style={{ padding: 12, gap: 10 }}>
-            {Object.values(THEMES).map((themeItem) => {
-              const isSelected = selectedTheme === themeItem.id;
-              return (
-                <TouchableOpacity
-                  key={themeItem.id}
-                  style={[styles.themeOptionCard, isSelected && styles.themeOptionCardActive]}
-                  activeOpacity={0.8}
-                  onPress={() => handleSelectTheme(themeItem.id)}
-                >
-                  {/* Left 3-Color Swatch Preview */}
-                  <View style={styles.swatchRow}>
-                    {themeItem.previewColors.map((hex, i) => (
-                      <View key={i} style={[styles.colorDot, { backgroundColor: hex }]} />
-                    ))}
-                  </View>
+          <View style={{ padding: 12 }}>
+            <TouchableOpacity style={styles.themeTriggerBtn} activeOpacity={0.8} onPress={() => setShowThemeModal(true)}>
+              <View style={styles.swatchRow}>
+                {activeThemeObj.previewColors.map((hex, i) => (
+                  <View key={i} style={[styles.colorDot, { backgroundColor: hex }]} />
+                ))}
+              </View>
 
-                  {/* Center Theme Name & Description */}
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.themeTitle}>{themeItem.name}</Text>
-                    <Text style={styles.themeSub}>{themeItem.subtitle}</Text>
-                  </View>
+              <View style={{ flex: 1, marginLeft: 6 }}>
+                <Text style={styles.themeTitle}>{activeThemeObj.name}</Text>
+                <Text style={styles.themeSub}>Tap to browse and switch app themes</Text>
+              </View>
 
-                  {/* Right Active Checkmark */}
-                  {isSelected && (
-                    <View style={styles.activeCheckCircle}>
-                      <Check size={12} color={COLORS.primaryText} strokeWidth={3} />
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
+              <View style={styles.changePillBtn}>
+                <Text style={styles.changePillText}>CHANGE</Text>
+                <ChevronRight size={13} color={COLORS.text} strokeWidth={2.5} />
+              </View>
+            </TouchableOpacity>
           </View>
         </WireBox>
 
@@ -169,6 +170,58 @@ export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
             <Text style={styles.logoutBtnText}>LOG OUT OF ACCOUNT</Text>
           </TouchableOpacity>
         </WireBox>
+
+        {/* Modal: Scrollable Theme Selection Popup */}
+        <Modal visible={showThemeModal} transparent={true} animationType="fade" onRequestClose={() => setShowThemeModal(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeaderRow}>
+                <View>
+                  <Text style={styles.modalTitle}>SELECT APP THEME</Text>
+                  <Text style={styles.modalSubtitle}>Choose a color palette for your workspace</Text>
+                </View>
+                <TouchableOpacity onPress={() => setShowThemeModal(false)}>
+                  <X size={18} color={COLORS.text} strokeWidth={2.5} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={{ maxHeight: 340 }} showsVerticalScrollIndicator={false}>
+                <View style={{ gap: 10, paddingVertical: 4 }}>
+                  {Object.values(THEMES).map((themeItem) => {
+                    const isSelected = selectedTheme === themeItem.id;
+                    return (
+                      <TouchableOpacity
+                        key={themeItem.id}
+                        style={[styles.themeOptionCard, isSelected && styles.themeOptionCardActive]}
+                        activeOpacity={0.8}
+                        onPress={() => handleSelectTheme(themeItem.id)}
+                      >
+                        <View style={styles.swatchRow}>
+                          {themeItem.previewColors.map((hex, i) => (
+                            <View key={i} style={[styles.colorDot, { backgroundColor: hex }]} />
+                          ))}
+                        </View>
+
+                        <View style={{ flex: 1, marginLeft: 6 }}>
+                          <Text style={styles.themeTitle}>{themeItem.name}</Text>
+                          <Text style={styles.themeSub}>{themeItem.subtitle}</Text>
+                        </View>
+
+                        {isSelected && (
+                          <View style={styles.activeCheckCircle}>
+                            <Check size={12} color={COLORS.primaryText} strokeWidth={3} />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </ScrollView>
+
+              <WireButton label="CLOSE" variant="outline" onPress={() => setShowThemeModal(false)} style={{ marginTop: 12 }} />
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
     </View>
   );
@@ -300,6 +353,33 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textAlign: "center",
   },
+  themeTriggerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: SHAPES.borderWidth,
+    borderColor: COLORS.border,
+    borderRadius: SHAPES.inputRadius,
+    backgroundColor: COLORS.inputBg,
+    padding: 12,
+    gap: 10,
+  },
+  changePillBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    borderRadius: SHAPES.chipRadius,
+    backgroundColor: COLORS.secondary,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  changePillText: {
+    fontFamily: FONTS.mono,
+    fontSize: 8.5,
+    fontWeight: "bold",
+    color: COLORS.text,
+  },
   themeOptionCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -308,7 +388,7 @@ const styles = StyleSheet.create({
     borderRadius: SHAPES.inputRadius,
     backgroundColor: COLORS.card,
     padding: 11,
-    gap: 12,
+    gap: 10,
   },
   themeOptionCardActive: {
     borderColor: COLORS.primary,
@@ -331,13 +411,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "bold",
     color: COLORS.text,
-    marginLeft: 6,
   },
   themeSub: {
     fontFamily: FONTS.mono,
     fontSize: 8.5,
     color: COLORS.textMuted,
-    marginLeft: 6,
     marginTop: 2,
   },
   activeCheckCircle: {
@@ -347,6 +425,45 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 18,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderWidth: SHAPES.borderWidth,
+    borderColor: COLORS.border,
+    borderRadius: SHAPES.cardRadius,
+    backgroundColor: COLORS.card,
+    padding: 16,
+  },
+  modalHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderBottomWidth: 1.5,
+    borderColor: COLORS.borderMuted,
+    borderStyle: "dashed",
+    paddingBottom: 10,
+    marginBottom: 10,
+  },
+  modalTitle: {
+    fontFamily: FONTS.mono,
+    fontSize: 13,
+    fontWeight: "bold",
+    color: COLORS.text,
+    letterSpacing: 0.8,
+  },
+  modalSubtitle: {
+    fontFamily: FONTS.mono,
+    fontSize: 8.5,
+    color: COLORS.textMuted,
+    marginTop: 2,
   },
   appVersionTitle: {
     fontFamily: FONTS.mono,

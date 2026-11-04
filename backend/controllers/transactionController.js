@@ -85,7 +85,7 @@ exports.createTransaction = async (req, res) => {
 };
 
 // 2. Fetch transactions for a user with multi-filters and pagination (GET /api/transactions/:userId)
-exports.getUserTransactions = async (req, res) => {
+exports.getTransactions = async (req, res) => {
   try {
     // Step 1: Extract userId from route params and filter criteria from query string
     const { userId } = req.params;

@@ -2,7 +2,7 @@
 import { Platform } from "react-native";
 
 // Default active theme key on startup
-export let ACTIVE_THEME = "pink";
+export let ACTIVE_THEME = "wireframe";
 
 // Complete dictionary of available visual themes for runtime switching
 export const THEMES = {

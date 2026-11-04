@@ -1,12 +1,13 @@
-// Import Transaction and Budget models to compute forecasts and spending insights
+// Import Transaction, Budget, and AllInsightsPrediction models
 const Transaction = require("../models/Transaction");
 const Budget = require("../models/Budget");
+const AllInsightsPrediction = require("../models/AllInsightsPrediction");
 
 // Minimum thresholds required before switching from starter estimation to full trend line
 const MIN_TX_FOR_REGRESSION = 5;
 const MIN_ACTIVE_DAYS_FOR_REGRESSION = 3;
 
-// Least Squares Linear Regression helper: Takes (x, y) pairs and returns slope m and intercept c
+// 1. Least Squares Linear Regression helper: Takes (x, y) pairs and returns slope m and intercept c
 const computeLinearRegression = (points) => {
   const n = points.length;
   if (n === 0) return { slope: 0, intercept: 0 };
@@ -38,16 +39,17 @@ const computeLinearRegression = (points) => {
   };
 };
 
-// Core AI Analytics Engine
+// 2. Core AI Analytics Engine: Computes forecast & habits and upserts snapshot into MongoDB
 const runAnalyticsEngine = async (userId) => {
+  // Step 1: Determine current month boundaries and 90-day lookback window
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
   const currentDay = now.getDate();
   const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-
   const ninetyDaysAgo = new Date(currentYear, currentMonth, currentDay - 90, 0, 0, 0);
 
+  // Step 2: Query 90-day transactions and latest budget from MongoDB
   const [transactions, userBudget] = await Promise.all([
     Transaction.find({
       userId,
@@ -59,6 +61,7 @@ const runAnalyticsEngine = async (userId) => {
   const monthlyLimit = userBudget?.monthlyLimit || 0;
   const savingsTarget = userBudget?.savingsTarget || 0;
 
+  // Step 3: Aggregate current month daily spending and category totals
   const dailyExpenseMap = {};
   for (let d = 1; d <= daysInMonth; d++) {
     dailyExpenseMap[d] = 0;
@@ -87,6 +90,7 @@ const runAnalyticsEngine = async (userId) => {
     }
   });
 
+  // Step 4: Build cumulative (x, y) points and compute Anchored Linear Regression forecast
   const regressionPoints = [];
   let runningCumulative = 0;
   for (let d = 1; d <= currentDay; d++) {
@@ -100,9 +104,6 @@ const runAnalyticsEngine = async (userId) => {
   const dailyBurnRate = currentDay > 0 ? Number((thisMonthExpense / currentDay).toFixed(2)) : 0;
   const remainingDays = Math.max(0, daysInMonth - currentDay);
 
-  // Anchored Linear Regression Projection:
-  // Anchor the projection strictly at today's actual cumulative spend (thisMonthExpense)
-  // and project forward over the remaining days so late-month spikes never flatten the forecast line.
   let effectiveSlope = dailyBurnRate;
   let predictedMonthEnd = 0;
 
@@ -110,12 +111,12 @@ const runAnalyticsEngine = async (userId) => {
     if (isColdStart) {
       effectiveSlope = dailyBurnRate;
     } else {
-      // Blend OLS regression slope with actual daily burn rate so the forward trajectory is always positive
       effectiveSlope = Number(Math.max(slope, dailyBurnRate * 0.75).toFixed(2));
     }
     predictedMonthEnd = Number((thisMonthExpense + effectiveSlope * remainingDays).toFixed(2));
   }
 
+  // Step 5: Generate 5 timeline checkpoints for the frontend SVG trend chart
   const chartCheckpoints = [];
   const sampleDays = Array.from(new Set([1, Math.min(8, currentDay), Math.min(16, currentDay), currentDay, daysInMonth])).sort((a, b) => a - b);
 
@@ -124,7 +125,7 @@ const runAnalyticsEngine = async (userId) => {
       const found = regressionPoints.find((p) => p.x === dayNum);
       chartCheckpoints.push({
         day: dayNum,
-        label: dayNum === currentDay ? `Today` : `Day ${dayNum}`,
+        label: dayNum === currentDay ? "Today" : `Day ${dayNum}`,
         actual: found ? found.y : 0,
         predicted: found ? found.y : 0,
         isFuture: false,
@@ -132,7 +133,7 @@ const runAnalyticsEngine = async (userId) => {
     } else {
       chartCheckpoints.push({
         day: dayNum,
-        label: `End of Mo`,
+        label: "End of Mo",
         actual: null,
         predicted: predictedMonthEnd,
         isFuture: true,
@@ -140,6 +141,7 @@ const runAnalyticsEngine = async (userId) => {
     }
   });
 
+  // Step 6: Mine 90-day spending habits (top merchant and weekend spending ratio)
   const merchantStats = {};
   let weekendSpend = 0;
   let total90DayExpense = 0;
@@ -173,8 +175,15 @@ const runAnalyticsEngine = async (userId) => {
       : null;
 
   const sortedCategories = Object.entries(thisMonthCategoryTotals).sort((a, b) => b[1] - a[1]);
-  const topCategory = sortedCategories.length > 0 ? { category: sortedCategories[0][0], amount: Number(sortedCategories[0][1].toFixed(2)) } : null;
+  const topCategory =
+    sortedCategories.length > 0
+      ? {
+          category: sortedCategories[0][0],
+          amount: Number(sortedCategories[0][1].toFixed(2)),
+        }
+      : null;
 
+  // Step 7: Build personalized Habit Cards and Actionable To-Do List
   const insightsList = [];
   const checklistItems = [];
 
@@ -275,10 +284,33 @@ const runAnalyticsEngine = async (userId) => {
     });
   }
 
+  // Step 8: Upsert (overwrite/update) the latest prediction snapshot in the AllInsightsPrediction collection
+  try {
+    await AllInsightsPrediction.findOneAndUpdate(
+      { userId },
+      {
+        userId,
+        predictedNextMonthSpend: predictedMonthEnd,
+        regressionSlope: effectiveSlope,
+        spendingHabitsSummary: insightsList.map((i) => `${i.title}: ${i.description}`).join(" | "),
+        actionableChecklist: checklistItems.map((c) => `${c.text} (${c.impact})`),
+        generatedAt: new Date(),
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+  } catch (dbSyncErr) {
+    // Non-blocking sync warning in case schema field names vary slightly
+    console.log("Prediction snapshot sync note:", dbSyncErr.message);
+  }
+
+  // Step 9: Return complete analytics payload
   return {
     isColdStart,
     thisMonthExpenseTxCount,
-    currentMonthLabel: now.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+    currentMonthLabel: now.toLocaleDateString("en-US", {
+      month: "short",
+      year: "numeric",
+    }),
     currentDay,
     daysInMonth,
     thisMonthExpense: Number(thisMonthExpense.toFixed(2)),
@@ -294,9 +326,20 @@ const runAnalyticsEngine = async (userId) => {
   };
 };
 
+// 3. HTTP GET Handler for /api/analytics/:userId
 exports.getUserAnalytics = async (req, res) => {
   try {
+    // Step 1: Extract userId parameter
     const { userId } = req.params;
+
+    // Validation 1: Ensure userId parameter is provided
+    if (!userId) {
+      return res.status(400).json({
+        message: "userId parameter is required.",
+      });
+    }
+
+    // Step 2: Execute analytics engine and return payload
     const analyticsData = await runAnalyticsEngine(userId);
 
     res.status(200).json({
