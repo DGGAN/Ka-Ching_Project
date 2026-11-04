@@ -3,11 +3,23 @@ const Notification = require("../models/Notification");
 const Transaction = require("../models/Transaction");
 const Budget = require("../models/Budget");
 
-// GET /api/notifications/:userId - Fetch the latest 50 notifications for a user (newest first)
+// 1. Fetch the latest 50 notifications for a specific user (GET /api/notifications/:userId)
 exports.getUserNotifications = async (req, res) => {
   try {
-    const notifications = await Notification.find({ userId: req.params.userId }).sort({ createdAt: -1 }).limit(50);
+    // Step 1: Extract userId from route parameters
+    const { userId } = req.params;
 
+    // Validation 1: Ensure userId parameter is provided
+    if (!userId) {
+      return res.status(400).json({
+        message: "userId parameter is required.",
+      });
+    }
+
+    // Step 2: Query latest 50 notifications sorted newest-first
+    const notifications = await Notification.find({ userId }).sort({ createdAt: -1 }).limit(50);
+
+    // Step 3: Return notifications list
     res.status(200).json({
       message: "Notifications fetched successfully.",
       data: notifications,
@@ -20,11 +32,30 @@ exports.getUserNotifications = async (req, res) => {
   }
 };
 
-// PUT /api/notifications/:id/read - Mark a single notification as read when tapped
+// 2. Mark a single notification as read (PUT /api/notifications/:id/read)
 exports.markAsRead = async (req, res) => {
   try {
-    const notification = await Notification.findByIdAndUpdate(req.params.id, { isRead: true }, { new: true });
+    // Step 1: Extract notification ID from route parameters
+    const { id } = req.params;
 
+    // Validation 1: Ensure notification ID is provided
+    if (!id) {
+      return res.status(400).json({
+        message: "Notification ID is required.",
+      });
+    }
+
+    // Step 2: Update isRead flag to true in MongoDB
+    const notification = await Notification.findByIdAndUpdate(id, { isRead: true }, { new: true });
+
+    // Validation 2: Check if the notification document exists
+    if (!notification) {
+      return res.status(404).json({
+        message: "Notification not found.",
+      });
+    }
+
+    // Step 3: Return updated notification document
     res.status(200).json({
       message: "Notification marked as read.",
       data: notification,
@@ -37,12 +68,23 @@ exports.markAsRead = async (req, res) => {
   }
 };
 
-// POST /api/notifications/read-all - Mark all unread notifications for a user as read
+// 3. Mark all unread notifications for a user as read (POST /api/notifications/read-all)
 exports.markAllAsRead = async (req, res) => {
   try {
+    // Step 1: Extract userId from request body
     const { userId } = req.body;
+
+    // Validation 1: Ensure userId is provided in request body
+    if (!userId) {
+      return res.status(400).json({
+        message: "userId is required to mark all notifications as read.",
+      });
+    }
+
+    // Step 2: Update all unread notifications for this user in bulk
     await Notification.updateMany({ userId, isRead: false }, { isRead: true });
 
+    // Step 3: Return confirmation response
     res.status(200).json({
       message: "All notifications marked as read.",
     });
@@ -54,11 +96,30 @@ exports.markAllAsRead = async (req, res) => {
   }
 };
 
-// DELETE /api/notifications/:id - Permanently remove a single notification item
+// 4. Permanently delete a single notification by ID (DELETE /api/notifications/:id)
 exports.deleteNotification = async (req, res) => {
   try {
-    await Notification.findByIdAndDelete(req.params.id);
+    // Step 1: Extract notification ID from route parameters
+    const { id } = req.params;
 
+    // Validation 1: Ensure notification ID is provided
+    if (!id) {
+      return res.status(400).json({
+        message: "Notification ID is required.",
+      });
+    }
+
+    // Step 2: Delete notification from MongoDB
+    const deleted = await Notification.findByIdAndDelete(id);
+
+    // Validation 2: Ensure notification existed
+    if (!deleted) {
+      return res.status(404).json({
+        message: "Notification not found.",
+      });
+    }
+
+    // Step 3: Return success response
     res.status(200).json({
       message: "Notification deleted successfully.",
     });
@@ -70,16 +131,17 @@ exports.deleteNotification = async (req, res) => {
   }
 };
 
-// Internal Helper 1: Automatically create TXN / OCR / ALERT notifications when a transaction is saved
+// 5. Internal Helper: Automatically create TXN, OCR, and Budget ALERT notifications on transaction save
 exports.triggerTransactionNotifications = async (savedTx) => {
   try {
+    // Validation 1: Ensure valid transaction document with userId
     if (!savedTx || !savedTx.userId) return;
 
     const isOcr = savedTx.source === "OCR";
     const amtFormatted = Number(savedTx.amount).toFixed(2);
     const merchant = savedTx.merchantName || "Merchant";
 
-    // 1. Create a receipt OCR notification or a large transaction notification (>= RM 100)
+    // Step 1: Create an OCR verification alert or a large expense alert (>= RM 100)
     if (isOcr) {
       await Notification.create({
         userId: savedTx.userId,
@@ -96,7 +158,7 @@ exports.triggerTransactionNotifications = async (savedTx) => {
       });
     }
 
-    // 2. Check if current month's spending has crossed 80% or 100% of the user's monthly budget
+    // Step 2: Evaluate monthly budget usage if the transaction is an EXPENSE
     if (savedTx.type === "EXPENSE") {
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -111,6 +173,7 @@ exports.triggerTransactionNotifications = async (savedTx) => {
         }),
       ]);
 
+      // Step 3: Trigger ALERT notification if spending crosses 80% warning or 100% limit
       if (userBudget && userBudget.monthlyLimit > 0) {
         const totalSpent = monthExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
         const limit = Number(userBudget.monthlyLimit);
@@ -138,9 +201,13 @@ exports.triggerTransactionNotifications = async (savedTx) => {
   }
 };
 
-// Internal Helper 2: Automatically create a GOAL notification when the user saves or applies a budget
+// 6. Internal Helper: Automatically create a GOAL notification when a budget is saved or updated
 exports.triggerBudgetGoalNotification = async (userId, monthlyLimit, savingsTarget) => {
   try {
+    // Validation 1: Ensure userId and monthlyLimit are valid
+    if (!userId || monthlyLimit === undefined) return;
+
+    // Step 1: Insert GOAL notification record into MongoDB
     await Notification.create({
       userId,
       title: "Monthly Budget Goal Updated",

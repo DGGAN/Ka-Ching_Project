@@ -1,50 +1,79 @@
-// Import the Transaction model and the intelligent financial analytics engine
+// Import the Transaction model, AI analytics engine, and notification trigger helper
 const Transaction = require("../models/Transaction");
 const { runAnalyticsEngine } = require("./analyticsController");
+const { triggerTransactionNotifications } = require("./notificationController");
 
-// 1. Create a new transaction record (strictly validates all Table 4.2 fields and constraints)
+// 1. Create a new manual or OCR transaction (POST /api/transactions)
 exports.createTransaction = async (req, res) => {
   try {
-    // Destructure all fields defined in the Table 4.2 specification from request body
+    // Step 1: Destructure transaction parameters from request body
     const { userId, amount, type, category, merchantName, description, date, source, status, confidenceScore } = req.body;
 
-    // Basic non-null validation: check if required fields are missing
-    if (!userId || amount === undefined || !type || !category || !merchantName) {
+    // Validation 1: Check mandatory fields (userId, amount, type, and category are required)
+    if (!userId || amount === undefined || !type || !category) {
       return res.status(400).json({
-        message: "Missing required fields: userId, amount, type, category, and merchantName are required.",
+        message: "Missing required fields: userId, amount, type, and category are mandatory.",
       });
     }
 
-    // Determine ingestion source and default status (OCR defaults to PENDING_VERIFICATION, others to VERIFIED)
-    const finalSource = source || "MANUAL";
-    const finalStatus = status || (finalSource === "OCR" ? "PENDING_VERIFICATION" : "VERIFIED");
-    const finalConfidence = confidenceScore !== undefined ? Number(confidenceScore) : 1.0;
+    // Step 2: Parse numeric amount and confidence score
+    const parsedAmount = Number(amount);
+    const parsedConfidence = confidenceScore !== undefined ? Number(confidenceScore) : 1.0;
 
-    // Instantiate a new Transaction document
+    // Validation 2: Ensure transaction amount is a valid number greater than RM 0
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({
+        message: "Transaction amount must be a valid number greater than RM 0.00.",
+      });
+    }
+
+    // Validation 3: Ensure transaction amount does not exceed RM 1,000,000 per entry
+    if (parsedAmount > 1000000) {
+      return res.status(400).json({
+        message: "Transaction amount cannot exceed RM 1,000,000.00.",
+      });
+    }
+
+    // Validation 4: Ensure transaction type is strictly EXPENSE or INCOME
+    if (!["EXPENSE", "INCOME"].includes(type)) {
+      return res.status(400).json({
+        message: "Invalid transaction type. Must be EXPENSE or INCOME.",
+      });
+    }
+
+    // Step 3: Instantiate and save the new transaction document in MongoDB
     const newTransaction = new Transaction({
       userId,
-      amount: Number(Number(amount).toFixed(2)),
+      amount: Number(parsedAmount.toFixed(2)),
       type,
       category,
-      merchantName: merchantName.trim(),
+      merchantName: merchantName ? merchantName.trim() : "General",
       description: description ? description.trim() : null,
-      date: date || new Date(),
-      source: finalSource,
-      status: finalStatus,
-      confidenceScore: finalConfidence,
+      date: date ? new Date(date) : new Date(),
+      source: source || "MANUAL",
+      status: status || "VERIFIED",
+      confidenceScore: parsedConfidence,
     });
 
     const savedTransaction = await newTransaction.save();
 
-    // Write-Trigger: Automatically update AI analytics and predictions in the background after saving
+    // Step 4: Trigger AI analytics engine to recalculate linear regression forecast
     try {
       await runAnalyticsEngine(userId);
     } catch (analyticsErr) {
-      console.log("Background analytics trigger warning:", analyticsErr.message);
+      console.log("Background analytics update warning:", analyticsErr.message);
     }
 
+    // Step 5: Trigger automatic TXN, OCR, or Budget Overrun (80% / 100%) notifications
+    try {
+      await triggerTransactionNotifications(savedTransaction);
+    } catch (notifyErr) {
+      console.log("Background notification trigger warning:", notifyErr.message);
+    }
+
+    // Step 6: Return HTTP 201 Created response with saved transaction
     res.status(201).json({
-      message: "Transaction saved successfully.",
+      message: "Transaction created successfully.",
       data: savedTransaction,
     });
   } catch (error) {
@@ -55,32 +84,37 @@ exports.createTransaction = async (req, res) => {
   }
 };
 
-// 2. Get user transactions (supports Lazy Loading pagination, date range, month, category, type & search)
-exports.getTransactions = async (req, res) => {
+// 2. Fetch transactions for a user with multi-filters and pagination (GET /api/transactions/:userId)
+exports.getUserTransactions = async (req, res) => {
   try {
+    // Step 1: Extract userId from route params and filter criteria from query string
     const { userId } = req.params;
     const { page, limit, type, category, search, period, monthKey } = req.query;
 
-    // Build dynamic MongoDB query filter object
+    // Validation 1: Ensure userId parameter is provided
+    if (!userId) {
+      return res.status(400).json({
+        message: "userId parameter is required.",
+      });
+    }
+
+    // Step 2: Build base MongoDB filter object
     const query = { userId };
 
-    // Filter 1: Filter by transaction type (INCOME / EXPENSE)
     if (type && type !== "ALL") {
       query.type = type;
     }
 
-    // Filter 2: Filter by specific category
     if (category && category !== "ALL") {
       query.category = category;
     }
 
-    // Filter 3: Case-insensitive regex search on merchantName, category, or description
-    if (search && search.trim()) {
+    if (search && search.trim() !== "") {
       const regex = new RegExp(search.trim(), "i");
-      query.$or = [{ merchantName: regex }, { category: regex }, { description: regex }];
+      query.$or = [{ merchantName: regex }, { description: regex }, { category: regex }];
     }
 
-    // Filter 4: Filter by quick time period or specific month (YYYY-MM)
+    // Step 3: Apply date range filters (specific YYYY-MM monthKey or preset period)
     const now = new Date();
     if (monthKey && /^\d{4}-\d{2}$/.test(monthKey)) {
       const [y, m] = monthKey.split("-").map(Number);
@@ -93,54 +127,49 @@ exports.getTransactions = async (req, res) => {
         const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
         query.date = { $gte: startOfToday, $lte: endOfToday };
       } else if (period === "THIS_WEEK") {
-        const sevenDaysAgo = new Date(now);
-        sevenDaysAgo.setDate(now.getDate() - 7);
-        sevenDaysAgo.setHours(0, 0, 0, 0);
+        const sevenDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7, 0, 0, 0);
         query.date = { $gte: sevenDaysAgo, $lte: now };
       } else if (period === "THIS_MONTH") {
-        const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
-        query.date = { $gte: startOfThisMonth, $lte: now };
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+        query.date = { $gte: startOfMonth, $lte: now };
       } else if (period === "THIS_YEAR") {
-        const startOfThisYear = new Date(now.getFullYear(), 0, 1, 0, 0, 0);
-        query.date = { $gte: startOfThisYear, $lte: now };
+        const startOfYear = new Date(now.getFullYear(), 0, 1, 0, 0, 0);
+        query.date = { $gte: startOfYear, $lte: now };
       }
     }
 
-    // If page and limit are provided, enable high-performance Lazy Loading pagination
+    // Step 4: If page and limit are provided, execute paginated query for FlatList lazy loading
     if (page && limit) {
-      const pageNum = Math.max(1, parseInt(page, 10) || 1);
-      const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 20));
+      const pageNum = Math.max(1, parseInt(page, 10));
+      const limitNum = Math.max(1, parseInt(limit, 10));
       const skipCount = (pageNum - 1) * limitNum;
 
-      // 并行查询：获取当前页账单列表 + 符合条件的总记录数
-      // Parallel query: fetch current page items + total matching document count
-      const [transactions, totalCount] = await Promise.all([
+      const [items, totalCount] = await Promise.all([
         Transaction.find(query).sort({ date: -1, createdAt: -1 }).skip(skipCount).limit(limitNum),
         Transaction.countDocuments(query),
       ]);
 
-      const totalPages = Math.ceil(totalCount / limitNum) || 1;
-
       return res.status(200).json({
         message: "Paginated transactions fetched successfully.",
-        count: transactions.length,
+        data: items,
+        page: pageNum,
+        limit: limitNum,
         totalCount,
-        currentPage: pageNum,
-        totalPages,
-        hasMore: pageNum < totalPages,
-        data: transactions,
+        hasMore: skipCount + items.length < totalCount,
       });
     }
 
-    // Compatibility mode: If no pagination params (e.g., Dashboard), cap at 500 recent records
-    const transactions = await Transaction.find(query).sort({ date: -1, createdAt: -1 }).limit(500);
+    // Step 5: Otherwise return full matching transaction list sorted newest first
+    const transactions = await Transaction.find(query).sort({
+      date: -1,
+      createdAt: -1,
+    });
 
     res.status(200).json({
       message: "Transactions fetched successfully.",
-      count: transactions.length,
+      data: transactions,
       totalCount: transactions.length,
       hasMore: false,
-      data: transactions,
     });
   } catch (error) {
     res.status(500).json({
@@ -150,56 +179,61 @@ exports.getTransactions = async (req, res) => {
   }
 };
 
-// 3. Update/Edit a single transaction record
+// 3. Update an existing transaction by ID (PUT /api/transactions/:id)
 exports.updateTransaction = async (req, res) => {
   try {
+    // Step 1: Extract transaction ID from params and updated fields from request body
     const { id } = req.params;
     const { amount, type, category, merchantName, description, date, status } = req.body;
 
-    const tx = await Transaction.findById(id);
-    if (!tx) {
-      return res.status(404).json({
-        message: "Transaction record not found.",
+    // Validation 1: Ensure transaction ID is provided
+    if (!id) {
+      return res.status(400).json({
+        message: "Transaction ID is required.",
       });
     }
 
+    // Validation 2: If amount is being updated, ensure it is a valid number > RM 0
+    const updateFields = {};
     if (amount !== undefined) {
-      const parsedAmt = Number(amount);
-      if (isNaN(parsedAmt) || parsedAmt <= 0) {
+      const parsedAmount = Number(amount);
+      if (isNaN(parsedAmount) || parsedAmount <= 0) {
         return res.status(400).json({
-          message: "Transaction amount must be a valid number greater than 0.",
+          message: "Updated amount must be a valid number greater than RM 0.00.",
         });
       }
-      tx.amount = Number(parsedAmt.toFixed(2));
+      updateFields.amount = Number(parsedAmount.toFixed(2));
     }
 
-    if (type) tx.type = type;
-    if (category) tx.category = category;
-    if (merchantName !== undefined) {
-      if (!merchantName.trim()) {
-        return res.status(400).json({
-          message: "Merchant or Payee name cannot be empty.",
-        });
-      }
-      tx.merchantName = merchantName.trim();
-    }
-    if (description !== undefined) {
-      tx.description = description && description.trim() ? description.trim() : null;
-    }
-    if (date) tx.date = new Date(date);
-    if (status) tx.status = status;
+    // Step 2: Populate remaining fields to update
+    if (type !== undefined) updateFields.type = type;
+    if (category !== undefined) updateFields.category = category;
+    if (merchantName !== undefined) updateFields.merchantName = merchantName.trim();
+    if (description !== undefined) updateFields.description = description;
+    if (date !== undefined) updateFields.date = new Date(date);
+    if (status !== undefined) updateFields.status = status;
 
-    const updatedTx = await tx.save();
+    // Step 3: Execute findByIdAndUpdate in MongoDB
+    const updatedTransaction = await Transaction.findByIdAndUpdate(id, updateFields, { new: true, runValidators: true });
 
+    // Validation 3: Check if the transaction document existed
+    if (!updatedTransaction) {
+      return res.status(404).json({
+        message: "Transaction not found.",
+      });
+    }
+
+    // Step 4: Re-run AI analytics engine for the owner of this transaction
     try {
-      await runAnalyticsEngine(tx.userId);
+      await runAnalyticsEngine(updatedTransaction.userId);
     } catch (analyticsErr) {
       console.log("Background analytics update warning:", analyticsErr.message);
     }
 
+    // Step 5: Return updated transaction document
     res.status(200).json({
       message: "Transaction updated successfully.",
-      data: updatedTx,
+      data: updatedTransaction,
     });
   } catch (error) {
     res.status(500).json({
@@ -209,30 +243,39 @@ exports.updateTransaction = async (req, res) => {
   }
 };
 
-// 4. Delete a single transaction record
+// 4. Delete a transaction permanently by ID (DELETE /api/transactions/:id)
 exports.deleteTransaction = async (req, res) => {
   try {
+    // Step 1: Extract transaction ID from route parameters
     const { id } = req.params;
 
-    const tx = await Transaction.findById(id);
-    if (!tx) {
-      return res.status(404).json({
-        message: "Transaction record not found.",
+    // Validation 1: Ensure transaction ID is provided
+    if (!id) {
+      return res.status(400).json({
+        message: "Transaction ID is required.",
       });
     }
 
-    const ownerUserId = tx.userId;
-    await Transaction.findByIdAndDelete(id);
+    // Step 2: Delete transaction document from MongoDB
+    const deletedTransaction = await Transaction.findByIdAndDelete(id);
 
-    try {
-      await runAnalyticsEngine(ownerUserId);
-    } catch (analyticsErr) {
-      console.log("Background analytics recalculation warning:", analyticsErr.message);
+    // Validation 2: Ensure transaction existed before deletion
+    if (!deletedTransaction) {
+      return res.status(404).json({
+        message: "Transaction not found.",
+      });
     }
 
+    // Step 3: Re-run AI analytics engine after deletion to refresh forecasts
+    try {
+      await runAnalyticsEngine(deletedTransaction.userId);
+    } catch (analyticsErr) {
+      console.log("Background analytics update warning:", analyticsErr.message);
+    }
+
+    // Step 4: Return deletion confirmation
     res.status(200).json({
       message: "Transaction deleted successfully.",
-      deletedId: id,
     });
   } catch (error) {
     res.status(500).json({
