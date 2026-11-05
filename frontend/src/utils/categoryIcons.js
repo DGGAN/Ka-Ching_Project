@@ -101,7 +101,6 @@ export const CATEGORY_CONFIG = {
     iconColor: "#475569",
   },
 
-  // ─── 5 个收入分类配置 (5 INCOME CATEGORIES) ───
   // Salary income category configuration
   SALARY: {
     label: "Salary",
@@ -146,6 +145,9 @@ export const CATEGORY_CONFIG = {
 
 // Export universal colorful category icon badge component
 export const CategoryBadge = ({ category, size = 36, iconSize = 18 }) => {
+  // Dynamically generate styles on every render so runtime theme switches apply immediately
+  const styles = getStyles();
+
   // Fallback to OTHER_EXPENSE if category key is not found
   const config = CATEGORY_CONFIG[category] || CATEGORY_CONFIG.OTHER_EXPENSE;
   const { Icon, bgColor, iconColor } = config;
@@ -168,11 +170,12 @@ export const CategoryBadge = ({ category, size = 36, iconSize = 18 }) => {
 };
 
 // Define badge border and alignment styles
-const styles = StyleSheet.create({
-  badgeBox: {
-    borderWidth: SHAPES.borderWidth,
-    borderColor: COLORS.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-});
+const getStyles = () =>
+  StyleSheet.create({
+    badgeBox: {
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+  });

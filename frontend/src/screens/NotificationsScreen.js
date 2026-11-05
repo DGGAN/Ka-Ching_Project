@@ -29,6 +29,9 @@ const formatTimeAgo = (dateString) => {
 
 // Screen 8: Notification Center displaying system alerts, OCR updates, and AI insights
 export default function NotificationsScreen({ user }) {
+  // Dynamically generate styles on every render so runtime theme switches apply immediately
+  const styles = getStyles();
+
   // State for storing notifications, active tag filter, and loading spinner status
   const [notifications, setNotifications] = useState([]);
   const [activeTagFilter, setActiveTagFilter] = useState("ALL");
@@ -193,156 +196,157 @@ export default function NotificationsScreen({ user }) {
 }
 
 // Stylesheet bound to theme constants
-const styles = StyleSheet.create({
-  headerBar: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderColor: COLORS.borderMuted,
-    backgroundColor: COLORS.card,
-  },
-  headerTopRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  headerTitle: {
-    fontFamily: FONTS.mono,
-    fontSize: 12,
-    fontWeight: "bold",
-    color: COLORS.text,
-    letterSpacing: 1,
-  },
-  headerSub: {
-    fontFamily: FONTS.mono,
-    fontSize: 9,
-    color: COLORS.textMuted,
-    marginTop: 2,
-  },
-  markAllBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: COLORS.secondary,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: SHAPES.chipRadius,
-    borderWidth: 1.5,
-    borderColor: COLORS.border,
-  },
-  markAllText: {
-    fontFamily: FONTS.mono,
-    fontSize: 8.5,
-    fontWeight: "bold",
-    color: COLORS.text,
-  },
-  filterChipsRow: {
-    paddingRight: 8,
-  },
-  listContent: {
-    padding: 16,
-    paddingBottom: 32,
-  },
-  notificationCard: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    backgroundColor: COLORS.card,
-    borderWidth: SHAPES.borderWidth,
-    borderColor: COLORS.borderMuted,
-    borderRadius: SHAPES.inputRadius,
-    padding: 12,
-    marginBottom: 10,
-    gap: 12,
-  },
-  unreadCard: {
-    backgroundColor: COLORS.secondary,
-    borderColor: COLORS.primary,
-  },
-  iconBox: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1.5,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  textCol: {
-    flex: 1,
-  },
-  titleRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
-    gap: 6,
-  },
-  title: {
-    fontFamily: FONTS.mono,
-    fontSize: 10.5,
-    color: COLORS.text,
-    flex: 1,
-  },
-  unreadText: {
-    fontWeight: "bold",
-  },
-  timeText: {
-    fontFamily: FONTS.mono,
-    fontSize: 8,
-    color: COLORS.textMuted,
-  },
-  message: {
-    fontFamily: FONTS.mono,
-    fontSize: 9.5,
-    color: COLORS.textMuted,
-    lineHeight: 14,
-  },
-  bottomMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 7,
-  },
-  tagPill: {
-    borderWidth: 1,
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-  },
-  tagPillText: {
-    fontFamily: FONTS.mono,
-    fontSize: 7.5,
-    fontWeight: "bold",
-  },
-  tapToReadHint: {
-    fontFamily: FONTS.mono,
-    fontSize: 8,
-    color: COLORS.primary,
-    fontWeight: "bold",
-  },
-  deleteBtn: {
-    padding: 4,
-  },
-  emptyBox: {
-    alignItems: "center",
-    paddingVertical: 36,
-    paddingHorizontal: 18,
-    marginTop: 16,
-  },
-  emptyTitle: {
-    fontFamily: FONTS.mono,
-    fontSize: 12,
-    fontWeight: "bold",
-    color: COLORS.text,
-    marginTop: 10,
-  },
-  emptySub: {
-    fontFamily: FONTS.mono,
-    fontSize: 9.5,
-    color: COLORS.textMuted,
-    textAlign: "center",
-    marginTop: 4,
-    lineHeight: 15,
-  },
-});
+const getStyles = () =>
+  StyleSheet.create({
+    headerBar: {
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      paddingBottom: 10,
+      borderBottomWidth: 1,
+      borderColor: COLORS.borderMuted,
+      backgroundColor: COLORS.card,
+    },
+    headerTopRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 10,
+    },
+    headerTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 12,
+      fontWeight: "bold",
+      color: COLORS.text,
+      letterSpacing: 1,
+    },
+    headerSub: {
+      fontFamily: FONTS.mono,
+      fontSize: 9,
+      color: COLORS.textMuted,
+      marginTop: 2,
+    },
+    markAllBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      backgroundColor: COLORS.secondary,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: SHAPES.chipRadius,
+      borderWidth: 1.5,
+      borderColor: COLORS.border,
+    },
+    markAllText: {
+      fontFamily: FONTS.mono,
+      fontSize: 8.5,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    filterChipsRow: {
+      paddingRight: 8,
+    },
+    listContent: {
+      padding: 16,
+      paddingBottom: 32,
+    },
+    notificationCard: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      backgroundColor: COLORS.card,
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.borderMuted,
+      borderRadius: SHAPES.inputRadius,
+      padding: 12,
+      marginBottom: 10,
+      gap: 12,
+    },
+    unreadCard: {
+      backgroundColor: COLORS.secondary,
+      borderColor: COLORS.primary,
+    },
+    iconBox: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      borderWidth: 1.5,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    textCol: {
+      flex: 1,
+    },
+    titleRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 4,
+      gap: 6,
+    },
+    title: {
+      fontFamily: FONTS.mono,
+      fontSize: 10.5,
+      color: COLORS.text,
+      flex: 1,
+    },
+    unreadText: {
+      fontWeight: "bold",
+    },
+    timeText: {
+      fontFamily: FONTS.mono,
+      fontSize: 8,
+      color: COLORS.textMuted,
+    },
+    message: {
+      fontFamily: FONTS.mono,
+      fontSize: 9.5,
+      color: COLORS.textMuted,
+      lineHeight: 14,
+    },
+    bottomMetaRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      marginTop: 7,
+    },
+    tagPill: {
+      borderWidth: 1,
+      borderRadius: 4,
+      paddingHorizontal: 6,
+      paddingVertical: 1.5,
+    },
+    tagPillText: {
+      fontFamily: FONTS.mono,
+      fontSize: 7.5,
+      fontWeight: "bold",
+    },
+    tapToReadHint: {
+      fontFamily: FONTS.mono,
+      fontSize: 8,
+      color: COLORS.primary,
+      fontWeight: "bold",
+    },
+    deleteBtn: {
+      padding: 4,
+    },
+    emptyBox: {
+      alignItems: "center",
+      paddingVertical: 36,
+      paddingHorizontal: 18,
+      marginTop: 16,
+    },
+    emptyTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 12,
+      fontWeight: "bold",
+      color: COLORS.text,
+      marginTop: 10,
+    },
+    emptySub: {
+      fontFamily: FONTS.mono,
+      fontSize: 9.5,
+      color: COLORS.textMuted,
+      textAlign: "center",
+      marginTop: 4,
+      lineHeight: 15,
+    },
+  });

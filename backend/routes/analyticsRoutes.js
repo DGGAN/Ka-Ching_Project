@@ -1,10 +1,10 @@
-// Import express Router and AI analytics controller
+// Import Express router and the analytics controller
 const express = require("express");
 const router = express.Router();
 const analyticsController = require("../controllers/analyticsController");
 
-// Endpoint to get user's linear regression month-end forecast and 90-day habit insights
-router.get("/:userId", analyticsController.getUserAnalytics);
+// 1. Route to compute and retrieve AI analytics for a user (GET /api/analytics/:userId)
+router.get("/:userId", analyticsController.getAnalytics);
 
-// Export router module
+// Export the router module
 module.exports = router;

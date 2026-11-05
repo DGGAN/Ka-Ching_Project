@@ -66,7 +66,7 @@ exports.createTransaction = async (req, res) => {
 
     // Step 5: Trigger automatic TXN, OCR, or Budget Overrun (80% / 100%) notifications
     try {
-      await triggerTransactionNotifications(savedTransaction);
+      await triggerTransactionNotifications(savedTransaction, false);
     } catch (notifyErr) {
       console.log("Background notification trigger warning:", notifyErr.message);
     }
@@ -84,7 +84,7 @@ exports.createTransaction = async (req, res) => {
   }
 };
 
-// 2. Fetch transactions for a user with multi-filters and pagination (GET /api/transactions/:userId)
+// 2. Fetch transactions with multi-filters and pagination (GET /api/transactions/:userId)
 exports.getTransactions = async (req, res) => {
   try {
     // Step 1: Extract userId from route params and filter criteria from query string
@@ -213,8 +213,8 @@ exports.updateTransaction = async (req, res) => {
     if (date !== undefined) updateFields.date = new Date(date);
     if (status !== undefined) updateFields.status = status;
 
-    // Step 3: Execute findByIdAndUpdate in MongoDB
-    const updatedTransaction = await Transaction.findByIdAndUpdate(id, updateFields, { new: true, runValidators: true });
+    // Step 3: Execute findByIdAndUpdate in MongoDB using returnDocument: 'after'
+    const updatedTransaction = await Transaction.findByIdAndUpdate(id, updateFields, { returnDocument: "after", runValidators: true });
 
     // Validation 3: Check if the transaction document existed
     if (!updatedTransaction) {
@@ -223,11 +223,12 @@ exports.updateTransaction = async (req, res) => {
       });
     }
 
-    // Step 4: Re-run AI analytics engine for the owner of this transaction
+    // Step 4: Re-run AI analytics engine and sync budget alert notifications
     try {
       await runAnalyticsEngine(updatedTransaction.userId);
-    } catch (analyticsErr) {
-      console.log("Background analytics update warning:", analyticsErr.message);
+      await triggerTransactionNotifications(updatedTransaction, true);
+    } catch (bgErr) {
+      console.log("Background update sync warning:", bgErr.message);
     }
 
     // Step 5: Return updated transaction document
@@ -266,11 +267,12 @@ exports.deleteTransaction = async (req, res) => {
       });
     }
 
-    // Step 3: Re-run AI analytics engine after deletion to refresh forecasts
+    // Step 3: Re-run AI analytics engine and sync budget alert notifications after deletion
     try {
       await runAnalyticsEngine(deletedTransaction.userId);
-    } catch (analyticsErr) {
-      console.log("Background analytics update warning:", analyticsErr.message);
+      await triggerTransactionNotifications(deletedTransaction, true);
+    } catch (bgErr) {
+      console.log("Background delete sync warning:", bgErr.message);
     }
 
     // Step 4: Return deletion confirmation

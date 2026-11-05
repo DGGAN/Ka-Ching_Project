@@ -3,7 +3,7 @@ const Budget = require("../models/Budget");
 const { runAnalyticsEngine } = require("./analyticsController");
 const { triggerBudgetGoalNotification } = require("./notificationController");
 
-// 1. Create or update a user's monthly spending limit and savings target (POST /api/budgets)
+// 1. Create or update the current month's spending limit and savings target (POST /api/budgets)
 exports.setBudget = async (req, res) => {
   try {
     // Step 1: Destructure budget parameters from request body
@@ -34,27 +34,52 @@ exports.setBudget = async (req, res) => {
       });
     }
 
-    // Step 3: Determine target month and year (defaults to current system month and year)
+    // Step 3: Lock budget modifications strictly to the current calendar month and year
     const now = new Date();
-    const targetMonth = month !== undefined ? Number(month) : now.getMonth() + 1;
-    const targetYear = year !== undefined ? Number(year) : now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const currentYear = now.getFullYear();
 
-    // Step 4: Find existing budget for the user; update if found, create if not (Upsert)
-    let budget = await Budget.findOne({ userId });
+    const targetMonth = month !== undefined ? Number(month) : currentMonth;
+    const targetYear = year !== undefined ? Number(year) : currentYear;
+
+    // Validation 4: Prevent users from modifying historical past-month budgets
+    if (targetYear !== currentYear || targetMonth !== currentMonth) {
+      return res.status(403).json({
+        message: "Past month budgets are locked for historical accuracy. You can only edit the current month's budget.",
+      });
+    }
+
+    // Step 4: Upsert the budget specifically for (userId + currentMonth + currentYear)
+    let budget = await Budget.findOne({
+      userId,
+      month: currentMonth,
+      year: currentYear,
+    });
+
+    if (!budget) {
+      // Also check if a legacy budget record without month/year exists for this user
+      const legacyBudget = await Budget.findOne({
+        userId,
+        month: { $exists: false },
+      });
+      if (legacyBudget) {
+        budget = legacyBudget;
+      }
+    }
 
     if (budget) {
       budget.monthlyLimit = Number(parsedLimit.toFixed(2));
       budget.savingsTarget = Number(parsedSavings.toFixed(2));
-      if (budget.month !== undefined) budget.month = targetMonth;
-      if (budget.year !== undefined) budget.year = targetYear;
+      budget.month = currentMonth;
+      budget.year = currentYear;
       await budget.save();
     } else {
       budget = await Budget.create({
         userId,
         monthlyLimit: Number(parsedLimit.toFixed(2)),
         savingsTarget: Number(parsedSavings.toFixed(2)),
-        month: targetMonth,
-        year: targetYear,
+        month: currentMonth,
+        year: currentYear,
       });
     }
 
@@ -85,7 +110,7 @@ exports.setBudget = async (req, res) => {
   }
 };
 
-// 2. Get the current budget configuration for a specific user (GET /api/budgets/:userId)
+// 2. Get the current budget configuration and historical budgets for a user (GET /api/budgets/:userId)
 exports.getBudget = async (req, res) => {
   try {
     // Step 1: Extract userId from route parameters
@@ -98,13 +123,20 @@ exports.getBudget = async (req, res) => {
       });
     }
 
-    // Step 2: Query the latest budget document for this user
-    const budget = await Budget.findOne({ userId }).sort({ updatedAt: -1 });
+    // Step 2: Query all budget documents for this user sorted newest first
+    const allBudgets = await Budget.find({ userId }).sort({
+      year: -1,
+      month: -1,
+      updatedAt: -1,
+    });
 
-    // Step 3: Return the fetched budget (or null if not set yet)
+    const latestBudget = allBudgets.length > 0 ? allBudgets[0] : null;
+
+    // Step 3: Return both the latest active budget (data) and the full monthly history array
     res.status(200).json({
       message: "Budget fetched successfully.",
-      data: budget || null,
+      data: latestBudget,
+      history: allBudgets,
     });
   } catch (error) {
     res.status(500).json({
@@ -114,7 +146,7 @@ exports.getBudget = async (req, res) => {
   }
 };
 
-// Export compatibility aliases so any route file naming works seamlessly
+// Export compatibility aliases
 exports.setOrUpdateBudget = exports.setBudget;
 exports.createOrUpdateBudget = exports.setBudget;
 exports.getUserBudget = exports.getBudget;

@@ -1,30 +1,30 @@
 // Import Platform utility to select the appropriate system monospace font
 import { Platform } from "react-native";
 
-// Default active theme key on startup
-export let ACTIVE_THEME = "wireframe";
+// 1. Default active theme key on startup
+export let ACTIVE_THEME = "pink";
 
-// Complete dictionary of available visual themes for runtime switching
+// 2. Complete dictionary of available visual themes for runtime switching
 export const THEMES = {
   wireframe: {
     id: "wireframe",
     name: "Wireframe Mono",
     subtitle: "High-contrast brutalist black & white",
-    previewColors: ["#111111", "#F4F4F4", "#FFFFFF"],
+    previewColors: ["#121212", "#F4F4F4", "#FFFFFF"],
     colors: {
       background: "#F4F4F4",
       card: "#FFFFFF",
-      text: "#111111",
+      text: "#121212",
       textMuted: "#666666",
-      border: "#222222",
+      border: "#121212",
       borderMuted: "#CCCCCC",
-      primary: "#111111",
+      primary: "#121212",
       primaryText: "#FFFFFF",
       secondary: "#E8E8E8",
       inputBg: "#FAFAFA",
       danger: "#D9381E",
       dangerBg: "#FFF0EE",
-      success: "#111111",
+      success: "#121212",
     },
     shapes: {
       borderWidth: 2,
@@ -94,19 +94,22 @@ export const THEMES = {
   },
 };
 
-// Mutable exported COLORS and SHAPES objects so existing screens reflect updates when re-mounted
-export const COLORS = { ...THEMES[ACTIVE_THEME].colors };
-export const SHAPES = { ...THEMES[ACTIVE_THEME].shapes };
+// 3. Safely resolve initial theme object with fallback to prevent undefined crashes
+const initialThemeObj = THEMES[ACTIVE_THEME] || THEMES.pink;
 
-// Function to dynamically mutate COLORS and SHAPES at runtime when user selects a new theme
+// 4. Mutable exported COLORS and SHAPES objects so components reflect theme updates
+export const COLORS = { ...initialThemeObj.colors };
+export const SHAPES = { ...initialThemeObj.shapes };
+
+// 5. Function to dynamically mutate COLORS and SHAPES at runtime when user selects a new theme
 export const applyTheme = (themeKey) => {
-  if (!THEMES[themeKey]) return;
-  ACTIVE_THEME = themeKey;
-  Object.assign(COLORS, THEMES[themeKey].colors);
-  Object.assign(SHAPES, THEMES[themeKey].shapes);
+  const targetTheme = THEMES[themeKey] || THEMES.pink;
+  ACTIVE_THEME = targetTheme.id;
+  Object.assign(COLORS, targetTheme.colors);
+  Object.assign(SHAPES, targetTheme.shapes);
 };
 
-// Unified typography font configuration
+// 6. Unified typography font configuration
 export const FONTS = {
   mono: Platform.OS === "ios" ? "Courier" : "monospace",
   sans: Platform.OS === "ios" ? "Avenir Next" : "sans-serif-medium",

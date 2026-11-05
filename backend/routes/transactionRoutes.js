@@ -1,21 +1,19 @@
-// 导入 express 路由工具与交易控制器
-// Import express Router and transaction controller
+// Import Express router and the transaction controller
 const express = require("express");
 const router = express.Router();
 const transactionController = require("../controllers/transactionController");
 
-// Endpoint to create a new transaction record
+// 1. Route to create a new transaction (POST /api/transactions)
 router.post("/", transactionController.createTransaction);
 
-// Endpoint to fetch all transactions for a specific user
+// 2. Route to fetch transactions for a user (GET /api/transactions/:userId)
 router.get("/:userId", transactionController.getTransactions);
 
-// Endpoint to edit/update a single transaction record by its _id
+// 3. Route to update an existing transaction by ID (PUT /api/transactions/:id)
 router.put("/:id", transactionController.updateTransaction);
 
-// Endpoint to delete a single transaction record by its _id
+// 4. Route to delete a transaction by ID (DELETE /api/transactions/:id)
 router.delete("/:id", transactionController.deleteTransaction);
 
-// 导出路由模块
-// Export router module
+// Export the router module
 module.exports = router;

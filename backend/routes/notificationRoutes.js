@@ -4,7 +4,7 @@ const router = express.Router();
 const notificationController = require("../controllers/notificationController");
 
 // Route to get all notifications for a specific user
-router.get("/:userId", notificationController.getUserNotifications);
+router.get("/:userId", notificationController.getNotifications);
 
 // Route to mark a single notification as read by its MongoDB _id
 router.put("/:id/read", notificationController.markAsRead);

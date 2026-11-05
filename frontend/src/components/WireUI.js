@@ -22,7 +22,11 @@ import { COLORS, SHAPES, FONTS } from "../theme/theme";
 
 // 0. Globally reusable Floating Toast Hook & Component
 export const useFloatingToast = () => {
-  const [toast, setToast] = useState({ visible: false, type: "error", text: "" });
+  const [toast, setToast] = useState({
+    visible: false,
+    type: "error",
+    text: "",
+  });
   const slideAnim = useRef(new Animated.Value(-90)).current;
   const timerRef = useRef(null);
 
@@ -57,6 +61,7 @@ export const useFloatingToast = () => {
 };
 
 export const FloatingToast = ({ toast, slideAnim }) => {
+  const styles = getStyles();
   if (!toast.visible) return null;
   const isError = toast.type === "error";
 
@@ -68,30 +73,37 @@ export const FloatingToast = ({ toast, slideAnim }) => {
   );
 };
 
-// 1. Universal card
-export const WireBox = ({ children, style }) => <View style={[styles.wireBox, style]}>{children}</View>;
+// 1. Universal card container
+export const WireBox = ({ children, style }) => {
+  const styles = getStyles();
+  return <View style={[styles.wireBox, style]}>{children}</View>;
+};
 
-// 2. Universal input component
-export const WireInput = ({ label, placeholder, value, onChangeText, secureTextEntry = false, keyboardType = "default" }) => (
-  <View style={styles.inputContainer}>
-    <Text style={styles.inputLabel}>{label}</Text>
-    <View style={styles.inputBox}>
-      <TextInput
-        style={styles.textInput}
-        placeholder={placeholder}
-        placeholderTextColor={COLORS.textMuted}
-        value={value}
-        onChangeText={onChangeText}
-        secureTextEntry={secureTextEntry}
-        keyboardType={keyboardType}
-        autoCapitalize="none"
-      />
+// 2. Universal input field component
+export const WireInput = ({ label, placeholder, value, onChangeText, secureTextEntry = false, keyboardType = "default" }) => {
+  const styles = getStyles();
+  return (
+    <View style={styles.inputContainer}>
+      <Text style={styles.inputLabel}>{label}</Text>
+      <View style={styles.inputBox}>
+        <TextInput
+          style={styles.textInput}
+          placeholder={placeholder}
+          placeholderTextColor={COLORS.textMuted}
+          value={value}
+          onChangeText={onChangeText}
+          secureTextEntry={secureTextEntry}
+          keyboardType={keyboardType}
+          autoCapitalize="none"
+        />
+      </View>
     </View>
-  </View>
-);
+  );
+};
 
 // 3. Universal button component
 export const WireButton = ({ label, onPress, variant = "filled", style }) => {
+  const styles = getStyles();
   const isFilled = variant === "filled";
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={[styles.buttonBase, isFilled ? styles.buttonFilled : styles.buttonOutline, style]}>
@@ -100,37 +112,44 @@ export const WireButton = ({ label, onPress, variant = "filled", style }) => {
   );
 };
 
-// 4. Universal category chip
-export const WireChip = ({ label, active = false, onPress }) => (
-  <TouchableOpacity onPress={onPress} style={[styles.chipBase, active ? styles.chipActive : styles.chipInactive]}>
-    <Text style={[styles.chipText, active ? styles.chipTextActive : styles.chipTextInactive]}>{label}</Text>
-  </TouchableOpacity>
-);
+// 4. Universal filter chip
+export const WireChip = ({ label, active = false, onPress }) => {
+  const styles = getStyles();
+  return (
+    <TouchableOpacity onPress={onPress} style={[styles.chipBase, active ? styles.chipActive : styles.chipInactive]}>
+      <Text style={[styles.chipText, active ? styles.chipTextActive : styles.chipTextInactive]}>{label}</Text>
+    </TouchableOpacity>
+  );
+};
 
-// 5. Top Header component
-export const TopHeader = ({ title = "Ka-Ching!", showBack = false, onBackPress, onBellPress, onProfilePress }) => (
-  <View style={styles.headerContainer}>
-    <View style={styles.headerLeft}>
-      {showBack && (
-        <TouchableOpacity onPress={onBackPress} style={{ marginRight: 8, padding: 2 }}>
-          <ArrowLeft size={18} color={COLORS.text} strokeWidth={2.5} />
+// 5. Top Header navigation bar
+export const TopHeader = ({ title = "Ka-Ching!", showBack = false, onBackPress, onBellPress, onProfilePress }) => {
+  const styles = getStyles();
+  return (
+    <View style={styles.headerContainer}>
+      <View style={styles.headerLeft}>
+        {showBack && (
+          <TouchableOpacity onPress={onBackPress} style={{ marginRight: 8, padding: 2 }}>
+            <ArrowLeft size={18} color={COLORS.text} strokeWidth={2.5} />
+          </TouchableOpacity>
+        )}
+        <Text style={styles.headerTitle}>{title}</Text>
+      </View>
+      <View style={styles.headerRight}>
+        <TouchableOpacity onPress={onBellPress} style={{ padding: 4 }}>
+          <Bell size={18} color={COLORS.text} strokeWidth={2} />
         </TouchableOpacity>
-      )}
-      <Text style={styles.headerTitle}>{title}</Text>
+        <TouchableOpacity onPress={onProfilePress} style={styles.avatarBox}>
+          <User size={15} color={COLORS.text} strokeWidth={2} />
+        </TouchableOpacity>
+      </View>
     </View>
-    <View style={styles.headerRight}>
-      <TouchableOpacity onPress={onBellPress} style={{ padding: 4 }}>
-        <Bell size={18} color={COLORS.text} strokeWidth={2} />
-      </TouchableOpacity>
-      <TouchableOpacity onPress={onProfilePress} style={styles.avatarBox}>
-        <User size={15} color={COLORS.text} strokeWidth={2} />
-      </TouchableOpacity>
-    </View>
-  </View>
-);
+  );
+};
 
 // 6. Bottom Navigation bar component
 export const BottomNav = ({ activeTab = "home", onSelectTab, onPressAdd }) => {
+  const styles = getStyles();
   const leftTabs = [
     { id: "home", label: "Home", Icon: Home },
     { id: "transactions", label: "History", Icon: ArrowLeftRight },
@@ -174,6 +193,7 @@ export const BottomNav = ({ activeTab = "home", onSelectTab, onPressAdd }) => {
 
 // 7. Add Transaction Method Bottom Sheet Modal with smooth slide-up animation
 export const IngestionModal = ({ visible, onClose, onSelectMethod }) => {
+  const styles = getStyles();
   const slideAnim = useRef(new Animated.Value(350)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -271,8 +291,9 @@ export const IngestionModal = ({ visible, onClose, onSelectMethod }) => {
   );
 };
 
-// 8. Globally Reusable Interactive Calendar Picker & Modal (Shared by Add & Edit Transaction)
+// 8. Globally Reusable Interactive Calendar Picker & Modal
 export const CalendarPicker = ({ selectedDate, onSelectDate, style }) => {
+  const styles = getStyles();
   const [viewDate, setViewDate] = useState(selectedDate ? new Date(selectedDate) : new Date());
 
   useEffect(() => {
@@ -290,7 +311,10 @@ export const CalendarPicker = ({ selectedDate, onSelectDate, style }) => {
   for (let i = 0; i < firstDayOfWeek; i++) daysGrid.push(null);
   for (let d = 1; d <= totalDays; d++) daysGrid.push(d);
 
-  const monthTitle = viewDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const monthTitle = viewDate.toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
 
   const changeMonth = (offset) => {
     setViewDate(new Date(viewYear, viewMonth + offset, 1));
@@ -363,428 +387,433 @@ export const CalendarPicker = ({ selectedDate, onSelectDate, style }) => {
   );
 };
 
-export const CalendarModal = ({ visible, selectedDate, onSelectDate, onClose }) => (
-  <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onClose}>
-    <View style={styles.centerModalOverlay}>
-      <View style={styles.calendarPopupCard}>
-        <CalendarPicker
-          selectedDate={selectedDate}
-          onSelectDate={(pickedDate) => {
-            onSelectDate(pickedDate);
-            onClose();
-          }}
-        />
-        <WireButton label="CLOSE CALENDAR" variant="outline" onPress={onClose} style={{ marginTop: 12 }} />
+export const CalendarModal = ({ visible, selectedDate, onSelectDate, onClose }) => {
+  const styles = getStyles();
+  return (
+    <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onClose}>
+      <View style={styles.centerModalOverlay}>
+        <View style={styles.calendarPopupCard}>
+          <CalendarPicker
+            selectedDate={selectedDate}
+            onSelectDate={(pickedDate) => {
+              onSelectDate(pickedDate);
+              onClose();
+            }}
+          />
+          <WireButton label="CLOSE CALENDAR" variant="outline" onPress={onClose} style={{ marginTop: 12 }} />
+        </View>
       </View>
-    </View>
-  </Modal>
-);
+    </Modal>
+  );
+};
 
-const styles = StyleSheet.create({
-  floatingToast: {
-    position: "absolute",
-    top: 0,
-    left: 16,
-    right: 16,
-    zIndex: 9999,
-    borderWidth: 2,
-    borderRadius: SHAPES.inputRadius,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 10,
-  },
-  toastError: {
-    borderColor: COLORS.danger,
-    backgroundColor: "#FFF5F5",
-  },
-  toastSuccess: {
-    borderColor: "#15803D",
-    backgroundColor: "#F0FDF4",
-  },
-  floatingToastText: {
-    fontFamily: FONTS.mono,
-    fontSize: 10,
-    fontWeight: "bold",
-    flex: 1,
-  },
-  wireBox: {
-    borderWidth: SHAPES.borderWidth,
-    borderColor: COLORS.border,
-    borderRadius: SHAPES.cardRadius,
-    backgroundColor: COLORS.card,
-    padding: 12,
-  },
-  inputContainer: {
-    marginBottom: 14,
-  },
-  inputLabel: {
-    fontSize: 10,
-    fontFamily: FONTS.mono,
-    color: COLORS.textMuted,
-    marginBottom: 4,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-  },
-  inputBox: {
-    borderWidth: SHAPES.borderWidth,
-    borderColor: COLORS.border,
-    borderRadius: SHAPES.inputRadius,
-    backgroundColor: COLORS.inputBg,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  textInput: {
-    fontSize: 13,
-    fontFamily: FONTS.mono,
-    color: COLORS.text,
-    padding: 0,
-  },
-  buttonBase: {
-    width: "100%",
-    borderWidth: SHAPES.borderWidth,
-    borderColor: COLORS.border,
-    borderRadius: SHAPES.buttonRadius,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  buttonFilled: {
-    backgroundColor: COLORS.primary,
-  },
-  buttonOutline: {
-    backgroundColor: "transparent",
-  },
-  buttonTextFilled: {
-    color: COLORS.primaryText,
-    fontSize: 12,
-    fontFamily: FONTS.mono,
-    fontWeight: "bold",
-    textTransform: "uppercase",
-    letterSpacing: 1.5,
-  },
-  buttonTextOutline: {
-    color: COLORS.text,
-    fontSize: 12,
-    fontFamily: FONTS.mono,
-    fontWeight: "bold",
-    textTransform: "uppercase",
-    letterSpacing: 1.5,
-  },
-  chipBase: {
-    borderWidth: SHAPES.borderWidth,
-    borderColor: COLORS.border,
-    borderRadius: SHAPES.chipRadius,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    marginRight: 8,
-  },
-  chipActive: {
-    backgroundColor: COLORS.primary,
-  },
-  chipInactive: {
-    backgroundColor: COLORS.card,
-  },
-  chipText: {
-    fontSize: 10,
-    fontFamily: FONTS.mono,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-  },
-  chipTextActive: {
-    color: COLORS.primaryText,
-    fontWeight: "bold",
-  },
-  chipTextInactive: {
-    color: COLORS.text,
-  },
-  headerContainer: {
-    borderBottomWidth: SHAPES.borderWidth,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.card,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  headerLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  headerTitle: {
-    fontFamily: FONTS.mono,
-    fontSize: 15,
-    fontWeight: "bold",
-    color: COLORS.text,
-  },
-  headerRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  avatarBox: {
-    width: 28,
-    height: 28,
-    borderWidth: SHAPES.borderWidth,
-    borderColor: COLORS.border,
-    borderRadius: SHAPES.chipRadius,
-    backgroundColor: COLORS.secondary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  bottomNavContainer: {
-    borderTopWidth: SHAPES.borderWidth,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.card,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-around",
-    paddingTop: 8,
-    paddingBottom: 12,
-    paddingHorizontal: 8,
-  },
-  navItem: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  navLabel: {
-    fontFamily: FONTS.mono,
-    fontSize: 9,
-    color: COLORS.textMuted,
-    textTransform: "uppercase",
-    marginTop: 4,
-  },
-  navLabelActive: {
-    color: COLORS.primary,
-    fontWeight: "bold",
-  },
-  addBtnWrapper: {
-    flex: 1,
-    alignItems: "center",
-    marginTop: -22,
-  },
-  addBtn: {
-    width: 48,
-    height: 48,
-    borderWidth: SHAPES.borderWidth,
-    borderColor: COLORS.border,
-    borderRadius: SHAPES.buttonRadius,
-    backgroundColor: COLORS.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: COLORS.text,
-    shadowOffset: { width: 2, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 0,
-    elevation: 4,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    justifyContent: "flex-end",
-  },
-  centerModalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 18,
-  },
-  calendarPopupCard: {
-    width: "100%",
-    maxWidth: 350,
-    borderWidth: SHAPES.borderWidth,
-    borderColor: COLORS.border,
-    borderRadius: SHAPES.cardRadius,
-    backgroundColor: COLORS.card,
-    padding: 16,
-  },
-  calendarContainer: {
-    width: "100%",
-  },
-  quickDateRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 10,
-  },
-  quickDateChip: {
-    flex: 1,
-    borderWidth: 1.5,
-    borderColor: COLORS.border,
-    borderRadius: SHAPES.chipRadius,
-    backgroundColor: COLORS.secondary,
-    paddingVertical: 6,
-    alignItems: "center",
-  },
-  quickDateText: {
-    fontFamily: FONTS.mono,
-    fontSize: 10,
-    fontWeight: "bold",
-    color: COLORS.text,
-  },
-  calHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-    paddingBottom: 6,
-    borderBottomWidth: 1,
-    borderColor: COLORS.borderMuted,
-    borderStyle: "dashed",
-  },
-  calNavBtn: {
-    padding: 5,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: SHAPES.chipRadius,
-    backgroundColor: COLORS.inputBg,
-  },
-  calMonthTitle: {
-    fontFamily: FONTS.mono,
-    fontSize: 12,
-    fontWeight: "bold",
-    color: COLORS.text,
-  },
-  weekHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    marginBottom: 4,
-  },
-  weekHeaderText: {
-    width: "14.2%",
-    textAlign: "center",
-    fontFamily: FONTS.mono,
-    fontSize: 9,
-    fontWeight: "bold",
-    color: COLORS.textMuted,
-  },
-  daysGridContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-  },
-  dayCell: {
-    width: "14.2%",
-    aspectRatio: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: SHAPES.chipRadius,
-  },
-  dayCellSelected: {
-    backgroundColor: COLORS.primary,
-    borderWidth: 1.5,
-    borderColor: COLORS.border,
-  },
-  dayCellText: {
-    fontFamily: FONTS.mono,
-    fontSize: 11,
-    color: COLORS.text,
-  },
-  dayCellTextSelected: {
-    color: COLORS.primaryText,
-    fontWeight: "bold",
-  },
-  bottomSheetCard: {
-    backgroundColor: COLORS.card,
-    borderTopWidth: 3,
-    borderLeftWidth: 3,
-    borderRightWidth: 3,
-    borderColor: COLORS.border,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 18,
-    paddingBottom: 24,
-  },
-  sheetHandleWrapper: {
-    alignItems: "center",
-    paddingVertical: 12,
-  },
-  sheetHandle: {
-    width: 44,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: COLORS.borderMuted,
-  },
-  sheetTitle: {
-    fontFamily: FONTS.mono,
-    fontSize: 13,
-    fontWeight: "bold",
-    color: COLORS.text,
-    letterSpacing: 1,
-    paddingBottom: 8,
-    borderBottomWidth: SHAPES.borderWidth,
-    borderColor: COLORS.borderMuted,
-    borderStyle: "dashed",
-  },
-  sheetSubtitle: {
-    fontFamily: FONTS.mono,
-    fontSize: 10,
-    color: COLORS.textMuted,
-    marginTop: 6,
-    marginBottom: 14,
-  },
-  methodBtn: {
-    borderWidth: SHAPES.borderWidth,
-    borderColor: COLORS.border,
-    borderRadius: SHAPES.inputRadius,
-    backgroundColor: COLORS.card,
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 12,
-    marginBottom: 10,
-    gap: 12,
-  },
-  methodIconBox: {
-    width: 34,
-    height: 34,
-    borderWidth: SHAPES.borderWidth,
-    borderColor: COLORS.border,
-    borderRadius: SHAPES.chipRadius,
-    backgroundColor: COLORS.secondary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  methodLabel: {
-    fontFamily: FONTS.mono,
-    fontSize: 11,
-    fontWeight: "bold",
-    color: COLORS.text,
-    textTransform: "uppercase",
-  },
-  methodSub: {
-    fontFamily: FONTS.mono,
-    fontSize: 9,
-    color: COLORS.textMuted,
-    marginTop: 2,
-  },
-  methodDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: COLORS.primary,
-  },
-  cancelBtn: {
-    borderWidth: SHAPES.borderWidth,
-    borderColor: COLORS.border,
-    borderRadius: SHAPES.buttonRadius,
-    backgroundColor: COLORS.secondary,
-    paddingVertical: 11,
-    alignItems: "center",
-    marginTop: 4,
-  },
-  cancelBtnText: {
-    fontFamily: FONTS.mono,
-    fontSize: 11,
-    fontWeight: "bold",
-    color: COLORS.text,
-    letterSpacing: 1.5,
-  },
-});
+// Dynamic style generator so runtime theme switches update all UI components immediately
+const getStyles = () =>
+  StyleSheet.create({
+    floatingToast: {
+      position: "absolute",
+      top: 0,
+      left: 16,
+      right: 16,
+      zIndex: 9999,
+      borderWidth: 2,
+      borderRadius: SHAPES.inputRadius,
+      paddingHorizontal: 14,
+      paddingVertical: 11,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      shadowColor: "#121212",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.25,
+      shadowRadius: 6,
+      elevation: 10,
+    },
+    toastError: {
+      borderColor: COLORS.danger,
+      backgroundColor: "#FFF5F5",
+    },
+    toastSuccess: {
+      borderColor: "#15803D",
+      backgroundColor: "#F0FDF4",
+    },
+    floatingToastText: {
+      fontFamily: FONTS.mono,
+      fontSize: 10,
+      fontWeight: "bold",
+      flex: 1,
+    },
+    wireBox: {
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.cardRadius,
+      backgroundColor: COLORS.card,
+      padding: 12,
+    },
+    inputContainer: {
+      marginBottom: 14,
+    },
+    inputLabel: {
+      fontSize: 10,
+      fontFamily: FONTS.mono,
+      color: COLORS.textMuted,
+      marginBottom: 4,
+      textTransform: "uppercase",
+      letterSpacing: 1,
+    },
+    inputBox: {
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.inputRadius,
+      backgroundColor: COLORS.inputBg,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+    },
+    textInput: {
+      fontSize: 13,
+      fontFamily: FONTS.mono,
+      color: COLORS.text,
+      padding: 0,
+    },
+    buttonBase: {
+      width: "100%",
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.buttonRadius,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    buttonFilled: {
+      backgroundColor: COLORS.primary,
+    },
+    buttonOutline: {
+      backgroundColor: "transparent",
+    },
+    buttonTextFilled: {
+      color: COLORS.primaryText,
+      fontSize: 12,
+      fontFamily: FONTS.mono,
+      fontWeight: "bold",
+      textTransform: "uppercase",
+      letterSpacing: 1.5,
+    },
+    buttonTextOutline: {
+      color: COLORS.text,
+      fontSize: 12,
+      fontFamily: FONTS.mono,
+      fontWeight: "bold",
+      textTransform: "uppercase",
+      letterSpacing: 1.5,
+    },
+    chipBase: {
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.chipRadius,
+      paddingHorizontal: 12,
+      paddingVertical: 5,
+      marginRight: 8,
+    },
+    chipActive: {
+      backgroundColor: COLORS.primary,
+    },
+    chipInactive: {
+      backgroundColor: COLORS.card,
+    },
+    chipText: {
+      fontSize: 10,
+      fontFamily: FONTS.mono,
+      textTransform: "uppercase",
+      letterSpacing: 1,
+    },
+    chipTextActive: {
+      color: COLORS.primaryText,
+      fontWeight: "bold",
+    },
+    chipTextInactive: {
+      color: COLORS.text,
+    },
+    headerContainer: {
+      borderBottomWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      backgroundColor: COLORS.card,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    headerLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+    },
+    headerTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 15,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    headerRight: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+    },
+    avatarBox: {
+      width: 28,
+      height: 28,
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.chipRadius,
+      backgroundColor: COLORS.secondary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    bottomNavContainer: {
+      borderTopWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      backgroundColor: COLORS.card,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-around",
+      paddingTop: 8,
+      paddingBottom: 12,
+      paddingHorizontal: 8,
+    },
+    navItem: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    navLabel: {
+      fontFamily: FONTS.mono,
+      fontSize: 9,
+      color: COLORS.textMuted,
+      textTransform: "uppercase",
+      marginTop: 4,
+    },
+    navLabelActive: {
+      color: COLORS.primary,
+      fontWeight: "bold",
+    },
+    addBtnWrapper: {
+      flex: 1,
+      alignItems: "center",
+      marginTop: -22,
+    },
+    addBtn: {
+      width: 48,
+      height: 48,
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.buttonRadius,
+      backgroundColor: COLORS.primary,
+      alignItems: "center",
+      justifyContent: "center",
+      shadowColor: COLORS.text,
+      shadowOffset: { width: 2, height: 3 },
+      shadowOpacity: 0.25,
+      shadowRadius: 0,
+      elevation: 4,
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.55)",
+      justifyContent: "flex-end",
+    },
+    centerModalOverlay: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.55)",
+      justifyContent: "center",
+      alignItems: "center",
+      padding: 18,
+    },
+    calendarPopupCard: {
+      width: "100%",
+      maxWidth: 350,
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.cardRadius,
+      backgroundColor: COLORS.card,
+      padding: 16,
+    },
+    calendarContainer: {
+      width: "100%",
+    },
+    quickDateRow: {
+      flexDirection: "row",
+      gap: 8,
+      marginBottom: 10,
+    },
+    quickDateChip: {
+      flex: 1,
+      borderWidth: 1.5,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.chipRadius,
+      backgroundColor: COLORS.secondary,
+      paddingVertical: 6,
+      alignItems: "center",
+    },
+    quickDateText: {
+      fontFamily: FONTS.mono,
+      fontSize: 10,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    calHeaderRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 8,
+      paddingBottom: 6,
+      borderBottomWidth: 1,
+      borderColor: COLORS.borderMuted,
+      borderStyle: "dashed",
+    },
+    calNavBtn: {
+      padding: 5,
+      borderWidth: 1,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.chipRadius,
+      backgroundColor: COLORS.inputBg,
+    },
+    calMonthTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 12,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    weekHeaderRow: {
+      flexDirection: "row",
+      justifyContent: "space-around",
+      marginBottom: 4,
+    },
+    weekHeaderText: {
+      width: "14.2%",
+      textAlign: "center",
+      fontFamily: FONTS.mono,
+      fontSize: 9,
+      fontWeight: "bold",
+      color: COLORS.textMuted,
+    },
+    daysGridContainer: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+    },
+    dayCell: {
+      width: "14.2%",
+      aspectRatio: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: SHAPES.chipRadius,
+    },
+    dayCellSelected: {
+      backgroundColor: COLORS.primary,
+      borderWidth: 1.5,
+      borderColor: COLORS.border,
+    },
+    dayCellText: {
+      fontFamily: FONTS.mono,
+      fontSize: 11,
+      color: COLORS.text,
+    },
+    dayCellTextSelected: {
+      color: COLORS.primaryText,
+      fontWeight: "bold",
+    },
+    bottomSheetCard: {
+      backgroundColor: COLORS.card,
+      borderTopWidth: 3,
+      borderLeftWidth: 3,
+      borderRightWidth: 3,
+      borderColor: COLORS.border,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      paddingHorizontal: 18,
+      paddingBottom: 24,
+    },
+    sheetHandleWrapper: {
+      alignItems: "center",
+      paddingVertical: 12,
+    },
+    sheetHandle: {
+      width: 44,
+      height: 5,
+      borderRadius: 3,
+      backgroundColor: COLORS.borderMuted,
+    },
+    sheetTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 13,
+      fontWeight: "bold",
+      color: COLORS.text,
+      letterSpacing: 1,
+      paddingBottom: 8,
+      borderBottomWidth: SHAPES.borderWidth,
+      borderColor: COLORS.borderMuted,
+      borderStyle: "dashed",
+    },
+    sheetSubtitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 10,
+      color: COLORS.textMuted,
+      marginTop: 6,
+      marginBottom: 14,
+    },
+    methodBtn: {
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.inputRadius,
+      backgroundColor: COLORS.card,
+      flexDirection: "row",
+      alignItems: "center",
+      padding: 12,
+      marginBottom: 10,
+      gap: 12,
+    },
+    methodIconBox: {
+      width: 34,
+      height: 34,
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.chipRadius,
+      backgroundColor: COLORS.secondary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    methodLabel: {
+      fontFamily: FONTS.mono,
+      fontSize: 11,
+      fontWeight: "bold",
+      color: COLORS.text,
+      textTransform: "uppercase",
+    },
+    methodSub: {
+      fontFamily: FONTS.mono,
+      fontSize: 9,
+      color: COLORS.textMuted,
+      marginTop: 2,
+    },
+    methodDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: COLORS.primary,
+    },
+    cancelBtn: {
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.buttonRadius,
+      backgroundColor: COLORS.secondary,
+      paddingVertical: 11,
+      alignItems: "center",
+      marginTop: 4,
+    },
+    cancelBtnText: {
+      fontFamily: FONTS.mono,
+      fontSize: 11,
+      fontWeight: "bold",
+      color: COLORS.text,
+      letterSpacing: 1.5,
+    },
+  });

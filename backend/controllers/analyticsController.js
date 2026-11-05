@@ -284,7 +284,7 @@ const runAnalyticsEngine = async (userId) => {
     });
   }
 
-  // Step 8: Upsert (overwrite/update) the latest prediction snapshot in the AllInsightsPrediction collection
+  // Step 8: Upsert the latest prediction snapshot in the AllInsightsPrediction collection
   try {
     await AllInsightsPrediction.findOneAndUpdate(
       { userId },
@@ -296,10 +296,9 @@ const runAnalyticsEngine = async (userId) => {
         actionableChecklist: checklistItems.map((c) => `${c.text} (${c.impact})`),
         generatedAt: new Date(),
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
     );
   } catch (dbSyncErr) {
-    // Non-blocking sync warning in case schema field names vary slightly
     console.log("Prediction snapshot sync note:", dbSyncErr.message);
   }
 
@@ -327,7 +326,7 @@ const runAnalyticsEngine = async (userId) => {
 };
 
 // 3. HTTP GET Handler for /api/analytics/:userId
-exports.getUserAnalytics = async (req, res) => {
+exports.getAnalytics = async (req, res) => {
   try {
     // Step 1: Extract userId parameter
     const { userId } = req.params;

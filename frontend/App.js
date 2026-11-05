@@ -20,6 +20,9 @@ import ProfileScreen from "./src/screens/ProfileScreen";
 
 // Root Application Component coordinating navigation across all 9 screens
 export default function App() {
+  // Dynamically generate styles on every render so runtime theme switches apply immediately
+  const styles = getStyles();
+
   // Track authenticated user, active screen tab, OCR mode, modal state, and theme key
   const [currentUser, setCurrentUser] = useState(null);
   const [activeTab, setActiveTab] = useState("home");
@@ -152,8 +155,9 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-  },
-});
+const getStyles = () =>
+  StyleSheet.create({
+    safeArea: {
+      flex: 1,
+    },
+  });

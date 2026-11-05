@@ -3,8 +3,8 @@ const Notification = require("../models/Notification");
 const Transaction = require("../models/Transaction");
 const Budget = require("../models/Budget");
 
-// 1. Fetch the latest 50 notifications for a specific user (GET /api/notifications/:userId)
-exports.getUserNotifications = async (req, res) => {
+// 1. Fetch the latest 50 notifications for a user (GET /api/notifications/:userId)
+exports.getNotifications = async (req, res) => {
   try {
     // Step 1: Extract userId from route parameters
     const { userId } = req.params;
@@ -45,8 +45,8 @@ exports.markAsRead = async (req, res) => {
       });
     }
 
-    // Step 2: Update isRead flag to true in MongoDB
-    const notification = await Notification.findByIdAndUpdate(id, { isRead: true }, { new: true });
+    // Step 2: Update isRead flag to true in MongoDB using returnDocument: 'after'
+    const notification = await Notification.findByIdAndUpdate(id, { isRead: true }, { returnDocument: "after" });
 
     // Validation 2: Check if the notification document exists
     if (!notification) {
@@ -153,7 +153,6 @@ const evaluateAndSyncBudgetAlert = async (userId) => {
   const ratio = (totalSpent / limit) * 100;
 
   if (totalSpent > limit) {
-    // Upsert unread ALERT notification with latest overrun numbers instead of creating duplicates
     await Notification.findOneAndUpdate(
       { userId, tag: "ALERT", isRead: false },
       {
@@ -163,10 +162,9 @@ const evaluateAndSyncBudgetAlert = async (userId) => {
         tag: "ALERT",
         isRead: false,
       },
-      { upsert: true, new: true, sort: { createdAt: -1 } },
+      { upsert: true, returnDocument: "after", sort: { createdAt: -1 } },
     );
   } else if (ratio >= 80) {
-    // Upsert unread ALERT notification with latest 80%+ warning numbers
     await Notification.findOneAndUpdate(
       { userId, tag: "ALERT", isRead: false },
       {
@@ -176,10 +174,9 @@ const evaluateAndSyncBudgetAlert = async (userId) => {
         tag: "ALERT",
         isRead: false,
       },
-      { upsert: true, new: true, sort: { createdAt: -1 } },
+      { upsert: true, returnDocument: "after", sort: { createdAt: -1 } },
     );
   } else {
-    // If user raised their budget or edited/deleted an expense and is now safely < 80%, remove outdated unread ALERT
     await Notification.deleteMany({ userId, tag: "ALERT", isRead: false });
   }
 };
@@ -194,7 +191,7 @@ exports.triggerTransactionNotifications = async (savedTx, isUpdate = false) => {
     const amtFormatted = Number(savedTx.amount).toFixed(2);
     const merchant = savedTx.merchantName || "Merchant";
 
-    // Step 1: Only create new OCR or Large Expense TXN card on new creation (not on minor edits)
+    // Step 1: Only create new OCR or Large Expense TXN card on new creation
     if (!isUpdate) {
       if (isOcr) {
         await Notification.create({
@@ -236,7 +233,7 @@ exports.triggerBudgetGoalNotification = async (userId, monthlyLimit, savingsTarg
         tag: "GOAL",
         isRead: false,
       },
-      { upsert: true, new: true, sort: { createdAt: -1 } },
+      { upsert: true, returnDocument: "after", sort: { createdAt: -1 } },
     );
 
     // Step 2: Immediately re-check whether the new budget limit triggers or clears an 80%/100% ALERT
