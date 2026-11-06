@@ -1,92 +1,152 @@
-// Import React hooks, native UI components, and Lucide icons
+// Import React hooks, core React Native UI primitives, Modal, and Lucide icons
 import React, { useState, useEffect } from "react";
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, StyleSheet } from "react-native";
-import { Sparkles, Check, AlertTriangle, CheckCircle2, RotateCcw, Lock, Calendar } from "lucide-react-native";
+import { View, Text, ScrollView, TouchableOpacity, Modal, ActivityIndicator, StyleSheet } from "react-native";
+import { Sparkles, Sliders, Info, Lock, Check, X, ChevronDown, ChevronUp, PiggyBank } from "lucide-react-native";
 import apiClient from "../api/client";
 import { COLORS, SHAPES, FONTS } from "../theme/theme";
-import { WireBox, WireInput, WireButton, FloatingToast, useFloatingToast } from "../components/WireUI";
+import { WireBox, WireInput, WireButton, FloatingToast, useFloatingToast, getSixMonthWindow, playUiSound } from "../components/WireUI";
 import { CATEGORY_CONFIG, CategoryBadge } from "../utils/categoryIcons";
 
-const STARTER_BASELINE_RM = 2500;
-const MIN_EXPENSE_RECORDS_FOR_AI = 5;
+// 1. Exact Category Bucket Mapping matching Backend Transaction.js Schema Enums
+const NEEDS_CATEGORY_KEYS = ["FOOD_AND_DRINK", "TRANSPORT", "BILLS_AND_UTILITIES", "GROCERIES", "HEALTHCARE", "EDUCATION", "HOUSING"];
 
-const ALLOCATION_PRESETS = [
+const WANTS_CATEGORY_KEYS = ["ENTERTAINMENT", "SHOPPING", "OTHER_EXPENSE"];
+
+// Helper to check if a transaction category belongs to Needs or Wants
+const getCategoryBucketType = (categoryKey) => {
+  if (NEEDS_CATEGORY_KEYS.includes(categoryKey)) return "needs";
+  if (WANTS_CATEGORY_KEYS.includes(categoryKey)) return "wants";
+  return "wants";
+};
+
+// 2. Define the 3 Allocation Presets (Clean labels without "Primary baseline" or "Proposed alt")
+const BUDGET_PRESETS = [
   {
-    id: "BALANCED_50_30_20",
-    name: "Balanced Plan",
-    badge: "50 / 30 / 20",
-    limitRatio: 0.8,
-    savingsRatio: 0.2,
-    desc: "80% Spending (50% Needs + 30% Wants) • 20% Savings",
+    id: "50_30_20",
+    name: "Balanced",
+    ratioLabel: "50 / 30 / 20",
+    needsPct: 50,
+    wantsPct: 30,
+    savingsPct: 20,
+    desc: "A recognised budgeting approach explained in KWSP financial education material. Provides a balanced starting point for essential expenses, lifestyle spending and savings.",
   },
   {
-    id: "SAVER_50_20_30",
-    name: "Aggressive Saver",
-    badge: "50 / 20 / 30",
-    limitRatio: 0.7,
-    savingsRatio: 0.3,
-    desc: "70% Spending (50% Needs + 20% Wants) • 30% Savings",
+    id: "50_20_30",
+    name: "Fast Saver",
+    ratioLabel: "50 / 20 / 30",
+    needsPct: 50,
+    wantsPct: 20,
+    savingsPct: 30,
+    desc: "Allocates 30% of income towards savings by trimming discretionary lifestyle spending down to 20%.",
   },
   {
-    id: "FLEX_60_25_15",
-    name: "Flexible Living",
-    badge: "60 / 25 / 15",
-    limitRatio: 0.85,
-    savingsRatio: 0.15,
-    desc: "85% Spending (60% Needs + 25% Wants) • 15% Savings",
+    id: "60_25_15",
+    name: "Student-Friendly",
+    ratioLabel: "60 / 25 / 15",
+    needsPct: 60,
+    wantsPct: 25,
+    savingsPct: 15,
+    desc: "Allocates 60% of income towards essential expenses such as food, accommodation and transportation.",
   },
 ];
 
-// Helper: Generate the 6-month window (oldest to newest)
-const getSixMonthWindow = () => {
-  const list = [];
-  const now = new Date();
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    const shortMonth = d.toLocaleDateString("en-US", { month: "short" });
-    const label = d.toLocaleDateString("en-US", {
-      month: "short",
-      year: "numeric",
-    });
-    list.push({
-      key,
-      shortMonth,
-      label,
-      year: d.getFullYear(),
-      month: d.getMonth(),
-      monthNum: d.getMonth() + 1,
-      isCurrentMonth: i === 0,
-    });
+// 3. Dynamic AI Preset Recommender based on user's actual transaction patterns
+const computeAiPresetRecommendation = (transactions, baselineIncome) => {
+  const expenseTxs = transactions.filter((t) => t.type === "EXPENSE");
+  if (expenseTxs.length === 0) {
+    return {
+      presetId: "50_30_20",
+      reasons: [
+        "No historical expenses recorded yet — starting with the balanced 50/30/20 allocation.",
+        "Allocates 80% (50% Needs + 30% Wants) to monthly spending and 20% to savings.",
+        "As you log more transactions, Ka-Ching! will tailor this suggestion to your habits.",
+      ],
+    };
   }
-  return list;
+
+  let needsTotal = 0;
+  let wantsTotal = 0;
+  let foodAndTransportCount = 0;
+
+  expenseTxs.forEach((tx) => {
+    const amt = Number(tx.amount) || 0;
+    const cat = tx.category || "OTHER_EXPENSE";
+    if (getCategoryBucketType(cat) === "needs") {
+      needsTotal += amt;
+    } else {
+      wantsTotal += amt;
+    }
+    if (cat === "FOOD_AND_DRINK" || cat === "TRANSPORT") {
+      foodAndTransportCount += 1;
+    }
+  });
+
+  const totalSpent = needsTotal + wantsTotal;
+  const essentialShareOfSpend = totalSpent > 0 ? Math.round((needsTotal / totalSpent) * 100) : 50;
+  const essentialShareOfIncome = baselineIncome > 0 ? Math.round((needsTotal / baselineIncome) * 100) : 50;
+  const totalSpendShareOfIncome = baselineIncome > 0 ? Math.round((totalSpent / baselineIncome) * 100) : 70;
+
+  // Rule A: High essential share -> Recommend Student-Friendly (60/25/15)
+  if (essentialShareOfSpend >= 62 || essentialShareOfIncome >= 55) {
+    return {
+      presetId: "60_25_15",
+      reasons: [
+        `Your essential expenses (RM ${needsTotal.toFixed(0)}) account for ${essentialShareOfSpend}% of your total spending.`,
+        `Food and transportation make up ${foodAndTransportCount} recurring expense records in your history.`,
+        "This 60/25/15 allocation provides a larger 60% buffer for essential living costs.",
+      ],
+    };
+  }
+
+  // Rule B: Low overall spending relative to income -> Recommend Fast Saver (50/20/30)
+  if (totalSpendShareOfIncome <= 65 && wantsTotal <= needsTotal * 0.45) {
+    return {
+      presetId: "50_20_30",
+      reasons: [
+        `Your discretionary (Wants) spending is well-controlled at RM ${wantsTotal.toFixed(0)}.`,
+        `Your total spending uses only ${totalSpendShareOfIncome}% of your RM ${baselineIncome.toFixed(0)} baseline income.`,
+        "This 50/20/30 allocation helps you lock in a higher 30% monthly savings rate.",
+      ],
+    };
+  }
+
+  // Rule C: Default -> Recommend Balanced (50/30/20)
+  return {
+    presetId: "50_30_20",
+    reasons: [
+      `Your spending is balanced (${essentialShareOfSpend}% essentials vs ${100 - essentialShareOfSpend}% lifestyle wants).`,
+      `Allocates RM ${(baselineIncome * 0.8).toFixed(0)} for monthly spending and RM ${(baselineIncome * 0.2).toFixed(0)} for savings.`,
+      "Provides a sustainable 50% Needs, 30% Wants, and 20% Savings split.",
+    ],
+  };
 };
 
-const RAW_SIX_MONTHS = getSixMonthWindow();
-const CURRENT_MONTH_KEY = RAW_SIX_MONTHS[RAW_SIX_MONTHS.length - 1].key;
-
-// Budget Planning & Read-Only Historical Budget Archive Screen
+// Budget Planning Screen with AI Recommendation, Accurate Bucket Breakdown & Read-Only Archive
 export default function BudgetScreen({ user }) {
-  // Dynamically generate styles on every render so runtime theme switches apply immediately
   const styles = getStyles();
 
-  // 1. State for current month editable inputs and historical budget records
+  // 1. Generate 6-month window and track selected month
+  const sixMonthList = getSixMonthWindow();
+  const [selectedMonthKey, setSelectedMonthKey] = useState(sixMonthList[sixMonthList.length - 1].key);
+
+  // 2. State for transactions, budgets, active mode, selected preset, and modals
+  const [transactions, setTransactions] = useState([]);
+  const [budgetHistoryMap, setBudgetHistoryMap] = useState({});
+  const [activeMode, setActiveMode] = useState("smart");
+  const [selectedPresetId, setSelectedPresetId] = useState("50_30_20");
+  const [activeBucketTab, setActiveBucketTab] = useState("needs");
+  const [showWhyReasons, setShowWhyReasons] = useState(false);
+  const [showHowItWorksModal, setShowHowItWorksModal] = useState(false);
+
+  // Manual form inputs
   const [monthlyLimitInput, setMonthlyLimitInput] = useState("");
   const [savingsTargetInput, setSavingsTargetInput] = useState("");
-  const [savedLimit, setSavedLimit] = useState(0);
-  const [savedSavings, setSavedSavings] = useState(0);
-  const [budgetHistory, setBudgetHistory] = useState([]);
-  const [previousBudgetBackup, setPreviousBudgetBackup] = useState(null);
-
-  const [transactions, setTransactions] = useState([]);
-  const [selectedMonthKey, setSelectedMonthKey] = useState(CURRENT_MONTH_KEY);
-  const [selectedPresetId, setSelectedPresetId] = useState("BALANCED_50_30_20");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const { toast, slideAnim, showToast } = useFloatingToast();
 
-  // 2. Fetch budget history and transactions on mount
+  // 3. Load transactions and budget history on mount
   useEffect(() => {
     fetchBudgetAndTransactions();
   }, []);
@@ -94,23 +154,30 @@ export default function BudgetScreen({ user }) {
   const fetchBudgetAndTransactions = async () => {
     try {
       setLoading(true);
-      const [budgetRes, txRes] = await Promise.all([apiClient.get(`/budgets/${user.id}`), apiClient.get(`/transactions/${user.id}`)]);
+      const [txRes, budgetRes] = await Promise.all([apiClient.get(`/transactions/${user.id}`), apiClient.get(`/budgets/${user.id}`)]);
 
-      if (budgetRes.data) {
-        const b = budgetRes.data.data;
-        const hist = budgetRes.data.history || [];
-        setBudgetHistory(hist);
-        if (b) {
-          setSavedLimit(b.monthlyLimit || 0);
-          setSavedSavings(b.savingsTarget || 0);
-          setMonthlyLimitInput(b.monthlyLimit ? String(b.monthlyLimit) : "");
-          setSavingsTargetInput(b.savingsTarget ? String(b.savingsTarget) : "");
+      const txList = txRes.data?.data || [];
+      setTransactions(txList);
+
+      const currentBudget = budgetRes.data?.data;
+      const historyList = budgetRes.data?.history || [];
+      const map = {};
+
+      historyList.forEach((b) => {
+        if (b.year && b.month) {
+          const k = `${b.year}-${String(b.month).padStart(2, "0")}`;
+          map[k] = b;
         }
+      });
+
+      if (currentBudget) {
+        const currentKey = sixMonthList[sixMonthList.length - 1].key;
+        if (!map[currentKey]) map[currentKey] = currentBudget;
+        setMonthlyLimitInput(String(currentBudget.monthlyLimit || ""));
+        setSavingsTargetInput(String(currentBudget.savingsTarget || ""));
       }
 
-      if (txRes.data && txRes.data.data) {
-        setTransactions(txRes.data.data);
-      }
+      setBudgetHistoryMap(map);
     } catch (error) {
       console.log("Failed to load budget data:", error.message);
     } finally {
@@ -118,227 +185,338 @@ export default function BudgetScreen({ user }) {
     }
   };
 
-  // 3. Sanitize numeric input fields
-  const sanitizeDecimalInput = (rawText, setter, fieldName) => {
-    if (/[^0-9.]/.test(rawText)) {
-      showToast("error", `${fieldName}: Only numbers and a decimal point are allowed.`);
-      return;
-    }
-    const parts = rawText.split(".");
-    if (parts.length > 2) return;
-    if (parts.length === 2 && parts[1].length > 2) return;
-    setter(rawText);
-  };
-
-  // 4. Enrich the 6 months with transactions and matched historical budgets
-  const enrichedMonths = RAW_SIX_MONTHS.map((mObj) => {
-    const monthTxs = transactions.filter((tx) => {
+  // 4. Trim leading empty months (same contiguous 6-month rule as Dashboard)
+  const monthActivityFlags = sixMonthList.map((m) => {
+    const hasTx = transactions.some((tx) => {
       if (!tx.date) return false;
       const d = new Date(tx.date);
-      return d.getFullYear() === mObj.year && d.getMonth() === mObj.month;
+      return d.getFullYear() === m.year && d.getMonth() === m.month;
     });
-
-    let income = 0;
-    let expense = 0;
-    let expenseCount = 0;
-    const catMap = {};
-
-    monthTxs.forEach((tx) => {
-      const amt = Number(tx.amount) || 0;
-      if (tx.type === "INCOME") {
-        income += amt;
-      } else if (tx.type === "EXPENSE") {
-        expense += amt;
-        expenseCount += 1;
-        catMap[tx.category] = (catMap[tx.category] || 0) + amt;
-      }
-    });
-
-    const matchedBudget = budgetHistory.find((b) => b.year === mObj.year && b.month === mObj.monthNum);
-
-    const effectiveLimit = mObj.isCurrentMonth ? savedLimit : (matchedBudget?.monthlyLimit ?? savedLimit);
-
-    const effectiveSavings = mObj.isCurrentMonth ? savedSavings : (matchedBudget?.savingsTarget ?? savedSavings);
-
-    const categories = Object.entries(catMap)
-      .map(([catKey, amount]) => {
-        const cfg = CATEGORY_CONFIG[catKey] || CATEGORY_CONFIG.OTHER_EXPENSE;
-        const pctOfLimit = effectiveLimit > 0 ? Math.round((amount / effectiveLimit) * 100) : 0;
-        const pctOfSpend = expense > 0 ? Math.round((amount / expense) * 100) : 0;
-        return {
-          category: catKey,
-          label: cfg.label,
-          amount,
-          pctOfLimit,
-          pctOfSpend,
-          iconColor: cfg.iconColor || COLORS.primary,
-        };
-      })
-      .sort((a, b) => b.amount - a.amount);
-
-    return {
-      ...mObj,
-      income,
-      expense,
-      expenseCount,
-      effectiveLimit,
-      effectiveSavings,
-      hasData: monthTxs.length > 0 || Boolean(matchedBudget),
-      categories,
-    };
+    const hasSavedBudget = Boolean(budgetHistoryMap[m.key]);
+    return hasTx || hasSavedBudget;
   });
 
-  // Trim leading empty months while keeping middle gap months
-  const firstActiveIdx = enrichedMonths.findIndex((m) => m.hasData);
-  const visibleMonths = firstActiveIdx === -1 ? [enrichedMonths[enrichedMonths.length - 1]] : enrichedMonths.slice(firstActiveIdx);
+  const firstActiveIdx = monthActivityFlags.findIndex((flag) => flag === true);
+  const visibleMonths = firstActiveIdx === -1 ? [sixMonthList[sixMonthList.length - 1]] : sixMonthList.slice(firstActiveIdx);
 
-  const activeMonth = enrichedMonths.find((m) => m.key === selectedMonthKey) || enrichedMonths[enrichedMonths.length - 1];
+  const activeMonthObj = visibleMonths.find((m) => m.key === selectedMonthKey) || visibleMonths[visibleMonths.length - 1];
+  const isCurrentMonthSelected = activeMonthObj.isCurrentMonth;
 
-  const isCurrentMonthSelected = activeMonth.isCurrentMonth;
-
-  // 5. Compute AI Recommendation for Current Month
-  const currentMonthObj = enrichedMonths[enrichedMonths.length - 1];
-  const currentPreset = ALLOCATION_PRESETS.find((p) => p.id === selectedPresetId) || ALLOCATION_PRESETS[0];
-
-  let totalAllExpense = 0;
-  let totalAllExpenseCount = 0;
-  const distinctExpenseMonths = new Set();
+  // 5. Compute selected month's income, total spent, and exact per-category expenses
+  let selectedMonthSpent = 0;
+  let selectedMonthIncome = 0;
+  let actualNeedsSpent = 0;
+  let actualWantsSpent = 0;
+  const categorySpendMap = {};
 
   transactions.forEach((tx) => {
-    if (tx.type === "EXPENSE" && tx.date) {
-      const d = new Date(tx.date);
-      totalAllExpense += Number(tx.amount) || 0;
-      totalAllExpenseCount += 1;
-      distinctExpenseMonths.add(`${d.getFullYear()}-${d.getMonth()}`);
+    if (!tx.date) return;
+    const d = new Date(tx.date);
+    const amt = Number(tx.amount) || 0;
+    if (d.getFullYear() === activeMonthObj.year && d.getMonth() === activeMonthObj.month) {
+      if (tx.type === "EXPENSE" && amt > 0) {
+        selectedMonthSpent += amt;
+        const catKey = tx.category || "OTHER_EXPENSE";
+        categorySpendMap[catKey] = (categorySpendMap[catKey] || 0) + amt;
+
+        if (getCategoryBucketType(catKey) === "needs") {
+          actualNeedsSpent += amt;
+        } else {
+          actualWantsSpent += amt;
+        }
+      } else if (tx.type === "INCOME" && amt > 0) {
+        selectedMonthIncome += amt;
+      }
     }
   });
 
-  const activeMonthCount = Math.max(1, distinctExpenseMonths.size);
-  const avgHistoricalMonthlyExpense = totalAllExpense / activeMonthCount;
-  const hasRealisticMonthlyIncome = currentMonthObj.income >= 500 && currentMonthObj.income >= currentMonthObj.expense;
-  const hasEnoughExpenseData = totalAllExpenseCount >= MIN_EXPENSE_RECORDS_FOR_AI;
+  const baselineIncome = selectedMonthIncome > 0 ? selectedMonthIncome : 3000;
 
-  let baselineIncomeForAI = STARTER_BASELINE_RM;
-  let aiTierTitle = "Starter Baseline (RM 2,500)";
-  let aiTierReason = "";
+  // 6. Compute AI Recommendation and auto-select on initial load
+  const aiRec = computeAiPresetRecommendation(transactions, baselineIncome);
+  useEffect(() => {
+    if (aiRec?.presetId) {
+      setSelectedPresetId(aiRec.presetId);
+    }
+  }, [transactions.length, baselineIncome]);
 
-  if (hasRealisticMonthlyIncome) {
-    baselineIncomeForAI = currentMonthObj.income;
-    aiTierTitle = `Based on Your Income (RM ${currentMonthObj.income.toFixed(0)})`;
-    aiTierReason = `Calculated from your recorded income of RM ${currentMonthObj.income.toFixed(2)} this month using the ${currentPreset.name} (${currentPreset.badge}) rule.`;
-  } else if (hasEnoughExpenseData) {
-    const safeExpenseReference = Math.max(avgHistoricalMonthlyExpense, currentMonthObj.expense * 1.15);
-    baselineIncomeForAI = Math.max(1000, Math.round(safeExpenseReference / currentPreset.limitRatio / 50) * 50);
-    aiTierTitle = `Based on Your Spending (${totalAllExpenseCount} Records)`;
-    aiTierReason =
-      currentMonthObj.income > 0 && currentMonthObj.income < 500
-        ? `Your RM ${currentMonthObj.income.toFixed(0)} income entry looks like a one-off gift, so we based this on your real spending (RM ${currentMonthObj.expense.toFixed(0)} spent) with a 15% safety buffer.`
-        : `You logged ${totalAllExpenseCount} expenses (RM ${currentMonthObj.expense.toFixed(0)} this month). We added a 15% safety buffer so your budget stays positive.`;
-  } else {
-    const recordsNeeded = Math.max(1, MIN_EXPENSE_RECORDS_FOR_AI - totalAllExpenseCount);
-    baselineIncomeForAI = Math.max(STARTER_BASELINE_RM, Math.ceil((currentMonthObj.expense * 1.25) / 100) * 100);
-    aiTierTitle = `Starter Guide (${totalAllExpenseCount}/${MIN_EXPENSE_RECORDS_AI_SAFE(MIN_EXPENSE_RECORDS_FOR_AI)} Expenses Added)`;
-    aiTierReason = `Add ${recordsNeeded} more expense ${recordsNeeded === 1 ? "record" : "records"} (or log your monthly salary/allowance) to unlock a personalized recommendation. Using a RM ${baselineIncomeForAI} starter baseline for now.`;
-  }
+  const activePreset = BUDGET_PRESETS.find((p) => p.id === selectedPresetId) || BUDGET_PRESETS[0];
 
-  const recommendedLimit = Math.round(baselineIncomeForAI * currentPreset.limitRatio);
-  const recommendedSavings = Math.round(baselineIncomeForAI * currentPreset.savingsRatio);
+  const needsAllowance = Math.round((baselineIncome * activePreset.needsPct) / 100);
+  const wantsAllowance = Math.round((baselineIncome * activePreset.wantsPct) / 100);
+  const recommendedLimit = needsAllowance + wantsAllowance;
+  const recommendedSavings = Math.round((baselineIncome * activePreset.savingsPct) / 100);
 
-  // 6. Save Current Month Budget Handler
-  const handleSaveBudget = async (limitVal = monthlyLimitInput, savingsVal = savingsTargetInput, isAutoApply = false) => {
+  // 7. Determine active budget for the selected month
+  const savedBudgetForMonth = budgetHistoryMap[activeMonthObj.key] || (isCurrentMonthSelected ? Object.values(budgetHistoryMap)[0] || null : null);
+
+  const activeLimit = savedBudgetForMonth?.monthlyLimit || 0;
+  const activeSavings = savedBudgetForMonth?.savingsTarget || 0;
+  const usagePct = activeLimit > 0 ? Math.min(100, (selectedMonthSpent / activeLimit) * 100) : 0;
+  const isOverBudget = activeLimit > 0 && selectedMonthSpent > activeLimit;
+
+  // Projected Net Savings = Income - Total Spent
+  const projectedNetSavings = Math.max(0, baselineIncome - selectedMonthSpent);
+  const targetSavingsGoal = activeSavings > 0 ? activeSavings : recommendedSavings;
+  const savingsProgressPct = targetSavingsGoal > 0 ? Math.min(100, Math.round((projectedNetSavings / targetSavingsGoal) * 100)) : 0;
+
+  // 8. Build NON-ZERO category breakdown lists for Needs and Wants (No 0% empty items!)
+  const getNonZeroBucketCategories = (bucketType, bucketTotalSpent) => {
+    const allowedKeys = bucketType === "needs" ? NEEDS_CATEGORY_KEYS : WANTS_CATEGORY_KEYS;
+
+    return allowedKeys
+      .map((catKey) => {
+        const spent = categorySpendMap[catKey] || 0;
+        const cfg = CATEGORY_CONFIG[catKey] || {
+          label: catKey.replace(/_/g, " "),
+          iconColor: COLORS.primary,
+        };
+        const sharePct = bucketTotalSpent > 0 ? Math.round((spent / bucketTotalSpent) * 100) : 0;
+        return {
+          catKey,
+          label: cfg.label,
+          color: cfg.iconColor || COLORS.primary,
+          spent,
+          sharePct,
+        };
+      })
+      .filter((item) => item.spent > 0) // Strictly hide 0% / RM 0 categories!
+      .sort((a, b) => b.spent - a.spent);
+  };
+
+  const needsCategoryList = getNonZeroBucketCategories("needs", actualNeedsSpent);
+  const wantsCategoryList = getNonZeroBucketCategories("wants", actualWantsSpent);
+
+  // 9. Save Budget Handler (Current Month Only)
+  const handleSaveBudget = async (limitVal, savingsVal) => {
     if (!isCurrentMonthSelected) {
-      showToast("error", "Past month budgets are read-only.");
+      showToast("error", "Past months are read-only.");
       return;
     }
 
-    const parsedLimit = parseFloat(limitVal);
-    const parsedSavings = savingsVal === "" ? 0 : parseFloat(savingsVal);
+    const parsedLimit = Number(limitVal);
+    const parsedSavings = Number(savingsVal || 0);
 
-    if (!limitVal || isNaN(parsedLimit) || parsedLimit <= 0) {
-      showToast("error", "Please enter a Monthly Spending Limit greater than RM 0.");
-      return;
-    }
-    if (isNaN(parsedSavings) || parsedSavings < 0) {
-      showToast("error", "Please enter a valid Savings Target (RM 0 or more).");
+    if (isNaN(parsedLimit) || parsedLimit <= 0) {
+      showToast("error", "Enter a valid spending limit > RM 0.");
       return;
     }
 
     try {
       setSaving(true);
-      if (savedLimit > 0 || savedSavings > 0) {
-        setPreviousBudgetBackup({
-          limit: savedLimit,
-          savings: savedSavings,
-        });
-      }
-
-      const now = new Date();
-      await apiClient.post("/budgets", {
+      const res = await apiClient.post("/budgets", {
         userId: user.id,
-        monthlyLimit: Number(parsedLimit.toFixed(2)),
-        savingsTarget: Number(parsedSavings.toFixed(2)),
-        month: now.getMonth() + 1,
-        year: now.getFullYear(),
+        monthlyLimit: parsedLimit,
+        savingsTarget: parsedSavings,
+        month: activeMonthObj.monthNum,
+        year: activeMonthObj.year,
       });
 
-      setSavedLimit(Number(parsedLimit.toFixed(2)));
-      setSavedSavings(Number(parsedSavings.toFixed(2)));
-      setMonthlyLimitInput(String(Number(parsedLimit.toFixed(2))));
-      setSavingsTargetInput(String(Number(parsedSavings.toFixed(2))));
-
-      showToast("success", isAutoApply ? `Applied ${currentPreset.name}: RM ${parsedLimit.toFixed(0)} limit!` : "Current month budget saved!");
-      fetchBudgetAndTransactions();
+      const savedDoc = res.data?.data;
+      setBudgetHistoryMap((prev) => ({
+        ...prev,
+        [activeMonthObj.key]: savedDoc,
+      }));
+      setMonthlyLimitInput(String(parsedLimit));
+      setSavingsTargetInput(String(parsedSavings));
+      playUiSound("success");
+      showToast("success", "Monthly budget updated!");
     } catch (error) {
-      const msg = error.response?.data?.message || "Failed to save budget.";
-      showToast("error", msg);
+      showToast("error", error.response?.data?.message || "Failed to save budget.");
     } finally {
       setSaving(false);
     }
   };
 
-  const handleUndoBudgetChange = async () => {
-    if (!previousBudgetBackup) return;
-    const { limit, savings } = previousBudgetBackup;
-    setPreviousBudgetBackup(null);
-    await handleSaveBudget(String(limit), String(savings), false);
-    showToast("success", `Restored previous budget (RM ${limit.toFixed(0)}).`);
-  };
+  // Helper to render the 3 interactive bucket cards + per-category breakdown
+  const renderBucketBreakdownSection = (needsCap, wantsCap, saveGoal, sectionTitle = "TAP ANY BUCKET TO INSPECT CATEGORIES") => {
+    const activeCap = activeBucketTab === "needs" ? needsCap : activeBucketTab === "wants" ? wantsCap : saveGoal;
+    const activeSpent = activeBucketTab === "needs" ? actualNeedsSpent : activeBucketTab === "wants" ? actualWantsSpent : projectedNetSavings;
+    const bucketProgressPct = activeCap > 0 ? Math.min(100, Math.round((activeSpent / activeCap) * 100)) : 0;
+    const activeCategoryRows = activeBucketTab === "needs" ? needsCategoryList : wantsCategoryList;
 
-  // Metrics for currently selected month (Current or Historical)
-  const displayLimit = activeMonth.effectiveLimit;
-  const displaySavings = activeMonth.effectiveSavings;
-  const displayExpense = activeMonth.expense;
-  const remainingBudget = displayLimit - displayExpense;
-  const rawProgressPct = displayLimit > 0 ? (displayExpense / displayLimit) * 100 : 0;
-  const clampedBarWidth = Math.min(100, Math.max(0, rawProgressPct));
-  const isOverBudget = displayLimit > 0 && displayExpense > displayLimit;
-  const isNearLimit = displayLimit > 0 && !isOverBudget && rawProgressPct >= 80;
-  const statusColor = isOverBudget ? COLORS.danger : isNearLimit ? "#D97706" : "#16A34A";
-
-  if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="small" color={COLORS.primary} />
+      <View style={{ marginTop: 4 }}>
+        <Text style={styles.tapBucketHint}>{sectionTitle}</Text>
+
+        {/* 3-Column Interactive Bucket Row */}
+        <View style={styles.bucketRow}>
+          <TouchableOpacity
+            style={[styles.bucketPill, activeBucketTab === "needs" && styles.bucketPillActive]}
+            onPress={() => {
+              playUiSound("tab");
+              setActiveBucketTab("needs");
+            }}
+          >
+            <Text style={styles.bucketTitle}>Needs ({activePreset.needsPct}%)</Text>
+            <Text style={styles.bucketAmount}>RM {needsCap}</Text>
+            <Text style={styles.bucketSpentSub}>Spent: RM {actualNeedsSpent.toFixed(0)}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.bucketPill, activeBucketTab === "wants" && styles.bucketPillActive]}
+            onPress={() => {
+              playUiSound("tab");
+              setActiveBucketTab("wants");
+            }}
+          >
+            <Text style={styles.bucketTitle}>Wants ({activePreset.wantsPct}%)</Text>
+            <Text style={styles.bucketAmount}>RM {wantsCap}</Text>
+            <Text style={styles.bucketSpentSub}>Spent: RM {actualWantsSpent.toFixed(0)}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.bucketPill, activeBucketTab === "savings" && styles.bucketPillActive]}
+            onPress={() => {
+              playUiSound("tab");
+              setActiveBucketTab("savings");
+            }}
+          >
+            <Text style={styles.bucketTitle}>Save ({activePreset.savingsPct}%)</Text>
+            <Text style={[styles.bucketAmount, { color: "#15803D" }]}>RM {saveGoal}</Text>
+            <Text style={styles.bucketSpentSub}>Est: RM {projectedNetSavings.toFixed(0)}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Detailed Drawer for the Selected Bucket */}
+        <View style={styles.bucketDetailBox}>
+          {activeBucketTab === "savings" ? (
+            /* SAVINGS BUCKET VIEW: Clear Income - Spent = Projected Savings Tracker */
+            <View>
+              <View style={styles.bucketProgressHeader}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <PiggyBank size={14} color="#15803D" strokeWidth={2.5} />
+                  <Text style={styles.bucketDetailTitle}>SAVINGS GOAL PROGRESS ({savingsProgressPct}%)</Text>
+                </View>
+                <Text style={[styles.bucketProgressRatio, { color: "#15803D" }]}>
+                  RM {projectedNetSavings.toFixed(0)} / RM {saveGoal}
+                </Text>
+              </View>
+
+              <View style={styles.progressTrackSmall}>
+                <View
+                  style={[
+                    styles.progressFillSmall,
+                    {
+                      width: `${savingsProgressPct}%`,
+                      backgroundColor: "#16A34A",
+                    },
+                  ]}
+                />
+              </View>
+
+              <View style={styles.savingsFormulaCard}>
+                <View style={styles.savingsFormulaRow}>
+                  <Text style={styles.savingsFormulaLabel}>Baseline Monthly Income</Text>
+                  <Text style={styles.savingsFormulaVal}>+RM {baselineIncome.toFixed(2)}</Text>
+                </View>
+                <View style={styles.savingsFormulaRow}>
+                  <Text style={styles.savingsFormulaLabel}>Less: Total Expenses So Far</Text>
+                  <Text style={[styles.savingsFormulaVal, { color: "#E11D48" }]}>-RM {selectedMonthSpent.toFixed(2)}</Text>
+                </View>
+                <View
+                  style={[
+                    styles.savingsFormulaRow,
+                    {
+                      borderTopWidth: 1,
+                      borderColor: COLORS.borderMuted,
+                      paddingTop: 6,
+                      marginTop: 4,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.savingsFormulaLabel, { fontWeight: "bold", color: COLORS.text }]}>Projected Month-End Savings</Text>
+                  <Text style={[styles.savingsFormulaVal, { color: "#15803D", fontSize: 10.5 }]}>RM {projectedNetSavings.toFixed(2)}</Text>
+                </View>
+              </View>
+            </View>
+          ) : (
+            /* NEEDS OR WANTS BUCKET VIEW: Bucket Progress Bar + Non-Zero Category Rows */
+            <View>
+              <View style={styles.bucketProgressHeader}>
+                <Text style={styles.bucketDetailTitle}>
+                  {activeBucketTab === "needs" ? "ESSENTIAL NEEDS SPENT" : "LIFESTYLE WANTS SPENT"} ({bucketProgressPct}%)
+                </Text>
+                <Text style={styles.bucketProgressRatio}>
+                  RM {activeSpent.toFixed(2)} / RM {activeCap}
+                </Text>
+              </View>
+
+              <View style={styles.progressTrackSmall}>
+                <View
+                  style={[
+                    styles.progressFillSmall,
+                    {
+                      width: `${bucketProgressPct}%`,
+                      backgroundColor: activeSpent > activeCap ? "#E11D48" : COLORS.primary,
+                    },
+                  ]}
+                />
+              </View>
+
+              {activeCategoryRows.length === 0 ? (
+                <Text style={styles.emptyBucketCatText}>
+                  No {activeBucketTab === "needs" ? "essential (Needs)" : "discretionary (Wants)"} expenses recorded in {activeMonthObj.label} yet.
+                </Text>
+              ) : (
+                <View style={{ gap: 8, marginTop: 8 }}>
+                  {activeCategoryRows.map((cat) => (
+                    <View key={cat.catKey} style={styles.catBreakRow}>
+                      <CategoryBadge category={cat.catKey} size={26} iconSize={13} />
+                      <View style={{ flex: 1 }}>
+                        <View style={styles.catBreakLabelRow}>
+                          <Text style={styles.catBreakName}>{cat.label}</Text>
+                          <Text style={styles.catBreakAmt}>
+                            RM {cat.spent.toFixed(2)} ({cat.sharePct}%)
+                          </Text>
+                        </View>
+                        <View style={styles.catMiniTrack}>
+                          <View
+                            style={[
+                              styles.catMiniFill,
+                              {
+                                width: `${Math.max(6, cat.sharePct)}%`,
+                                backgroundColor: cat.color,
+                              },
+                            ]}
+                          />
+                        </View>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
+        </View>
       </View>
     );
-  }
+  };
 
   return (
-    <View style={{ flex: 1, position: "relative" }}>
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: COLORS.background,
+        position: "relative",
+      }}
+    >
       <FloatingToast toast={toast} slideAnim={slideAnim} />
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Top Month Switcher Bar: Current Month (Editable) vs Past Months (Read-Only) */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.monthBarContainer}>
+        {/* 1. Month Selector Bar */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.monthBar}>
           {visibleMonths.map((m) => {
-            const isSelected = m.key === activeMonth.key;
+            const isSelected = m.key === activeMonthObj.key;
             return (
               <TouchableOpacity
                 key={m.key}
-                onPress={() => setSelectedMonthKey(m.key)}
                 style={[styles.monthChip, isSelected && styles.monthChipActive]}
+                onPress={() => {
+                  playUiSound("tab");
+                  setSelectedMonthKey(m.key);
+                }}
               >
-                {!m.isCurrentMonth && <Lock size={10} color={isSelected ? COLORS.primaryText : COLORS.textMuted} strokeWidth={2.5} />}
                 <Text style={[styles.monthChipText, isSelected && styles.monthChipTextActive]}>
                   {m.isCurrentMonth ? `${m.shortMonth} (Current)` : m.label}
                 </Text>
@@ -347,244 +525,302 @@ export default function BudgetScreen({ user }) {
           })}
         </ScrollView>
 
-        {/* Read-Only Archive Banner when inspecting a Past Month */}
-        {!isCurrentMonthSelected && (
-          <View style={styles.readOnlyBanner}>
-            <Lock size={14} color="#D97706" strokeWidth={2.5} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.readOnlyTitle}>PAST MONTH ARCHIVE ({activeMonth.label.toUpperCase()} — READ ONLY)</Text>
-              <Text style={styles.readOnlySub}>
-                Historical budgets are locked for accuracy. Switch to {currentMonthObj.shortMonth} (Current) above to adjust your active budget.
-              </Text>
+        {/* 2. Monthly Budget Status Hero Card */}
+        <WireBox style={styles.statusCard}>
+          <View style={styles.statusHeaderRow}>
+            <View>
+              <Text style={styles.statusTitle}>{activeMonthObj.label.toUpperCase()} BUDGET</Text>
+              <Text style={styles.statusSub}>{isCurrentMonthSelected ? "Active Monthly Plan" : "Historical Archive (Read-Only)"}</Text>
             </View>
-          </View>
-        )}
 
-        {/* Card 1: Monthly Budget Status Hero Card */}
-        <View style={[styles.statusHeroCard, isOverBudget && styles.statusHeroCardDanger]}>
-          <View style={styles.heroTopRow}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-              <Calendar size={11} color="#FFFFFF" strokeWidth={2.5} />
-              <Text style={styles.heroLabel}>
-                {isCurrentMonthSelected ? `${activeMonth.label.toUpperCase()} (CURRENT BUDGET)` : `${activeMonth.label.toUpperCase()} BUDGET RECORD`}
-              </Text>
-            </View>
-            <View
-              style={[
-                styles.statusPill,
-                {
-                  backgroundColor: isOverBudget ? "#FFE4E6" : isNearLimit ? "#FEF3C7" : "#DCFCE7",
-                },
-              ]}
-            >
-              {isOverBudget ? (
-                <AlertTriangle size={11} color="#E11D48" strokeWidth={2.5} />
-              ) : (
-                <CheckCircle2 size={11} color={isNearLimit ? "#D97706" : "#15803D"} strokeWidth={2.5} />
-              )}
-              <Text
-                style={[
-                  styles.statusPillText,
-                  {
-                    color: isOverBudget ? "#E11D48" : isNearLimit ? "#D97706" : "#15803D",
-                  },
-                ]}
-              >
-                {displayLimit === 0 ? "NO BUDGET SET" : isOverBudget ? "OVER BUDGET" : isNearLimit ? "80%+ USED" : "ON TRACK"}
-              </Text>
-            </View>
+            {activeLimit > 0 && (
+              <View style={[styles.statusBadge, { backgroundColor: isOverBudget ? "#FFE4E6" : "#DCFCE7" }]}>
+                <Text style={[styles.statusBadgeText, { color: isOverBudget ? "#E11D48" : "#15803D" }]}>
+                  {isOverBudget ? "OVER LIMIT" : `${usagePct.toFixed(0)}% USED`}
+                </Text>
+              </View>
+            )}
           </View>
 
-          <Text style={styles.heroMainAmount}>
-            {displayLimit === 0
-              ? "RM 0.00"
-              : isOverBudget
-                ? `-RM ${Math.abs(remainingBudget).toFixed(2)} Over`
-                : `RM ${remainingBudget.toFixed(2)} Left`}
-          </Text>
-          <Text style={styles.heroSubText}>
-            Spent RM {displayExpense.toFixed(2)} of RM {displayLimit.toFixed(2)} limit ({rawProgressPct.toFixed(0)}%)
-          </Text>
-
-          <View style={styles.progressTrack}>
-            <View
-              style={[
-                styles.progressFill,
-                {
-                  width: `${clampedBarWidth}%`,
-                  backgroundColor: isOverBudget ? "#FB7185" : isNearLimit ? "#FBBF24" : "#4ADE80",
-                },
-              ]}
-            />
-          </View>
-
-          <View style={styles.heroFooterRow}>
-            <View style={styles.heroMiniStat}>
-              <Text style={styles.heroMiniLabel}>SPENDING LIMIT</Text>
-              <Text style={styles.heroMiniValue}>RM {displayLimit.toFixed(2)}</Text>
-            </View>
-            <View style={styles.heroMiniStat}>
-              <Text style={styles.heroMiniLabel}>SAVINGS GOAL</Text>
-              <Text style={styles.heroMiniValue}>RM {displaySavings.toFixed(2)}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Card 2: Category Breakdown vs Budget (Shown for both Current & Past Months!) */}
-        {activeMonth.categories.length > 0 && (
-          <WireBox style={styles.sectionCard}>
-            <View style={styles.cardHeaderRow}>
-              <Text style={styles.cardHeaderTitle}>{activeMonth.shortMonth.toUpperCase()} CATEGORY BREAKDOWN</Text>
-              <Text style={styles.cardHeaderSub}>Share of RM {displayLimit.toFixed(0)} budget</Text>
-            </View>
-
-            <View style={{ padding: 12, gap: 10 }}>
-              {activeMonth.categories.map((cat) => (
-                <View key={cat.category} style={styles.catBudgetRow}>
-                  <CategoryBadge category={cat.category} size={30} iconSize={15} />
-                  <View style={{ flex: 1 }}>
-                    <View style={styles.catBudgetTopRow}>
-                      <Text style={styles.catBudgetLabel}>{cat.label}</Text>
-                      <Text style={styles.catBudgetAmt}>
-                        RM {cat.amount.toFixed(2)} ({cat.pctOfLimit}% of budget)
-                      </Text>
-                    </View>
-                    <View style={styles.catBudgetTrack}>
-                      <View
-                        style={[
-                          styles.catBudgetFill,
-                          {
-                            width: `${Math.min(100, Math.max(5, cat.pctOfLimit))}%`,
-                            backgroundColor: cat.iconColor,
-                          },
-                        ]}
-                      />
-                    </View>
-                  </View>
-                </View>
-              ))}
-            </View>
-          </WireBox>
-        )}
-
-        {/* Cards 3 & 4: AI Recommendation & Manual Edit Form (ONLY shown for Current Month!) */}
-        {isCurrentMonthSelected && (
-          <>
-            <WireBox style={styles.sectionCard}>
-              <View style={styles.cardHeaderRow}>
-                <View style={styles.aiHeaderLeft}>
-                  <View style={styles.aiIconBox}>
-                    <Sparkles size={14} color={COLORS.primaryText} strokeWidth={2.5} />
-                  </View>
-                  <View>
-                    <Text style={styles.cardHeaderTitle}>RECOMMENDED BUDGET</Text>
-                    <Text style={styles.cardHeaderSub}>{aiTierTitle}</Text>
-                  </View>
-                </View>
+          {loading ? (
+            <ActivityIndicator size="small" color={COLORS.primary} style={{ marginVertical: 16 }} />
+          ) : activeLimit > 0 ? (
+            <>
+              <View style={styles.MainNumbersRow}>
+                <Text style={styles.spentBigText}>RM {selectedMonthSpent.toFixed(2)}</Text>
+                <Text style={styles.limitMutedText}>/ RM {activeLimit.toFixed(0)} limit</Text>
               </View>
 
-              <View style={styles.presetSection}>
-                <Text style={styles.presetSectionLabel}>1. CHOOSE YOUR SAVING STYLE:</Text>
-                <View style={styles.presetRow}>
-                  {ALLOCATION_PRESETS.map((preset) => {
-                    const isSelected = preset.id === selectedPresetId;
+              <View style={styles.progressTrack}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    {
+                      width: `${usagePct}%`,
+                      backgroundColor: isOverBudget ? "#E11D48" : usagePct >= 80 ? "#F59E0B" : "#16A34A",
+                    },
+                  ]}
+                />
+              </View>
+
+              <View style={styles.statusFooterRow}>
+                <Text style={styles.footerMetaText}>
+                  {isOverBudget
+                    ? `Exceeded by RM ${(selectedMonthSpent - activeLimit).toFixed(2)}`
+                    : `RM ${(activeLimit - selectedMonthSpent).toFixed(2)} remaining`}
+                </Text>
+                <Text style={styles.footerMetaText}>Savings Goal: RM {activeSavings.toFixed(0)}</Text>
+              </View>
+            </>
+          ) : (
+            <Text style={styles.noBudgetText}>
+              {isCurrentMonthSelected
+                ? "No budget set for this month yet. Apply an AI plan below!"
+                : `No budget was recorded for ${activeMonthObj.label}.`}
+            </Text>
+          )}
+        </WireBox>
+
+        {/* 3. Current Month Controls vs Past Month Archive Breakdown */}
+        {!isCurrentMonthSelected ? (
+          <WireBox style={styles.lockedArchiveCard}>
+            <View style={styles.lockedTitleRow}>
+              <Lock size={15} color={COLORS.primary} strokeWidth={2.5} />
+              <Text style={styles.lockedTitle}>{activeMonthObj.label.toUpperCase()} BREAKDOWN (READ-ONLY)</Text>
+            </View>
+            <Text style={styles.lockedSub}>
+              Past months are locked to preserve your historical records, but you can inspect your category spending below:
+            </Text>
+
+            {renderBucketBreakdownSection(
+              activeLimit > 0 ? Math.round(activeLimit * 0.625) : needsAllowance,
+              activeLimit > 0 ? Math.round(activeLimit * 0.375) : wantsAllowance,
+              activeSavings > 0 ? activeSavings : recommendedSavings,
+              `TAP ANY BUCKET TO INSPECT ${activeMonthObj.shortMonth.toUpperCase()} SPENDING`,
+            )}
+          </WireBox>
+        ) : (
+          <>
+            {/* Segmented Switcher: AI Smart Plan vs Custom Input */}
+            <View style={styles.modeTabsRow}>
+              <TouchableOpacity
+                style={[styles.modeTabBtn, activeMode === "smart" && styles.modeTabBtnActive]}
+                onPress={() => {
+                  playUiSound("tab");
+                  setActiveMode("smart");
+                }}
+              >
+                <Sparkles size={13} color={activeMode === "smart" ? COLORS.primaryText : COLORS.text} strokeWidth={2.5} />
+                <Text style={[styles.modeTabText, activeMode === "smart" && styles.modeTabTextActive]}>AI SMART PLAN</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modeTabBtn, activeMode === "custom" && styles.modeTabBtnActive]}
+                onPress={() => {
+                  playUiSound("tab");
+                  setActiveMode("custom");
+                }}
+              >
+                <Sliders size={13} color={activeMode === "custom" ? COLORS.primaryText : COLORS.text} strokeWidth={2.5} />
+                <Text style={[styles.modeTabText, activeMode === "custom" && styles.modeTabTextActive]}>CUSTOM BUDGET</Text>
+              </TouchableOpacity>
+            </View>
+
+            {activeMode === "smart" ? (
+              <WireBox style={styles.plannerCard}>
+                {/* Header with "How it works" Modal Trigger */}
+                <View style={styles.plannerTopRow}>
+                  <View style={{ flex: 1 }}>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      <Text style={styles.plannerTitle}>CHOOSE ALLOCATION RATIO</Text>
+                      <View style={styles.aiTagPill}>
+                        <Text style={styles.aiTagPillText}>AI-ASSISTED</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.plannerSub}>Based on RM {baselineIncome.toFixed(0)} income & spending history</Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.infoPillBtn}
+                    onPress={() => {
+                      playUiSound("tab");
+                      setShowHowItWorksModal(true);
+                    }}
+                  >
+                    <Info size={12} color={COLORS.primary} strokeWidth={2.5} />
+                    <Text style={styles.infoPillText}>How it works</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* 3 Compact Ratio Cards */}
+                <View style={styles.presetCardsRow}>
+                  {BUDGET_PRESETS.map((p) => {
+                    const isSelected = p.id === selectedPresetId;
+                    const isSuggested = p.id === aiRec.presetId;
                     return (
                       <TouchableOpacity
-                        key={preset.id}
-                        style={[styles.presetCard, isSelected && styles.presetCardActive]}
+                        key={p.id}
+                        style={[styles.presetMiniCard, isSelected && styles.presetMiniCardActive]}
+                        onPress={() => {
+                          playUiSound("tab");
+                          setSelectedPresetId(p.id);
+                        }}
                         activeOpacity={0.8}
-                        onPress={() => setSelectedPresetId(preset.id)}
                       >
-                        <View style={styles.presetTopRow}>
-                          <Text style={[styles.presetBadgeText, isSelected && { color: COLORS.primary }]}>{preset.badge}</Text>
-                          {isSelected && (
-                            <View style={styles.miniCheckCircle}>
-                              <Check size={9} color={COLORS.primaryText} strokeWidth={3} />
-                            </View>
-                          )}
-                        </View>
-                        <Text style={styles.presetNameText} numberOfLines={1}>
-                          {preset.name}
+                        {isSuggested && (
+                          <View style={styles.suggestedCrownBadge}>
+                            <Text style={styles.suggestedCrownText}>★ SUGGESTED</Text>
+                          </View>
+                        )}
+                        <Text style={[styles.presetRatioText, isSelected && { color: COLORS.primaryText }]}>{p.ratioLabel}</Text>
+                        <Text style={[styles.presetNameText, isSelected && { color: COLORS.primaryText }]} numberOfLines={1}>
+                          {p.name}
                         </Text>
                       </TouchableOpacity>
                     );
                   })}
                 </View>
-                <Text style={styles.presetDescHint}>{currentPreset.desc}</Text>
-              </View>
 
-              <View style={styles.aiExplainBox}>
-                <Text style={styles.aiExplainText}>{aiTierReason}</Text>
+                {/* Collapsible 1-Line AI Recommendation Reason Box */}
+                <TouchableOpacity style={styles.whyRecommendBox} activeOpacity={0.8} onPress={() => setShowWhyReasons(!showWhyReasons)}>
+                  <View style={styles.whyHeaderRow}>
+                    <Sparkles size={12} color={COLORS.primary} strokeWidth={2.5} />
+                    <Text style={styles.whyHeaderTitle} numberOfLines={1}>
+                      AI Suggests {BUDGET_PRESETS.find((p) => p.id === aiRec.presetId)?.name} (
+                      {BUDGET_PRESETS.find((p) => p.id === aiRec.presetId)?.ratioLabel}) — Why?
+                    </Text>
+                    {showWhyReasons ? <ChevronUp size={14} color={COLORS.textMuted} /> : <ChevronDown size={14} color={COLORS.textMuted} />}
+                  </View>
 
-                <View style={styles.aiRecommendNumbersRow}>
-                  <View style={styles.aiRecBox}>
-                    <Text style={styles.aiRecLabel}>SUGGESTED LIMIT ({Math.round(currentPreset.limitRatio * 100)}%)</Text>
-                    <Text style={styles.aiRecValue}>RM {recommendedLimit}</Text>
-                  </View>
-                  <View style={styles.aiRecBox}>
-                    <Text style={styles.aiRecLabel}>SUGGESTED SAVINGS ({Math.round(currentPreset.savingsRatio * 100)}%)</Text>
-                    <Text style={[styles.aiRecValue, { color: "#15803D" }]}>RM {recommendedSavings}</Text>
-                  </View>
-                </View>
+                  {showWhyReasons && (
+                    <View style={{ marginTop: 6, gap: 3 }}>
+                      {aiRec.reasons.map((r, i) => (
+                        <Text key={i} style={styles.whyBulletText}>
+                          • {r}
+                        </Text>
+                      ))}
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                {/* Interactive 3-Bucket Breakdown + Category Progress Bars */}
+                {renderBucketBreakdownSection(needsAllowance, wantsAllowance, recommendedSavings)}
 
                 <WireButton
-                  label={`USE THIS PLAN (RM ${recommendedLimit})`}
-                  variant="outline"
-                  onPress={() => handleSaveBudget(String(recommendedLimit), String(recommendedSavings), true)}
+                  label={saving ? "APPLYING..." : `APPLY ${activePreset.ratioLabel} PLAN (RM ${recommendedLimit} LIMIT)`}
+                  onPress={() => handleSaveBudget(recommendedLimit, recommendedSavings)}
+                  disabled={saving}
+                  style={{ marginTop: 12 }}
                 />
+              </WireBox>
+            ) : (
+              <WireBox style={styles.plannerCard}>
+                <Text style={styles.plannerTitle}>CUSTOM MONTHLY TARGETS</Text>
+                <Text style={[styles.plannerSub, { marginBottom: 12 }]}>Set your own monthly spending limit and savings target</Text>
 
-                {previousBudgetBackup && (
-                  <TouchableOpacity style={styles.undoBtn} onPress={handleUndoBudgetChange}>
-                    <RotateCcw size={12} color={COLORS.textMuted} strokeWidth={2.5} />
-                    <Text style={styles.undoBtnText}>Undo Last Change (Restore RM {previousBudgetBackup.limit.toFixed(0)})</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </WireBox>
-
-            <WireBox style={styles.sectionCard}>
-              <View style={styles.cardHeaderRow}>
-                <View>
-                  <Text style={styles.cardHeaderTitle}>SET YOUR OWN BUDGET ({activeMonth.shortMonth.toUpperCase()})</Text>
-                  <Text style={styles.cardHeaderSub}>Customize your monthly limit and savings goal</Text>
-                </View>
-              </View>
-
-              <View style={{ padding: 14 }}>
                 <WireInput
-                  label="Monthly Spending Limit (RM)"
-                  placeholder="e.g. 1500.00"
-                  keyboardType="decimal-pad"
+                  label="MONTHLY SPENDING LIMIT (RM)"
                   value={monthlyLimitInput}
-                  onChangeText={(text) => sanitizeDecimalInput(text, setMonthlyLimitInput, "Spending Limit")}
+                  onChangeText={setMonthlyLimitInput}
+                  placeholder="e.g. 2400"
+                  keyboardType="numeric"
                 />
 
                 <WireInput
-                  label="Monthly Savings Goal (RM)"
-                  placeholder="e.g. 400.00"
-                  keyboardType="decimal-pad"
+                  label="MONTHLY SAVINGS GOAL (RM)"
                   value={savingsTargetInput}
-                  onChangeText={(text) => sanitizeDecimalInput(text, setSavingsTargetInput, "Savings Goal")}
+                  onChangeText={setSavingsTargetInput}
+                  placeholder="e.g. 600"
+                  keyboardType="numeric"
                 />
 
                 <WireButton
-                  label={saving ? "SAVING..." : "SAVE CURRENT MONTH BUDGET"}
-                  variant="filled"
-                  onPress={() => handleSaveBudget(monthlyLimitInput, savingsTargetInput, false)}
-                  style={{ marginTop: 4 }}
+                  label={saving ? "SAVING..." : "SAVE CUSTOM BUDGET"}
+                  onPress={() => handleSaveBudget(monthlyLimitInput, savingsTargetInput)}
+                  disabled={saving}
                 />
-              </View>
-            </WireBox>
+              </WireBox>
+            )}
           </>
         )}
+
+        {/* 4. Modal: "HOW SMART BUDGETING WORKS" */}
+        <Modal visible={showHowItWorksModal} transparent={true} animationType="fade" onRequestClose={() => setShowHowItWorksModal(false)}>
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeaderRow}>
+                <View>
+                  <Text style={styles.modalTitle}>HOW SMART BUDGETING WORKS</Text>
+                  <Text style={styles.modalSubTitle}>YOUR FINANCIAL DATA, YOUR BUDGET</Text>
+                </View>
+                <TouchableOpacity onPress={() => setShowHowItWorksModal(false)}>
+                  <X size={18} color={COLORS.text} strokeWidth={2.5} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={{ maxHeight: 390 }} showsVerticalScrollIndicator={false}>
+                <Text style={styles.modalIntroText}>
+                  Ka-Ching! analyses your financial information to help you establish a suitable monthly budget.
+                </Text>
+
+                <View style={styles.stepItemBox}>
+                  <Text style={styles.stepTitle}>01. Analyse your financial activity</Text>
+                  <Text style={styles.stepBody}>
+                    Your previous transactions, monthly income and spending categories are analysed to understand your financial behaviour.
+                  </Text>
+                </View>
+
+                <View style={styles.stepItemBox}>
+                  <Text style={styles.stepTitle}>02. Recommend an allocation</Text>
+                  <Text style={styles.stepBody}>
+                    Based on your financial history, Ka-Ching! evaluates three predefined budget allocation options and suggests a suitable starting
+                    point.
+                  </Text>
+                </View>
+
+                <View style={styles.stepItemBox}>
+                  <Text style={styles.stepTitle}>03. Personalise your budget</Text>
+                  <Text style={styles.stepBody}>
+                    Select another allocation or customise your spending limit and savings goal according to your needs.
+                  </Text>
+                </View>
+
+                <Text style={styles.sectionDividerTitle}>UNDERSTANDING THE THREE ALLOCATIONS</Text>
+
+                {BUDGET_PRESETS.map((p) => (
+                  <View key={p.id} style={styles.modalPresetBox}>
+                    <View style={styles.modalPresetTop}>
+                      <Text style={styles.modalPresetName}>
+                        {p.name} ({p.ratioLabel})
+                      </Text>
+                    </View>
+                    <Text style={styles.modalPresetDesc}>{p.desc}</Text>
+                  </View>
+                ))}
+
+                <View style={styles.goodToKnowBox}>
+                  <Text style={styles.goodToKnowTitle}>Good to know</Text>
+                  <Text style={styles.goodToKnowBody}>
+                    The three ratios are budgeting starting points, not fixed financial rules. You can adjust your allocation at any time.
+                  </Text>
+                </View>
+              </ScrollView>
+
+              <WireButton label="GOT IT" onPress={() => setShowHowItWorksModal(false)} style={{ marginTop: 12 }} />
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
     </View>
   );
 }
 
-const MIN_EXPENSE_RECORDS_AI_SAFE = (val) => val;
-
-// Dynamic style generator so runtime theme switches update all Budget screen styles immediately
 const getStyles = () =>
   StyleSheet.create({
     container: {
@@ -592,337 +828,553 @@ const getStyles = () =>
       paddingTop: 12,
       paddingBottom: 36,
     },
-    monthBarContainer: {
+    monthBar: {
       paddingBottom: 12,
       gap: 8,
     },
     monthChip: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 5,
       borderWidth: SHAPES.borderWidth,
       borderColor: COLORS.border,
       borderRadius: SHAPES.chipRadius,
       backgroundColor: COLORS.card,
       paddingHorizontal: 12,
       paddingVertical: 6,
-      marginRight: 8,
+      marginRight: 6,
     },
     monthChipActive: {
       backgroundColor: COLORS.primary,
     },
     monthChipText: {
       fontFamily: FONTS.mono,
-      fontSize: 10,
-      color: COLORS.textMuted,
+      fontSize: 9.5,
       fontWeight: "bold",
+      color: COLORS.textMuted,
     },
     monthChipTextActive: {
       color: COLORS.primaryText,
     },
-    readOnlyBanner: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-      borderWidth: 1.5,
-      borderColor: "#D97706",
-      borderRadius: SHAPES.inputRadius,
-      backgroundColor: "#FEF3C7",
-      padding: 12,
+    statusCard: {
       marginBottom: 14,
+      padding: 14,
     },
-    readOnlyTitle: {
-      fontFamily: FONTS.mono,
-      fontSize: 9.5,
-      fontWeight: "bold",
-      color: "#92400E",
-    },
-    readOnlySub: {
-      fontFamily: FONTS.mono,
-      fontSize: 8.5,
-      color: "#92400E",
-      marginTop: 2,
-      lineHeight: 13,
-    },
-    statusHeroCard: {
-      borderWidth: SHAPES.borderWidth,
-      borderColor: COLORS.border,
-      borderRadius: SHAPES.cardRadius,
-      backgroundColor: COLORS.primary,
-      padding: 16,
-      marginBottom: 16,
-      shadowColor: COLORS.text,
-      shadowOffset: { width: 4, height: 4 },
-      shadowOpacity: 0.2,
-      shadowRadius: 0,
-      elevation: 4,
-    },
-    statusHeroCardDanger: {
-      backgroundColor: "#881337",
-    },
-    heroTopRow: {
+    statusHeaderRow: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "center",
-      marginBottom: 8,
+      marginBottom: 10,
     },
-    heroLabel: {
-      fontFamily: FONTS.mono,
-      fontSize: 9.5,
-      color: COLORS.primaryText,
-      opacity: 0.9,
-      letterSpacing: 1,
-    },
-    statusPill: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 4,
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: 12,
-    },
-    statusPillText: {
-      fontFamily: FONTS.mono,
-      fontSize: 8,
-      fontWeight: "bold",
-    },
-    heroMainAmount: {
-      fontFamily: FONTS.mono,
-      fontSize: 26,
-      fontWeight: "bold",
-      color: COLORS.primaryText,
-      marginBottom: 2,
-    },
-    heroSubText: {
-      fontFamily: FONTS.mono,
-      fontSize: 10,
-      color: COLORS.primaryText,
-      opacity: 0.88,
-      marginBottom: 12,
-    },
-    progressTrack: {
-      width: "100%",
-      height: 10,
-      backgroundColor: "rgba(0,0,0,0.28)",
-      borderRadius: 5,
-      overflow: "hidden",
-      marginBottom: 14,
-    },
-    progressFill: {
-      height: "100%",
-      borderRadius: 5,
-    },
-    heroFooterRow: {
-      flexDirection: "row",
-      gap: 10,
-    },
-    heroMiniStat: {
-      flex: 1,
-      borderWidth: 1.5,
-      borderColor: "rgba(255,255,255,0.35)",
-      borderRadius: SHAPES.inputRadius,
-      backgroundColor: "rgba(0,0,0,0.2)",
-      padding: 8,
-    },
-    heroMiniLabel: {
-      fontFamily: FONTS.mono,
-      fontSize: 8,
-      color: COLORS.primaryText,
-      opacity: 0.8,
-      marginBottom: 2,
-    },
-    heroMiniValue: {
-      fontFamily: FONTS.mono,
-      fontSize: 12,
-      fontWeight: "bold",
-      color: COLORS.primaryText,
-    },
-    sectionCard: {
-      marginBottom: 16,
-      padding: 0,
-      overflow: "hidden",
-    },
-    cardHeaderRow: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      paddingHorizontal: 14,
-      paddingVertical: 11,
-      borderBottomWidth: SHAPES.borderWidth,
-      borderColor: COLORS.borderMuted,
-      borderStyle: "dashed",
-    },
-    catBudgetRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-    },
-    catBudgetTopRow: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      marginBottom: 4,
-    },
-    catBudgetLabel: {
-      fontFamily: FONTS.mono,
-      fontSize: 10,
-      fontWeight: "bold",
-      color: COLORS.text,
-    },
-    catBudgetAmt: {
-      fontFamily: FONTS.mono,
-      fontSize: 9,
-      color: COLORS.textMuted,
-    },
-    catBudgetTrack: {
-      width: "100%",
-      height: 6,
-      borderRadius: 3,
-      backgroundColor: COLORS.secondary,
-      overflow: "hidden",
-    },
-    catBudgetFill: {
-      height: "100%",
-      borderRadius: 3,
-    },
-    aiHeaderLeft: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-    },
-    aiIconBox: {
-      width: 28,
-      height: 28,
-      borderRadius: SHAPES.chipRadius,
-      backgroundColor: COLORS.primary,
-      borderWidth: 1.5,
-      borderColor: COLORS.border,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    cardHeaderTitle: {
+    statusTitle: {
       fontFamily: FONTS.mono,
       fontSize: 11,
       fontWeight: "bold",
       color: COLORS.text,
       letterSpacing: 0.8,
     },
-    cardHeaderSub: {
+    statusSub: {
       fontFamily: FONTS.mono,
-      fontSize: 9,
+      fontSize: 8.5,
       color: COLORS.textMuted,
-      marginTop: 1,
+      marginTop: 2,
     },
-    presetSection: {
-      paddingHorizontal: 14,
-      paddingTop: 12,
-      paddingBottom: 8,
+    statusBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: SHAPES.chipRadius,
+      borderWidth: 1,
+      borderColor: COLORS.border,
     },
-    presetSectionLabel: {
+    statusBadgeText: {
       fontFamily: FONTS.mono,
-      fontSize: 9,
+      fontSize: 8,
       fontWeight: "bold",
-      color: COLORS.textMuted,
-      marginBottom: 8,
-      letterSpacing: 0.5,
     },
-    presetRow: {
+    MainNumbersRow: {
+      flexDirection: "row",
+      alignItems: "baseline",
+      gap: 6,
+      marginBottom: 8,
+    },
+    spentBigText: {
+      fontFamily: FONTS.mono,
+      fontSize: 22,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    limitMutedText: {
+      fontFamily: FONTS.mono,
+      fontSize: 11,
+      color: COLORS.textMuted,
+    },
+    progressTrack: {
+      height: 10,
+      borderWidth: 1.5,
+      borderColor: COLORS.border,
+      borderRadius: 6,
+      backgroundColor: COLORS.secondary,
+      overflow: "hidden",
+      marginBottom: 8,
+    },
+    progressFill: {
+      height: "100%",
+    },
+    statusFooterRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+    },
+    footerMetaText: {
+      fontFamily: FONTS.mono,
+      fontSize: 8.5,
+      color: COLORS.textMuted,
+      fontWeight: "bold",
+    },
+    noBudgetText: {
+      fontFamily: FONTS.mono,
+      fontSize: 9.5,
+      color: COLORS.textMuted,
+      paddingVertical: 8,
+    },
+    modeTabsRow: {
       flexDirection: "row",
       gap: 8,
+      marginBottom: 12,
     },
-    presetCard: {
+    modeTabBtn: {
       flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
       borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.buttonRadius,
+      backgroundColor: COLORS.card,
+      paddingVertical: 10,
+    },
+    modeTabBtnActive: {
+      backgroundColor: COLORS.primary,
+    },
+    modeTabText: {
+      fontFamily: FONTS.mono,
+      fontSize: 9.5,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    modeTabTextActive: {
+      color: COLORS.primaryText,
+    },
+    plannerCard: {
+      padding: 14,
+    },
+    plannerTopRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      marginBottom: 12,
+      gap: 8,
+    },
+    plannerTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 10.5,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    aiTagPill: {
+      backgroundColor: COLORS.secondary,
+      borderWidth: 1,
+      borderColor: COLORS.primary,
+      borderRadius: 4,
+      paddingHorizontal: 5,
+      paddingVertical: 1,
+    },
+    aiTagPillText: {
+      fontFamily: FONTS.mono,
+      fontSize: 7,
+      fontWeight: "bold",
+      color: COLORS.primary,
+    },
+    plannerSub: {
+      fontFamily: FONTS.mono,
+      fontSize: 8.5,
+      color: COLORS.textMuted,
+      marginTop: 2,
+    },
+    infoPillBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      borderWidth: 1.5,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.chipRadius,
+      backgroundColor: COLORS.secondary,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    infoPillText: {
+      fontFamily: FONTS.mono,
+      fontSize: 8,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    presetCardsRow: {
+      flexDirection: "row",
+      gap: 8,
+      marginBottom: 10,
+    },
+    presetMiniCard: {
+      flex: 1,
+      borderWidth: 1.5,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.inputRadius,
+      backgroundColor: COLORS.inputBg,
+      paddingVertical: 10,
+      paddingHorizontal: 6,
+      alignItems: "center",
+    },
+    presetMiniCardActive: {
+      backgroundColor: COLORS.primary,
+    },
+    suggestedCrownBadge: {
+      backgroundColor: "#FEF08A",
+      borderWidth: 1,
+      borderColor: "#121212",
+      borderRadius: 4,
+      paddingHorizontal: 4,
+      paddingVertical: 1,
+      marginBottom: 4,
+    },
+    suggestedCrownText: {
+      fontFamily: FONTS.mono,
+      fontSize: 6.5,
+      fontWeight: "bold",
+      color: "#121212",
+    },
+    presetRatioText: {
+      fontFamily: FONTS.mono,
+      fontSize: 9.5,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    presetNameText: {
+      fontFamily: FONTS.mono,
+      fontSize: 8,
+      color: COLORS.textMuted,
+      marginTop: 3,
+    },
+    whyRecommendBox: {
+      borderWidth: 1.5,
+      borderColor: COLORS.borderMuted,
+      borderRadius: SHAPES.inputRadius,
+      backgroundColor: COLORS.inputBg,
+      padding: 10,
+      marginBottom: 10,
+    },
+    whyHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    whyHeaderTitle: {
+      flex: 1,
+      fontFamily: FONTS.mono,
+      fontSize: 8.5,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    whyBulletText: {
+      fontFamily: FONTS.mono,
+      fontSize: 8,
+      color: COLORS.textMuted,
+      lineHeight: 12,
+    },
+    tapBucketHint: {
+      fontFamily: FONTS.mono,
+      fontSize: 7.5,
+      fontWeight: "bold",
+      color: COLORS.textMuted,
+      marginBottom: 6,
+      letterSpacing: 0.4,
+    },
+    bucketRow: {
+      flexDirection: "row",
+      gap: 8,
+      marginBottom: 8,
+    },
+    bucketPill: {
+      flex: 1,
+      borderWidth: 1.5,
+      borderColor: COLORS.borderMuted,
+      borderRadius: SHAPES.inputRadius,
+      backgroundColor: COLORS.card,
+      paddingVertical: 8,
+      paddingHorizontal: 6,
+      alignItems: "center",
+    },
+    bucketPillActive: {
+      borderColor: COLORS.primary,
+      backgroundColor: COLORS.secondary,
+    },
+    bucketTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 8,
+      color: COLORS.textMuted,
+      fontWeight: "bold",
+    },
+    bucketAmount: {
+      fontFamily: FONTS.mono,
+      fontSize: 11,
+      fontWeight: "bold",
+      color: COLORS.text,
+      marginTop: 2,
+    },
+    bucketSpentSub: {
+      fontFamily: FONTS.mono,
+      fontSize: 7.5,
+      color: COLORS.textMuted,
+      marginTop: 2,
+    },
+    bucketDetailBox: {
+      borderWidth: 1,
+      borderColor: COLORS.borderMuted,
+      borderStyle: "dashed",
+      borderRadius: SHAPES.inputRadius,
+      backgroundColor: COLORS.inputBg,
+      padding: 10,
+    },
+    bucketProgressHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 5,
+    },
+    bucketDetailTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 8.5,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    bucketProgressRatio: {
+      fontFamily: FONTS.mono,
+      fontSize: 8.5,
+      fontWeight: "bold",
+      color: COLORS.primary,
+    },
+    progressTrackSmall: {
+      height: 7,
+      borderWidth: 1,
+      borderColor: COLORS.border,
+      borderRadius: 4,
+      backgroundColor: COLORS.card,
+      overflow: "hidden",
+      marginBottom: 6,
+    },
+    progressFillSmall: {
+      height: "100%",
+    },
+    emptyBucketCatText: {
+      fontFamily: FONTS.mono,
+      fontSize: 8.5,
+      color: COLORS.textMuted,
+      textAlign: "center",
+      paddingVertical: 8,
+    },
+    catBreakRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    catBreakLabelRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      marginBottom: 3,
+    },
+    catBreakName: {
+      fontFamily: FONTS.mono,
+      fontSize: 8.5,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    catBreakAmt: {
+      fontFamily: FONTS.mono,
+      fontSize: 8,
+      color: COLORS.textMuted,
+      fontWeight: "bold",
+    },
+    catMiniTrack: {
+      height: 5,
+      borderRadius: 3,
+      backgroundColor: COLORS.secondary,
+      overflow: "hidden",
+    },
+    catMiniFill: {
+      height: "100%",
+    },
+    savingsFormulaCard: {
+      borderWidth: 1,
       borderColor: COLORS.borderMuted,
       borderRadius: SHAPES.inputRadius,
       backgroundColor: COLORS.card,
       padding: 8,
+      marginTop: 4,
+      gap: 4,
     },
-    presetCardActive: {
+    savingsFormulaRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+    savingsFormulaLabel: {
+      fontFamily: FONTS.mono,
+      fontSize: 8.5,
+      color: COLORS.textMuted,
+    },
+    savingsFormulaVal: {
+      fontFamily: FONTS.mono,
+      fontSize: 9,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    lockedArchiveCard: {
+      padding: 14,
+      backgroundColor: COLORS.card,
+    },
+    lockedTitleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 6,
+    },
+    lockedTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 10.5,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    lockedSub: {
+      fontFamily: FONTS.mono,
+      fontSize: 8.5,
+      color: COLORS.textMuted,
+      lineHeight: 13,
+      marginBottom: 10,
+    },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.5)",
+      justifyContent: "center",
+      alignItems: "center",
+      padding: 18,
+    },
+    modalCard: {
+      width: "100%",
+      maxWidth: 360,
+      backgroundColor: COLORS.card,
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.cardRadius,
+      padding: 16,
+    },
+    modalHeaderRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      borderBottomWidth: 1.5,
+      borderColor: COLORS.borderMuted,
+      borderStyle: "dashed",
+      paddingBottom: 10,
+      marginBottom: 10,
+    },
+    modalTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 11.5,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    modalSubTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 8,
+      fontWeight: "bold",
+      color: COLORS.primary,
+      marginTop: 2,
+    },
+    modalIntroText: {
+      fontFamily: FONTS.mono,
+      fontSize: 8.5,
+      color: COLORS.textMuted,
+      lineHeight: 13,
+      marginBottom: 10,
+    },
+    stepItemBox: {
+      borderLeftWidth: 2,
       borderColor: COLORS.primary,
-      backgroundColor: COLORS.secondary,
+      paddingLeft: 8,
+      marginBottom: 8,
     },
-    presetTopRow: {
+    stepTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 9,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    stepBody: {
+      fontFamily: FONTS.mono,
+      fontSize: 8,
+      color: COLORS.textMuted,
+      lineHeight: 12,
+      marginTop: 2,
+    },
+    sectionDividerTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 9,
+      fontWeight: "bold",
+      color: COLORS.text,
+      marginTop: 6,
+      marginBottom: 8,
+      letterSpacing: 0.5,
+    },
+    modalPresetBox: {
+      borderWidth: 1.5,
+      borderColor: COLORS.borderMuted,
+      borderRadius: SHAPES.inputRadius,
+      backgroundColor: COLORS.inputBg,
+      padding: 9,
+      marginBottom: 8,
+    },
+    modalPresetTop: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "center",
       marginBottom: 4,
     },
-    presetBadgeText: {
+    modalPresetName: {
       fontFamily: FONTS.mono,
-      fontSize: 9,
+      fontSize: 9.5,
       fontWeight: "bold",
       color: COLORS.text,
     },
-    miniCheckCircle: {
-      width: 14,
-      height: 14,
-      borderRadius: 7,
-      backgroundColor: COLORS.primary,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    presetNameText: {
-      fontFamily: FONTS.mono,
-      fontSize: 8.5,
-      color: COLORS.textMuted,
-    },
-    presetDescHint: {
-      fontFamily: FONTS.mono,
-      fontSize: 9,
-      color: COLORS.primary,
-      fontWeight: "bold",
-      marginTop: 8,
-      textAlign: "center",
-    },
-    aiExplainBox: {
-      paddingHorizontal: 14,
-      paddingBottom: 14,
-    },
-    aiExplainText: {
-      fontFamily: FONTS.mono,
-      fontSize: 9.5,
-      color: COLORS.textMuted,
-      lineHeight: 15,
-      marginBottom: 12,
-    },
-    aiRecommendNumbersRow: {
-      flexDirection: "row",
-      gap: 10,
-      marginBottom: 12,
-    },
-    aiRecBox: {
-      flex: 1,
-      borderWidth: SHAPES.borderWidth,
-      borderColor: COLORS.border,
-      borderRadius: SHAPES.inputRadius,
-      backgroundColor: COLORS.secondary,
-      padding: 10,
-      alignItems: "center",
-    },
-    aiRecLabel: {
+    modalPresetDesc: {
       fontFamily: FONTS.mono,
       fontSize: 8,
       color: COLORS.textMuted,
-      marginBottom: 4,
+      lineHeight: 12,
     },
-    aiRecValue: {
+    goodToKnowBox: {
+      borderWidth: 1,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.inputRadius,
+      backgroundColor: COLORS.secondary,
+      padding: 9,
+      marginTop: 2,
+    },
+    goodToKnowTitle: {
       fontFamily: FONTS.mono,
-      fontSize: 15,
+      fontSize: 8.5,
       fontWeight: "bold",
       color: COLORS.text,
+      marginBottom: 2,
     },
-    undoBtn: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 6,
-      marginTop: 10,
-      paddingVertical: 6,
-    },
-    undoBtnText: {
+    goodToKnowBody: {
       fontFamily: FONTS.mono,
-      fontSize: 9.5,
+      fontSize: 8,
       color: COLORS.textMuted,
-      textDecorationLine: "underline",
+      lineHeight: 12,
     },
   });

@@ -1,13 +1,13 @@
-// Import React hooks, core status bar/safe area components, and AsyncStorage
-import React, { useState, useEffect } from "react";
-import { SafeAreaView, StatusBar, View, StyleSheet } from "react-native";
+// Import React hooks, core status bar/safe area components, Animated API, and AsyncStorage
+import React, { useState, useEffect, useRef } from "react";
+import { SafeAreaView, StatusBar, Animated, Platform, StyleSheet } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Import theme configuration and global navigation/modal components
 import { COLORS, applyTheme, ACTIVE_THEME } from "./src/theme/theme";
-import { TopHeader, BottomNav, IngestionModal } from "./src/components/WireUI";
+import { TopHeader, BottomNav, IngestionModal, playUiSound } from "./src/components/WireUI";
 
-// Import all 9 application screens
+// Import all application screens
 import AuthScreen from "./src/screens/AuthScreen";
 import DashboardScreen from "./src/screens/DashboardScreen";
 import TransactionsScreen from "./src/screens/TransactionsScreen";
@@ -18,19 +18,20 @@ import InsightsScreen from "./src/screens/InsightsScreen";
 import NotificationsScreen from "./src/screens/NotificationsScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 
-// Root Application Component coordinating navigation across all 9 screens
+// Root Application Component coordinating navigation, animations, and theme state
 export default function App() {
-  // Dynamically generate styles on every render so runtime theme switches apply immediately
-  const styles = getStyles();
-
-  // Track authenticated user, active screen tab, OCR mode, modal state, and theme key
+  // 1. Track authenticated user, active tab, OCR mode, modal state, and active theme key
   const [currentUser, setCurrentUser] = useState(null);
   const [activeTab, setActiveTab] = useState("home");
   const [ocrMode, setOcrMode] = useState("ocr_batch");
   const [showIngestionModal, setShowIngestionModal] = useState(false);
   const [themeKey, setThemeKey] = useState(ACTIVE_THEME);
 
-  // Load saved visual theme preference from AsyncStorage when app starts
+  // 2. Animated values for smooth screen fade and vertical slide transitions
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const slideAnim = useRef(new Animated.Value(0)).current;
+
+  // 3. Load saved visual theme preference from AsyncStorage when app starts
   useEffect(() => {
     const loadSavedTheme = async () => {
       try {
@@ -46,7 +47,26 @@ export default function App() {
     loadSavedTheme();
   }, []);
 
-  // Handle runtime theme switching and persist choice to AsyncStorage
+  // 4. Trigger smooth fade-and-slide transition whenever activeTab changes
+  useEffect(() => {
+    fadeAnim.setValue(0);
+    slideAnim.setValue(10);
+
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: Platform.OS !== "web",
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: Platform.OS !== "web",
+      }),
+    ]).start();
+  }, [activeTab]);
+
+  // 5. Handle runtime theme switching and persist choice to AsyncStorage
   const handleThemeChange = async (newThemeKey) => {
     applyTheme(newThemeKey);
     setThemeKey(newThemeKey);
@@ -57,7 +77,7 @@ export default function App() {
     }
   };
 
-  // Route user to Manual Entry or OCR Scanner when a method is picked from the "+" modal
+  // 6. Route user to Manual Entry or OCR Scanner when a method is picked from the "+" modal
   const handleSelectIngestionMethod = (methodId) => {
     if (methodId === "manual") {
       setActiveTab("add");
@@ -67,7 +87,7 @@ export default function App() {
     }
   };
 
-  // Determine dynamic header title based on active screen
+  // 7. Determine dynamic header title based on active screen
   const getHeaderTitle = () => {
     if (activeTab === "home") return "Ka-Ching!";
     if (activeTab === "transactions") return "Transaction History";
@@ -80,25 +100,60 @@ export default function App() {
     return "Ka-Ching!";
   };
 
-  // Render screen content corresponding to the currently active tab
+  // 8. Render screen content corresponding to the currently active tab
   const renderMainContent = () => {
     if (activeTab === "home") {
-      return <DashboardScreen user={currentUser} onNavigateToTransactions={() => setActiveTab("transactions")} />;
+      return (
+        <DashboardScreen
+          user={currentUser}
+          onNavigateToTransactions={() => {
+            playUiSound("tab");
+            setActiveTab("transactions");
+          }}
+        />
+      );
     }
     if (activeTab === "transactions") {
       return <TransactionsScreen user={currentUser} />;
     }
     if (activeTab === "add") {
-      return <AddTransactionScreen user={currentUser} onTransactionSaved={() => setActiveTab("home")} />;
+      return (
+        <AddTransactionScreen
+          user={currentUser}
+          onTransactionSaved={() => {
+            // Play signature "Ka-Ching!" cash register sound when a manual transaction is created
+            playUiSound("kaching");
+            setActiveTab("home");
+          }}
+        />
+      );
     }
     if (activeTab === "ocr") {
-      return <OCRScannerScreen user={currentUser} initialMode={ocrMode} onTransactionsSaved={() => setActiveTab("home")} />;
+      return (
+        <OCRScannerScreen
+          user={currentUser}
+          initialMode={ocrMode}
+          onTransactionsSaved={() => {
+            // Play signature "Ka-Ching!" cash register sound when OCR transactions are created
+            playUiSound("kaching");
+            setActiveTab("home");
+          }}
+        />
+      );
     }
     if (activeTab === "budget") {
       return <BudgetScreen user={currentUser} />;
     }
     if (activeTab === "insights") {
-      return <InsightsScreen user={currentUser} onNavigateToBudget={() => setActiveTab("budget")} />;
+      return (
+        <InsightsScreen
+          user={currentUser}
+          onNavigateToBudget={() => {
+            playUiSound("tab");
+            setActiveTab("budget");
+          }}
+        />
+      );
     }
     if (activeTab === "notifications") {
       return <NotificationsScreen user={currentUser} />;
@@ -109,6 +164,7 @@ export default function App() {
           user={currentUser}
           onChangeTheme={handleThemeChange}
           onLogout={() => {
+            playUiSound("tab");
             setCurrentUser(null);
             setActiveTab("home");
           }}
@@ -118,12 +174,17 @@ export default function App() {
     return null;
   };
 
-  // Show Screen 1 (Login / Register) if user is not logged in
+  // 9. Show Authentication Screen if user is not logged in
   if (!currentUser) {
     return (
       <SafeAreaView key={themeKey} style={[styles.safeArea, { backgroundColor: COLORS.background }]}>
         <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
-        <AuthScreen onLoginSuccess={(userData) => setCurrentUser(userData)} />
+        <AuthScreen
+          onLoginSuccess={(userData) => {
+            playUiSound("success");
+            setCurrentUser(userData);
+          }}
+        />
       </SafeAreaView>
     );
   }
@@ -134,7 +195,7 @@ export default function App() {
     <SafeAreaView key={themeKey} style={[styles.safeArea, { backgroundColor: COLORS.background }]}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.card} />
 
-      {/* Top Navigation Bar with Back button, Bell button (Screen 8), and Profile button (Screen 9) */}
+      {/* Top Navigation Bar with Logo, Back button, Bell button, and Profile button */}
       <TopHeader
         title={getHeaderTitle()}
         showBack={isSubScreen}
@@ -143,8 +204,16 @@ export default function App() {
         onProfilePress={() => setActiveTab("profile")}
       />
 
-      {/* Main Active Screen Body */}
-      <View style={{ flex: 1 }}>{renderMainContent()}</View>
+      {/* Animated Main Screen Container */}
+      <Animated.View
+        style={{
+          flex: 1,
+          opacity: fadeAnim,
+          transform: [{ translateY: slideAnim }],
+        }}
+      >
+        {renderMainContent()}
+      </Animated.View>
 
       {/* Bottom 5-Button Navigation Bar */}
       <BottomNav activeTab={activeTab} onSelectTab={(tabId) => setActiveTab(tabId)} onPressAdd={() => setShowIngestionModal(true)} />
@@ -155,9 +224,8 @@ export default function App() {
   );
 }
 
-const getStyles = () =>
-  StyleSheet.create({
-    safeArea: {
-      flex: 1,
-    },
-  });
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
+});

@@ -1,189 +1,276 @@
-// Import React hooks, native UI components with Animated engine, and Lucide icons
-import React, { useState, useEffect, useRef } from "react";
-import { View, Text, TextInput, TouchableOpacity, Modal, Animated, StyleSheet } from "react-native";
+// Import React hooks, core React Native UI primitives, Image, Animated API, and Lucide icons
+import React, { useState, useRef, useEffect } from "react";
+import { View, Text, TextInput, TouchableOpacity, Image, Modal, Animated, Platform, StyleSheet } from "react-native";
 import {
-  Home,
-  ArrowLeftRight,
-  Plus,
-  Wallet,
-  BarChart2,
   Bell,
   User,
   ArrowLeft,
-  FileText,
+  Home,
+  Clock,
+  Plus,
+  PieChart,
+  Sparkles,
+  Edit3,
   Camera,
-  Pencil,
-  AlertCircle,
+  Layers,
+  X,
   CheckCircle2,
+  AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  Calendar as CalendarIcon,
 } from "lucide-react-native";
 import { COLORS, SHAPES, FONTS } from "../theme/theme";
 
-// 0. Globally reusable Floating Toast Hook & Component
-export const useFloatingToast = () => {
-  const [toast, setToast] = useState({
-    visible: false,
-    type: "error",
-    text: "",
-  });
-  const slideAnim = useRef(new Animated.Value(-90)).current;
-  const timerRef = useRef(null);
-
-  const showToast = (type, text, duration = 3500) => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    setToast({ visible: true, type, text });
-    slideAnim.setValue(-90);
-
-    Animated.spring(slideAnim, {
-      toValue: 12,
-      damping: 15,
-      stiffness: 180,
-      useNativeDriver: true,
-    }).start();
-
-    timerRef.current = setTimeout(() => {
-      Animated.timing(slideAnim, {
-        toValue: -100,
-        duration: 220,
-        useNativeDriver: true,
-      }).start(() => setToast((prev) => ({ ...prev, visible: false })));
-    }, duration);
-  };
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
-
-  return { toast, slideAnim, showToast };
+// 1. Shared Helper: Safely convert any Date or string into "YYYY-MM-DD"
+export const formatDateYMD = (dateInput = new Date()) => {
+  const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+  if (isNaN(d.getTime())) {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  }
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 };
 
-export const FloatingToast = ({ toast, slideAnim }) => {
-  const styles = getStyles();
-  if (!toast.visible) return null;
-  const isError = toast.type === "error";
-
-  return (
-    <Animated.View style={[styles.floatingToast, isError ? styles.toastError : styles.toastSuccess, { transform: [{ translateY: slideAnim }] }]}>
-      {isError ? <AlertCircle size={16} color={COLORS.danger} strokeWidth={2.5} /> : <CheckCircle2 size={16} color="#15803D" strokeWidth={2.5} />}
-      <Text style={[styles.floatingToastText, { color: isError ? COLORS.danger : "#15803D" }]}>{toast.text}</Text>
-    </Animated.View>
-  );
+// 2. Shared Helper: Generate the past 6 months in chronological order (oldest -> current month)
+export const getSixMonthWindow = () => {
+  const list = [];
+  const now = new Date();
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const shortMonth = d.toLocaleDateString("en-US", { month: "short" });
+    const label = d.toLocaleDateString("en-US", {
+      month: "short",
+      year: "numeric",
+    });
+    list.push({
+      key,
+      shortMonth,
+      label,
+      year: d.getFullYear(),
+      month: d.getMonth(),
+      monthNum: d.getMonth() + 1,
+      isCurrentMonth: i === 0,
+    });
+  }
+  return list;
 };
 
-// 1. Universal card container
-export const WireBox = ({ children, style }) => {
-  const styles = getStyles();
-  return <View style={[styles.wireBox, style]}>{children}</View>;
+// 3. Shared Helper: Distinct Web Audio Synthesizer for Coin "Ka-Ching!", Doorbell Notification & Tab Clicks
+export const playUiSound = (type = "tab") => {
+  try {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+
+      if (type === "kaching") {
+        // Metallic 4-Coin Cascade + Cash Register Drawer sound for Create Transaction
+        const drawerOsc = ctx.createOscillator();
+        const drawerGain = ctx.createGain();
+        drawerOsc.type = "sawtooth";
+        drawerOsc.frequency.setValueAtTime(140, now);
+        drawerOsc.frequency.exponentialRampToValueAtTime(320, now + 0.045);
+        drawerGain.gain.setValueAtTime(0.08, now);
+        drawerGain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+        drawerOsc.connect(drawerGain);
+        drawerGain.connect(ctx.destination);
+        drawerOsc.start(now);
+        drawerOsc.stop(now + 0.055);
+
+        // 4 Rapid Metallic Coin Clinks (High-pitched shimmering coin frequencies)
+        const coinNotes = [
+          { freq: 1318.51, delay: 0.05, dur: 0.14 },
+          { freq: 1760.0, delay: 0.11, dur: 0.16 },
+          { freq: 2093.0, delay: 0.17, dur: 0.18 },
+          { freq: 2637.02, delay: 0.24, dur: 0.45 },
+        ];
+
+        coinNotes.forEach((c) => {
+          const osc1 = ctx.createOscillator();
+          const osc2 = ctx.createOscillator();
+          const g = ctx.createGain();
+
+          osc1.type = "sine";
+          osc2.type = "triangle";
+          osc1.frequency.setValueAtTime(c.freq, now + c.delay);
+          // Metallic inharmonic overtone for realistic coin ring
+          osc2.frequency.setValueAtTime(c.freq * 2.41, now + c.delay);
+
+          g.gain.setValueAtTime(0.0001, now);
+          g.gain.setValueAtTime(0.14, now + c.delay);
+          g.gain.exponentialRampToValueAtTime(0.0008, now + c.delay + c.dur);
+
+          osc1.connect(g);
+          osc2.connect(g);
+          g.connect(ctx.destination);
+
+          osc1.start(now + c.delay);
+          osc1.stop(now + c.delay + c.dur + 0.02);
+          osc2.start(now + c.delay);
+          osc2.stop(now + c.delay + c.dur + 0.02);
+        });
+      } else if (type === "bell") {
+        // Warm Downward "Ding-Dong" Chime for Notification Bell (A5 880Hz -> D5 587.33Hz)
+        const ding = ctx.createOscillator();
+        const dingGain = ctx.createGain();
+        ding.type = "sine";
+        ding.frequency.setValueAtTime(880, now);
+        dingGain.gain.setValueAtTime(0.12, now);
+        dingGain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+        ding.connect(dingGain);
+        dingGain.connect(ctx.destination);
+        ding.start(now);
+        ding.stop(now + 0.23);
+
+        const dong = ctx.createOscillator();
+        const dongGain = ctx.createGain();
+        dong.type = "sine";
+        dong.frequency.setValueAtTime(587.33, now + 0.14);
+        dongGain.gain.setValueAtTime(0.0001, now);
+        dongGain.gain.setValueAtTime(0.14, now + 0.14);
+        dongGain.gain.exponentialRampToValueAtTime(0.001, now + 0.48);
+        dong.connect(dongGain);
+        dongGain.connect(ctx.destination);
+        dong.start(now + 0.14);
+        dong.stop(now + 0.5);
+      } else if (type === "success") {
+        // Soft 2-note chord for general settings/budget save
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(523.25, now);
+        osc.frequency.setValueAtTime(659.25, now + 0.07);
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+        osc.start(now);
+        osc.stop(now + 0.23);
+      } else {
+        // Subtle single low woodblock tap for screen/tab navigation
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(440, now);
+        osc.frequency.exponentialRampToValueAtTime(190, now + 0.04);
+        gain.gain.setValueAtTime(0.045, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
+        osc.start(now);
+        osc.stop(now + 0.05);
+      }
+    }
+  } catch (e) {
+    // Ignore audio context restrictions if user has not interacted yet
+  }
 };
 
-// 2. Universal input field component
-export const WireInput = ({ label, placeholder, value, onChangeText, secureTextEntry = false, keyboardType = "default" }) => {
-  const styles = getStyles();
-  return (
-    <View style={styles.inputContainer}>
-      <Text style={styles.inputLabel}>{label}</Text>
-      <View style={styles.inputBox}>
-        <TextInput
-          style={styles.textInput}
-          placeholder={placeholder}
-          placeholderTextColor={COLORS.textMuted}
-          value={value}
-          onChangeText={onChangeText}
-          secureTextEntry={secureTextEntry}
-          keyboardType={keyboardType}
-          autoCapitalize="none"
-        />
-      </View>
-    </View>
-  );
-};
-
-// 3. Universal button component
-export const WireButton = ({ label, onPress, variant = "filled", style }) => {
-  const styles = getStyles();
-  const isFilled = variant === "filled";
-  return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={[styles.buttonBase, isFilled ? styles.buttonFilled : styles.buttonOutline, style]}>
-      <Text style={isFilled ? styles.buttonTextFilled : styles.buttonTextOutline}>{label}</Text>
-    </TouchableOpacity>
-  );
-};
-
-// 4. Universal filter chip
-export const WireChip = ({ label, active = false, onPress }) => {
-  const styles = getStyles();
-  return (
-    <TouchableOpacity onPress={onPress} style={[styles.chipBase, active ? styles.chipActive : styles.chipInactive]}>
-      <Text style={[styles.chipText, active ? styles.chipTextActive : styles.chipTextInactive]}>{label}</Text>
-    </TouchableOpacity>
-  );
-};
-
-// 5. Top Header navigation bar
-export const TopHeader = ({ title = "Ka-Ching!", showBack = false, onBackPress, onBellPress, onProfilePress }) => {
+// 4. Top Header Navigation Bar with kaching_logo.png, Back Button, Bell Icon, and Profile Icon
+export const TopHeader = ({ title, showBack = false, onBackPress, onBellPress, onProfilePress }) => {
   const styles = getStyles();
   return (
     <View style={styles.headerContainer}>
       <View style={styles.headerLeft}>
-        {showBack && (
-          <TouchableOpacity onPress={onBackPress} style={{ marginRight: 8, padding: 2 }}>
-            <ArrowLeft size={18} color={COLORS.text} strokeWidth={2.5} />
+        {showBack ? (
+          <TouchableOpacity
+            style={styles.iconCircleBtn}
+            onPress={() => {
+              playUiSound("tab");
+              if (onBackPress) onBackPress();
+            }}
+            activeOpacity={0.75}
+          >
+            <ArrowLeft size={16} color={COLORS.text} strokeWidth={2.5} />
           </TouchableOpacity>
+        ) : (
+          <Image source={require("../../assets/kaching_logo.png")} style={styles.logoImage} resizeMode="contain" />
         )}
-        <Text style={styles.headerTitle}>{title}</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>
+          {title}
+        </Text>
       </View>
+
       <View style={styles.headerRight}>
-        <TouchableOpacity onPress={onBellPress} style={{ padding: 4 }}>
-          <Bell size={18} color={COLORS.text} strokeWidth={2} />
+        <TouchableOpacity
+          style={styles.iconCircleBtn}
+          onPress={() => {
+            playUiSound("bell");
+            if (onBellPress) onBellPress();
+          }}
+          activeOpacity={0.75}
+        >
+          <Bell size={16} color={COLORS.text} strokeWidth={2.3} />
         </TouchableOpacity>
-        <TouchableOpacity onPress={onProfilePress} style={styles.avatarBox}>
-          <User size={15} color={COLORS.text} strokeWidth={2} />
+
+        <TouchableOpacity
+          style={styles.iconCircleBtn}
+          onPress={() => {
+            playUiSound("tab");
+            if (onProfilePress) onProfilePress();
+          }}
+          activeOpacity={0.75}
+        >
+          <User size={16} color={COLORS.text} strokeWidth={2.3} />
         </TouchableOpacity>
       </View>
     </View>
   );
 };
 
-// 6. Bottom Navigation bar component
-export const BottomNav = ({ activeTab = "home", onSelectTab, onPressAdd }) => {
+// 5. Bottom 5-Tab Navigation Bar with Elevated Center "+" Action Button
+export const BottomNav = ({ activeTab, onSelectTab, onPressAdd }) => {
   const styles = getStyles();
-  const leftTabs = [
-    { id: "home", label: "Home", Icon: Home },
-    { id: "transactions", label: "History", Icon: ArrowLeftRight },
-  ];
-  const rightTabs = [
-    { id: "budget", label: "Budget", Icon: Wallet },
-    { id: "insights", label: "Insights", Icon: BarChart2 },
+  const navItems = [
+    { id: "home", label: "Home", icon: Home },
+    { id: "transactions", label: "History", icon: Clock },
+    { id: "center_add", label: "Add", isAddButton: true },
+    { id: "budget", label: "Budget", icon: PieChart },
+    { id: "insights", label: "Insights", icon: Sparkles },
   ];
 
   return (
     <View style={styles.bottomNavContainer}>
-      {leftTabs.map(({ id, label, Icon }) => {
-        const isActive = activeTab === id;
-        return (
-          <TouchableOpacity key={id} style={styles.navItem} onPress={() => onSelectTab(id)}>
-            <Icon size={18} color={isActive ? COLORS.primary : COLORS.textMuted} strokeWidth={isActive ? 2.5 : 2} />
-            <Text style={[styles.navLabel, isActive && styles.navLabelActive]}>{label}</Text>
-          </TouchableOpacity>
-        );
-      })}
+      {navItems.map((item) => {
+        if (item.isAddButton) {
+          return (
+            <TouchableOpacity
+              key={item.id}
+              style={styles.centerAddButton}
+              activeOpacity={0.85}
+              onPress={() => {
+                playUiSound("tab");
+                if (onPressAdd) onPressAdd();
+              }}
+            >
+              <Plus size={22} color={COLORS.primaryText} strokeWidth={3} />
+            </TouchableOpacity>
+          );
+        }
 
-      <View style={styles.addBtnWrapper}>
-        <TouchableOpacity style={styles.addBtn} onPress={onPressAdd} activeOpacity={0.85}>
-          <Plus size={24} color={COLORS.primaryText} strokeWidth={2.5} />
-        </TouchableOpacity>
-        <Text style={styles.navLabel}>Add</Text>
-      </View>
+        const IconComponent = item.icon;
+        const isActive = activeTab === item.id;
 
-      {rightTabs.map(({ id, label, Icon }) => {
-        const isActive = activeTab === id;
         return (
-          <TouchableOpacity key={id} style={styles.navItem} onPress={() => onSelectTab(id)}>
-            <Icon size={18} color={isActive ? COLORS.primary : COLORS.textMuted} strokeWidth={isActive ? 2.5 : 2} />
-            <Text style={[styles.navLabel, isActive && styles.navLabelActive]}>{label}</Text>
+          <TouchableOpacity
+            key={item.id}
+            style={styles.navTabItem}
+            activeOpacity={0.75}
+            onPress={() => {
+              playUiSound("tab");
+              if (onSelectTab) onSelectTab(item.id);
+            }}
+          >
+            <IconComponent size={18} color={isActive ? COLORS.primary : COLORS.textMuted} strokeWidth={isActive ? 2.6 : 2} />
+            <Text style={[styles.navTabLabel, isActive && { color: COLORS.primary, fontWeight: "bold" }]}>{item.label}</Text>
           </TouchableOpacity>
         );
       })}
@@ -191,629 +278,663 @@ export const BottomNav = ({ activeTab = "home", onSelectTab, onPressAdd }) => {
   );
 };
 
-// 7. Add Transaction Method Bottom Sheet Modal with smooth slide-up animation
+// 6. Ingestion Method Selection Modal ("+" Button Popup: Manual Entry vs Single/Batch OCR)
 export const IngestionModal = ({ visible, onClose, onSelectMethod }) => {
   const styles = getStyles();
-  const slideAnim = useRef(new Animated.Value(350)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (visible) {
-      slideAnim.setValue(350);
-      fadeAnim.setValue(0);
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.spring(slideAnim, {
-          toValue: 0,
-          damping: 18,
-          stiffness: 160,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [visible]);
-
-  const handleAnimatedClose = (callback) => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 160,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 350,
-        duration: 180,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      onClose();
-      if (typeof callback === "function") callback();
-    });
-  };
-
   const methods = [
     {
       id: "manual",
-      label: "Type It In Manually",
-      sub: "Quickly enter an expense or income yourself",
-      Icon: Pencil,
+      title: "Manual Entry",
+      subtitle: "Type amount, merchant & category manually",
+      icon: Edit3,
+    },
+    {
+      id: "ocr_single",
+      title: "Scan Single Receipt (AI OCR)",
+      subtitle: "Extract merchant, date & total from 1 receipt photo",
+      icon: Camera,
     },
     {
       id: "ocr_batch",
-      label: "Upload Receipt Photos",
-      sub: "Select one or more receipt screenshots from gallery",
-      Icon: FileText,
-    },
-    {
-      id: "camera",
-      label: "Snap a Receipt Photo",
-      sub: "Use your camera to scan a physical receipt",
-      Icon: Camera,
+      title: "Batch Scan Up to 5 Receipts",
+      subtitle: "Queue multiple receipts and verify them side-by-side",
+      icon: Layers,
     },
   ];
 
   return (
-    <Modal visible={visible} transparent={true} animationType="none" onRequestClose={() => handleAnimatedClose()}>
-      <Animated.View style={[styles.modalOverlay, { opacity: fadeAnim }]}>
-        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => handleAnimatedClose()} />
-
-        <Animated.View style={[styles.bottomSheetCard, { transform: [{ translateY: slideAnim }] }]}>
-          <View style={styles.sheetHandleWrapper}>
-            <View style={styles.sheetHandle} />
+    <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHeaderRow}>
+            <Text style={styles.modalHeaderTitle}>ADD TRANSACTION</Text>
+            <TouchableOpacity onPress={onClose}>
+              <X size={18} color={COLORS.text} strokeWidth={2.5} />
+            </TouchableOpacity>
           </View>
 
-          <Text style={styles.sheetTitle}>ADD A TRANSACTION</Text>
-          <Text style={styles.sheetSubtitle}>Choose how you would like to record this entry</Text>
+          <Text style={styles.modalSubText}>Choose how you would like to record your income or expense:</Text>
 
-          {methods.map(({ id, label, sub, Icon }) => (
-            <TouchableOpacity key={id} style={styles.methodBtn} activeOpacity={0.8} onPress={() => handleAnimatedClose(() => onSelectMethod(id))}>
-              <View style={styles.methodIconBox}>
-                <Icon size={16} color={COLORS.text} strokeWidth={2} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.methodLabel}>{label}</Text>
-                <Text style={styles.methodSub}>{sub}</Text>
-              </View>
-              <View style={styles.methodDot} />
-            </TouchableOpacity>
-          ))}
-
-          <TouchableOpacity style={styles.cancelBtn} onPress={() => handleAnimatedClose()}>
-            <Text style={styles.cancelBtnText}>CANCEL</Text>
-          </TouchableOpacity>
-        </Animated.View>
-      </Animated.View>
-    </Modal>
-  );
-};
-
-// 8. Globally Reusable Interactive Calendar Picker & Modal
-export const CalendarPicker = ({ selectedDate, onSelectDate, style }) => {
-  const styles = getStyles();
-  const [viewDate, setViewDate] = useState(selectedDate ? new Date(selectedDate) : new Date());
-
-  useEffect(() => {
-    if (selectedDate) {
-      setViewDate(new Date(selectedDate));
-    }
-  }, [selectedDate]);
-
-  const viewYear = viewDate.getFullYear();
-  const viewMonth = viewDate.getMonth();
-  const firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay();
-  const totalDays = new Date(viewYear, viewMonth + 1, 0).getDate();
-
-  const daysGrid = [];
-  for (let i = 0; i < firstDayOfWeek; i++) daysGrid.push(null);
-  for (let d = 1; d <= totalDays; d++) daysGrid.push(d);
-
-  const monthTitle = viewDate.toLocaleDateString("en-US", {
-    month: "long",
-    year: "numeric",
-  });
-
-  const changeMonth = (offset) => {
-    setViewDate(new Date(viewYear, viewMonth + offset, 1));
-  };
-
-  const handleQuickPick = (daysAgo) => {
-    const target = new Date();
-    target.setDate(target.getDate() - daysAgo);
-    setViewDate(target);
-    onSelectDate(target);
-  };
-
-  const handlePickDay = (dayNum) => {
-    if (!dayNum) return;
-    const picked = new Date(viewYear, viewMonth, dayNum, 12, 0, 0);
-    onSelectDate(picked);
-  };
-
-  return (
-    <View style={[styles.calendarContainer, style]}>
-      <View style={styles.quickDateRow}>
-        <TouchableOpacity style={styles.quickDateChip} onPress={() => handleQuickPick(0)}>
-          <Text style={styles.quickDateText}>Today</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.quickDateChip} onPress={() => handleQuickPick(1)}>
-          <Text style={styles.quickDateText}>Yesterday</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.calHeaderRow}>
-        <TouchableOpacity onPress={() => changeMonth(-1)} style={styles.calNavBtn}>
-          <ChevronLeft size={16} color={COLORS.text} strokeWidth={2.5} />
-        </TouchableOpacity>
-        <Text style={styles.calMonthTitle}>{monthTitle}</Text>
-        <TouchableOpacity onPress={() => changeMonth(1)} style={styles.calNavBtn}>
-          <ChevronRight size={16} color={COLORS.text} strokeWidth={2.5} />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.weekHeaderRow}>
-        {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((w) => (
-          <Text key={w} style={styles.weekHeaderText}>
-            {w}
-          </Text>
-        ))}
-      </View>
-
-      <View style={styles.daysGridContainer}>
-        {daysGrid.map((dayNum, idx) => {
-          const isChosen =
-            dayNum &&
-            selectedDate &&
-            selectedDate.getDate() === dayNum &&
-            selectedDate.getMonth() === viewMonth &&
-            selectedDate.getFullYear() === viewYear;
-
-          return (
-            <TouchableOpacity
-              key={idx}
-              disabled={!dayNum}
-              style={[styles.dayCell, isChosen && styles.dayCellSelected]}
-              onPress={() => handlePickDay(dayNum)}
-            >
-              <Text style={[styles.dayCellText, isChosen && styles.dayCellTextSelected]}>{dayNum || ""}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </View>
-  );
-};
-
-export const CalendarModal = ({ visible, selectedDate, onSelectDate, onClose }) => {
-  const styles = getStyles();
-  return (
-    <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onClose}>
-      <View style={styles.centerModalOverlay}>
-        <View style={styles.calendarPopupCard}>
-          <CalendarPicker
-            selectedDate={selectedDate}
-            onSelectDate={(pickedDate) => {
-              onSelectDate(pickedDate);
-              onClose();
-            }}
-          />
-          <WireButton label="CLOSE CALENDAR" variant="outline" onPress={onClose} style={{ marginTop: 12 }} />
+          {methods.map((m) => {
+            const Icon = m.icon;
+            return (
+              <TouchableOpacity
+                key={m.id}
+                style={styles.methodOptionCard}
+                activeOpacity={0.8}
+                onPress={() => {
+                  playUiSound("tab");
+                  onClose();
+                  if (onSelectMethod) onSelectMethod(m.id);
+                }}
+              >
+                <View style={styles.methodIconCircle}>
+                  <Icon size={17} color={COLORS.primary} strokeWidth={2.4} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.methodTitle}>{m.title}</Text>
+                  <Text style={styles.methodSubtitle}>{m.subtitle}</Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
     </Modal>
   );
 };
 
-// Dynamic style generator so runtime theme switches update all UI components immediately
+// 7. Inline CalendarPicker Component (Used directly inside TransactionsScreen edit modal & wrapped by CalendarModal)
+export const CalendarPicker = ({ selectedDate, onSelectDate, onClose }) => {
+  const styles = getStyles();
+  const initialDate = selectedDate instanceof Date ? selectedDate : selectedDate ? new Date(selectedDate) : new Date();
+  const safeInit = isNaN(initialDate.getTime()) ? new Date() : initialDate;
+
+  const [viewYear, setViewYear] = useState(safeInit.getFullYear());
+  const [viewMonth, setViewMonth] = useState(safeInit.getMonth());
+
+  useEffect(() => {
+    if (selectedDate) {
+      const parsed = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
+      if (!isNaN(parsed.getTime())) {
+        setViewYear(parsed.getFullYear());
+        setViewMonth(parsed.getMonth());
+      }
+    }
+  }, [selectedDate]);
+
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay();
+  const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  const handlePrevMonth = () => {
+    playUiSound("tab");
+    if (viewMonth === 0) {
+      setViewMonth(11);
+      setViewYear((y) => y - 1);
+    } else {
+      setViewMonth((m) => m - 1);
+    }
+  };
+
+  const handleNextMonth = () => {
+    playUiSound("tab");
+    if (viewMonth === 11) {
+      setViewMonth(0);
+      setViewYear((y) => y + 1);
+    } else {
+      setViewMonth((m) => m + 1);
+    }
+  };
+
+  const dayCells = [];
+  for (let i = 0; i < firstDayOfWeek; i++) {
+    dayCells.push(null);
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    dayCells.push(d);
+  }
+
+  const selectedYMD = formatDateYMD(safeInit);
+  const todayYMD = formatDateYMD(new Date());
+
+  return (
+    <View style={styles.inlineCalendarBox}>
+      {/* Month & Year Navigation Bar */}
+      <View style={styles.calNavRow}>
+        <TouchableOpacity style={styles.calNavBtn} onPress={handlePrevMonth}>
+          <ChevronLeft size={16} color={COLORS.text} strokeWidth={2.5} />
+        </TouchableOpacity>
+        <Text style={styles.calMonthTitle}>{monthLabel}</Text>
+        <TouchableOpacity style={styles.calNavBtn} onPress={handleNextMonth}>
+          <ChevronRight size={16} color={COLORS.text} strokeWidth={2.5} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Weekday Headers */}
+      <View style={styles.calWeekRow}>
+        {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((w) => (
+          <Text key={w} style={styles.calWeekText}>
+            {w}
+          </Text>
+        ))}
+      </View>
+
+      {/* Calendar Day Grid */}
+      <View style={styles.calGrid}>
+        {dayCells.map((dayNum, idx) => {
+          if (!dayNum) {
+            return <View key={`empty_${idx}`} style={styles.calDayCell} />;
+          }
+          const cellYMD = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+          const isSelected = cellYMD === selectedYMD;
+          const isToday = cellYMD === todayYMD;
+
+          return (
+            <TouchableOpacity
+              key={cellYMD}
+              style={[styles.calDayCell, isToday && styles.calDayCellToday, isSelected && styles.calDayCellSelected]}
+              onPress={() => {
+                playUiSound("tab");
+                // Always pass back a real Date object so .toLocaleDateString() never crashes!
+                const pickedDateObj = new Date(viewYear, viewMonth, dayNum, 12, 0, 0);
+                if (onSelectDate) onSelectDate(pickedDateObj);
+                if (onClose) onClose();
+              }}
+            >
+              <Text
+                style={[
+                  styles.calDayText,
+                  isToday && { fontWeight: "bold", color: COLORS.primary },
+                  isSelected && {
+                    color: COLORS.primaryText,
+                    fontWeight: "bold",
+                  },
+                ]}
+              >
+                {dayNum}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Quick "Today" Shortcut & Close Button */}
+      <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+        <WireButton
+          label="TODAY"
+          variant="outline"
+          style={{ flex: 1, paddingVertical: 8 }}
+          onPress={() => {
+            playUiSound("tab");
+            const nowObj = new Date();
+            if (onSelectDate) onSelectDate(nowObj);
+            if (onClose) onClose();
+          }}
+        />
+        {onClose && <WireButton label="CLOSE" style={{ flex: 1, paddingVertical: 8 }} onPress={onClose} />}
+      </View>
+    </View>
+  );
+};
+
+// 8. Popup CalendarModal Component (Used in AddTransactionScreen & OCRScannerScreen)
+export const CalendarModal = ({ visible, selectedDate, onSelectDate, onClose }) => {
+  const styles = getStyles();
+  return (
+    <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHeaderRow}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <CalendarIcon size={15} color={COLORS.primary} strokeWidth={2.5} />
+              <Text style={styles.modalHeaderTitle}>SELECT DATE</Text>
+            </View>
+            <TouchableOpacity onPress={onClose}>
+              <X size={18} color={COLORS.text} strokeWidth={2.5} />
+            </TouchableOpacity>
+          </View>
+
+          <CalendarPicker selectedDate={selectedDate} onSelectDate={onSelectDate} onClose={onClose} />
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+// 9. Standard Wireframe Card Container Component
+export const WireBox = ({ children, style }) => {
+  const styles = getStyles();
+  return <View style={[styles.wireBox, style]}>{children}</View>;
+};
+
+// 10. Standard Labeled Text Input Component
+export const WireInput = ({ label, value, onChangeText, placeholder, secureTextEntry = false, keyboardType = "default", style }) => {
+  const styles = getStyles();
+  return (
+    <View style={[styles.inputWrapper, style]}>
+      {label ? <Text style={styles.inputLabel}>{label}</Text> : null}
+      <TextInput
+        style={styles.textInput}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={COLORS.textMuted}
+        secureTextEntry={secureTextEntry}
+        keyboardType={keyboardType}
+      />
+    </View>
+  );
+};
+
+// 11. Standard Brutalist/Pastel Button Component
+export const WireButton = ({ label, onPress, variant = "filled", style, disabled = false }) => {
+  const styles = getStyles();
+  const isFilled = variant === "filled";
+  return (
+    <TouchableOpacity
+      style={[styles.wireButton, isFilled ? styles.wireButtonFilled : styles.wireButtonOutline, disabled && { opacity: 0.5 }, style]}
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={0.8}
+    >
+      <Text style={[styles.wireButtonText, isFilled ? styles.wireButtonTextFilled : styles.wireButtonTextOutline]}>{label}</Text>
+    </TouchableOpacity>
+  );
+};
+
+// 12. Selectable Filter Pill Chip Component
+export const WireChip = ({ label, active = false, onPress }) => {
+  const styles = getStyles();
+  return (
+    <TouchableOpacity
+      style={[styles.wireChip, active && styles.wireChipActive]}
+      onPress={() => {
+        playUiSound("tab");
+        if (onPress) onPress();
+      }}
+      activeOpacity={0.75}
+    >
+      <Text style={[styles.wireChipText, active && styles.wireChipTextActive]}>{label}</Text>
+    </TouchableOpacity>
+  );
+};
+
+// 13. Custom Hook & Banner for Non-Blocking Top Floating Toast Alerts
+export const useFloatingToast = () => {
+  const [toast, setToast] = useState(null);
+  const slideAnim = useRef(new Animated.Value(-80)).current;
+  const timerRef = useRef(null);
+
+  const showToast = (type, message) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setToast({ type, message });
+
+    Animated.spring(slideAnim, {
+      toValue: 12,
+      useNativeDriver: Platform.OS !== "web",
+      speed: 18,
+      bounciness: 6,
+    }).start();
+
+    timerRef.current = setTimeout(() => {
+      Animated.timing(slideAnim, {
+        toValue: -90,
+        duration: 220,
+        useNativeDriver: Platform.OS !== "web",
+      }).start(() => setToast(null));
+    }, 3000);
+  };
+
+  return { toast, slideAnim, showToast };
+};
+
+export const FloatingToast = ({ toast, slideAnim }) => {
+  const styles = getStyles();
+  if (!toast) return null;
+  const isError = toast.type === "error";
+
+  return (
+    <Animated.View
+      style={[styles.toastBanner, isError ? styles.toastBannerError : styles.toastBannerSuccess, { transform: [{ translateY: slideAnim }] }]}
+    >
+      {isError ? <AlertTriangle size={15} color="#E11D48" strokeWidth={2.5} /> : <CheckCircle2 size={15} color="#15803D" strokeWidth={2.5} />}
+      <Text style={[styles.toastText, { color: isError ? "#9F1239" : "#14532D" }]}>{toast.message}</Text>
+    </Animated.View>
+  );
+};
+
+// 14. Dynamic Style Generator reading live COLORS and SHAPES on every render
 const getStyles = () =>
   StyleSheet.create({
-    floatingToast: {
-      position: "absolute",
-      top: 0,
-      left: 16,
-      right: 16,
-      zIndex: 9999,
-      borderWidth: 2,
-      borderRadius: SHAPES.inputRadius,
-      paddingHorizontal: 14,
-      paddingVertical: 11,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-      shadowColor: "#121212",
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.25,
-      shadowRadius: 6,
-      elevation: 10,
-    },
-    toastError: {
-      borderColor: COLORS.danger,
-      backgroundColor: "#FFF5F5",
-    },
-    toastSuccess: {
-      borderColor: "#15803D",
-      backgroundColor: "#F0FDF4",
-    },
-    floatingToastText: {
-      fontFamily: FONTS.mono,
-      fontSize: 10,
-      fontWeight: "bold",
-      flex: 1,
-    },
-    wireBox: {
-      borderWidth: SHAPES.borderWidth,
-      borderColor: COLORS.border,
-      borderRadius: SHAPES.cardRadius,
-      backgroundColor: COLORS.card,
-      padding: 12,
-    },
-    inputContainer: {
-      marginBottom: 14,
-    },
-    inputLabel: {
-      fontSize: 10,
-      fontFamily: FONTS.mono,
-      color: COLORS.textMuted,
-      marginBottom: 4,
-      textTransform: "uppercase",
-      letterSpacing: 1,
-    },
-    inputBox: {
-      borderWidth: SHAPES.borderWidth,
-      borderColor: COLORS.border,
-      borderRadius: SHAPES.inputRadius,
-      backgroundColor: COLORS.inputBg,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-    },
-    textInput: {
-      fontSize: 13,
-      fontFamily: FONTS.mono,
-      color: COLORS.text,
-      padding: 0,
-    },
-    buttonBase: {
-      width: "100%",
-      borderWidth: SHAPES.borderWidth,
-      borderColor: COLORS.border,
-      borderRadius: SHAPES.buttonRadius,
-      paddingVertical: 12,
-      paddingHorizontal: 16,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    buttonFilled: {
-      backgroundColor: COLORS.primary,
-    },
-    buttonOutline: {
-      backgroundColor: "transparent",
-    },
-    buttonTextFilled: {
-      color: COLORS.primaryText,
-      fontSize: 12,
-      fontFamily: FONTS.mono,
-      fontWeight: "bold",
-      textTransform: "uppercase",
-      letterSpacing: 1.5,
-    },
-    buttonTextOutline: {
-      color: COLORS.text,
-      fontSize: 12,
-      fontFamily: FONTS.mono,
-      fontWeight: "bold",
-      textTransform: "uppercase",
-      letterSpacing: 1.5,
-    },
-    chipBase: {
-      borderWidth: SHAPES.borderWidth,
-      borderColor: COLORS.border,
-      borderRadius: SHAPES.chipRadius,
-      paddingHorizontal: 12,
-      paddingVertical: 5,
-      marginRight: 8,
-    },
-    chipActive: {
-      backgroundColor: COLORS.primary,
-    },
-    chipInactive: {
-      backgroundColor: COLORS.card,
-    },
-    chipText: {
-      fontSize: 10,
-      fontFamily: FONTS.mono,
-      textTransform: "uppercase",
-      letterSpacing: 1,
-    },
-    chipTextActive: {
-      color: COLORS.primaryText,
-      fontWeight: "bold",
-    },
-    chipTextInactive: {
-      color: COLORS.text,
-    },
     headerContainer: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      backgroundColor: COLORS.card,
       borderBottomWidth: SHAPES.borderWidth,
       borderColor: COLORS.border,
-      backgroundColor: COLORS.card,
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
     },
     headerLeft: {
       flexDirection: "row",
       alignItems: "center",
+      gap: 10,
+      flex: 1,
+    },
+    logoImage: {
+      width: 34,
+      height: 34,
+      borderRadius: 8,
     },
     headerTitle: {
       fontFamily: FONTS.mono,
       fontSize: 15,
       fontWeight: "bold",
       color: COLORS.text,
+      letterSpacing: 0.6,
     },
     headerRight: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 12,
+      gap: 8,
     },
-    avatarBox: {
-      width: 28,
-      height: 28,
+    iconCircleBtn: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
       borderWidth: SHAPES.borderWidth,
       borderColor: COLORS.border,
-      borderRadius: SHAPES.chipRadius,
       backgroundColor: COLORS.secondary,
       alignItems: "center",
       justifyContent: "center",
     },
     bottomNavContainer: {
-      borderTopWidth: SHAPES.borderWidth,
-      borderColor: COLORS.border,
-      backgroundColor: COLORS.card,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-around",
-      paddingTop: 8,
-      paddingBottom: 12,
+      backgroundColor: COLORS.card,
+      borderTopWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      paddingVertical: 8,
       paddingHorizontal: 8,
     },
-    navItem: {
+    navTabItem: {
       flex: 1,
       alignItems: "center",
       justifyContent: "center",
+      paddingVertical: 4,
     },
-    navLabel: {
+    navTabLabel: {
       fontFamily: FONTS.mono,
       fontSize: 9,
       color: COLORS.textMuted,
-      textTransform: "uppercase",
-      marginTop: 4,
+      marginTop: 3,
     },
-    navLabelActive: {
-      color: COLORS.primary,
-      fontWeight: "bold",
-    },
-    addBtnWrapper: {
-      flex: 1,
-      alignItems: "center",
-      marginTop: -22,
-    },
-    addBtn: {
-      width: 48,
-      height: 48,
+    centerAddButton: {
+      width: 46,
+      height: 46,
+      borderRadius: 23,
       borderWidth: SHAPES.borderWidth,
       borderColor: COLORS.border,
-      borderRadius: SHAPES.buttonRadius,
       backgroundColor: COLORS.primary,
       alignItems: "center",
       justifyContent: "center",
+      marginHorizontal: 8,
       shadowColor: COLORS.text,
-      shadowOffset: { width: 2, height: 3 },
+      shadowOffset: { width: 2, height: 2 },
       shadowOpacity: 0.25,
       shadowRadius: 0,
       elevation: 4,
     },
-    modalOverlay: {
-      flex: 1,
-      backgroundColor: "rgba(0,0,0,0.55)",
-      justifyContent: "flex-end",
+    wireBox: {
+      backgroundColor: COLORS.card,
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.cardRadius,
+      padding: 14,
+      shadowColor: COLORS.text,
+      shadowOffset: { width: 3, height: 3 },
+      shadowOpacity: 0.12,
+      shadowRadius: 0,
+      elevation: 2,
     },
-    centerModalOverlay: {
+    inputWrapper: {
+      marginBottom: 12,
+    },
+    inputLabel: {
+      fontFamily: FONTS.mono,
+      fontSize: 9.5,
+      fontWeight: "bold",
+      color: COLORS.text,
+      marginBottom: 5,
+      letterSpacing: 0.5,
+    },
+    textInput: {
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.inputRadius,
+      backgroundColor: COLORS.inputBg,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      fontFamily: FONTS.mono,
+      fontSize: 11,
+      color: COLORS.text,
+    },
+    wireButton: {
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.buttonRadius,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    wireButtonFilled: {
+      backgroundColor: COLORS.primary,
+    },
+    wireButtonOutline: {
+      backgroundColor: COLORS.card,
+    },
+    wireButtonText: {
+      fontFamily: FONTS.mono,
+      fontSize: 10.5,
+      fontWeight: "bold",
+      letterSpacing: 0.8,
+    },
+    wireButtonTextFilled: {
+      color: COLORS.primaryText,
+    },
+    wireButtonTextOutline: {
+      color: COLORS.text,
+    },
+    wireChip: {
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.chipRadius,
+      backgroundColor: COLORS.card,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      marginRight: 8,
+    },
+    wireChipActive: {
+      backgroundColor: COLORS.primary,
+    },
+    wireChipText: {
+      fontFamily: FONTS.mono,
+      fontSize: 9.5,
+      fontWeight: "bold",
+      color: COLORS.textMuted,
+    },
+    wireChipTextActive: {
+      color: COLORS.primaryText,
+    },
+    modalBackdrop: {
       flex: 1,
-      backgroundColor: "rgba(0,0,0,0.55)",
+      backgroundColor: "rgba(0,0,0,0.5)",
       justifyContent: "center",
       alignItems: "center",
       padding: 18,
     },
-    calendarPopupCard: {
+    modalSheet: {
       width: "100%",
-      maxWidth: 350,
+      maxWidth: 360,
+      backgroundColor: COLORS.card,
       borderWidth: SHAPES.borderWidth,
       borderColor: COLORS.border,
       borderRadius: SHAPES.cardRadius,
-      backgroundColor: COLORS.card,
       padding: 16,
     },
-    calendarContainer: {
-      width: "100%",
-    },
-    quickDateRow: {
-      flexDirection: "row",
-      gap: 8,
-      marginBottom: 10,
-    },
-    quickDateChip: {
-      flex: 1,
-      borderWidth: 1.5,
-      borderColor: COLORS.border,
-      borderRadius: SHAPES.chipRadius,
-      backgroundColor: COLORS.secondary,
-      paddingVertical: 6,
-      alignItems: "center",
-    },
-    quickDateText: {
-      fontFamily: FONTS.mono,
-      fontSize: 10,
-      fontWeight: "bold",
-      color: COLORS.text,
-    },
-    calHeaderRow: {
+    modalHeaderRow: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "center",
-      marginBottom: 8,
-      paddingBottom: 6,
-      borderBottomWidth: 1,
+      borderBottomWidth: 1.5,
       borderColor: COLORS.borderMuted,
       borderStyle: "dashed",
+      paddingBottom: 10,
+      marginBottom: 10,
     },
-    calNavBtn: {
-      padding: 5,
-      borderWidth: 1,
-      borderColor: COLORS.border,
-      borderRadius: SHAPES.chipRadius,
-      backgroundColor: COLORS.inputBg,
-    },
-    calMonthTitle: {
+    modalHeaderTitle: {
       fontFamily: FONTS.mono,
       fontSize: 12,
       fontWeight: "bold",
       color: COLORS.text,
+      letterSpacing: 0.8,
     },
-    weekHeaderRow: {
-      flexDirection: "row",
-      justifyContent: "space-around",
-      marginBottom: 4,
-    },
-    weekHeaderText: {
-      width: "14.2%",
-      textAlign: "center",
+    modalSubText: {
       fontFamily: FONTS.mono,
       fontSize: 9,
-      fontWeight: "bold",
       color: COLORS.textMuted,
+      marginBottom: 12,
+      lineHeight: 13,
     },
-    daysGridContainer: {
+    methodOptionCard: {
       flexDirection: "row",
-      flexWrap: "wrap",
-    },
-    dayCell: {
-      width: "14.2%",
-      aspectRatio: 1,
       alignItems: "center",
-      justifyContent: "center",
-      borderRadius: SHAPES.chipRadius,
-    },
-    dayCellSelected: {
-      backgroundColor: COLORS.primary,
-      borderWidth: 1.5,
-      borderColor: COLORS.border,
-    },
-    dayCellText: {
-      fontFamily: FONTS.mono,
-      fontSize: 11,
-      color: COLORS.text,
-    },
-    dayCellTextSelected: {
-      color: COLORS.primaryText,
-      fontWeight: "bold",
-    },
-    bottomSheetCard: {
-      backgroundColor: COLORS.card,
-      borderTopWidth: 3,
-      borderLeftWidth: 3,
-      borderRightWidth: 3,
-      borderColor: COLORS.border,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
-      paddingHorizontal: 18,
-      paddingBottom: 24,
-    },
-    sheetHandleWrapper: {
-      alignItems: "center",
-      paddingVertical: 12,
-    },
-    sheetHandle: {
-      width: 44,
-      height: 5,
-      borderRadius: 3,
-      backgroundColor: COLORS.borderMuted,
-    },
-    sheetTitle: {
-      fontFamily: FONTS.mono,
-      fontSize: 13,
-      fontWeight: "bold",
-      color: COLORS.text,
-      letterSpacing: 1,
-      paddingBottom: 8,
-      borderBottomWidth: SHAPES.borderWidth,
-      borderColor: COLORS.borderMuted,
-      borderStyle: "dashed",
-    },
-    sheetSubtitle: {
-      fontFamily: FONTS.mono,
-      fontSize: 10,
-      color: COLORS.textMuted,
-      marginTop: 6,
-      marginBottom: 14,
-    },
-    methodBtn: {
       borderWidth: SHAPES.borderWidth,
       borderColor: COLORS.border,
       borderRadius: SHAPES.inputRadius,
-      backgroundColor: COLORS.card,
-      flexDirection: "row",
-      alignItems: "center",
+      backgroundColor: COLORS.secondary,
       padding: 12,
       marginBottom: 10,
       gap: 12,
     },
-    methodIconBox: {
-      width: 34,
-      height: 34,
-      borderWidth: SHAPES.borderWidth,
+    methodIconCircle: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      borderWidth: 1.5,
       borderColor: COLORS.border,
-      borderRadius: SHAPES.chipRadius,
+      backgroundColor: COLORS.card,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    methodTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 10.5,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    methodSubtitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 8.5,
+      color: COLORS.textMuted,
+      marginTop: 2,
+    },
+    inlineCalendarBox: {
+      marginTop: 4,
+    },
+    calNavRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 10,
+    },
+    calNavBtn: {
+      width: 30,
+      height: 30,
+      borderRadius: SHAPES.inputRadius,
+      borderWidth: 1.5,
+      borderColor: COLORS.border,
       backgroundColor: COLORS.secondary,
       alignItems: "center",
       justifyContent: "center",
     },
-    methodLabel: {
+    calMonthTitle: {
       fontFamily: FONTS.mono,
       fontSize: 11,
       fontWeight: "bold",
       color: COLORS.text,
-      textTransform: "uppercase",
     },
-    methodSub: {
+    calWeekRow: {
+      flexDirection: "row",
+      justifyContent: "space-around",
+      marginBottom: 6,
+    },
+    calWeekText: {
+      width: "14.28%",
+      textAlign: "center",
       fontFamily: FONTS.mono,
-      fontSize: 9,
+      fontSize: 8.5,
+      fontWeight: "bold",
       color: COLORS.textMuted,
-      marginTop: 2,
     },
-    methodDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
+    calGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+    },
+    calDayCell: {
+      width: "14.28%",
+      height: 34,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 8,
+    },
+    calDayCellToday: {
+      borderWidth: 1.5,
+      borderColor: COLORS.primary,
+    },
+    calDayCellSelected: {
       backgroundColor: COLORS.primary,
     },
-    cancelBtn: {
-      borderWidth: SHAPES.borderWidth,
-      borderColor: COLORS.border,
-      borderRadius: SHAPES.buttonRadius,
-      backgroundColor: COLORS.secondary,
-      paddingVertical: 11,
-      alignItems: "center",
-      marginTop: 4,
-    },
-    cancelBtnText: {
+    calDayText: {
       fontFamily: FONTS.mono,
-      fontSize: 11,
-      fontWeight: "bold",
+      fontSize: 10,
       color: COLORS.text,
-      letterSpacing: 1.5,
+    },
+    toastBanner: {
+      position: "absolute",
+      top: 0,
+      left: 16,
+      right: 16,
+      zIndex: 9999,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      borderWidth: 1.5,
+      borderRadius: SHAPES.inputRadius,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      shadowColor: "#121212",
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.18,
+      shadowRadius: 4,
+      elevation: 6,
+    },
+    toastBannerSuccess: {
+      backgroundColor: "#DCFCE7",
+      borderColor: "#15803D",
+    },
+    toastBannerError: {
+      backgroundColor: "#FFE4E6",
+      borderColor: "#E11D48",
+    },
+    toastText: {
+      flex: 1,
+      fontFamily: FONTS.mono,
+      fontSize: 9.5,
+      fontWeight: "bold",
     },
   });
