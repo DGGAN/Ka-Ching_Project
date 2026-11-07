@@ -1,94 +1,130 @@
-// Import mongoose to define the database schema
+// Import the mongoose core library
 const mongoose = require("mongoose");
 
-// Define the Transaction collection schema, 100% strictly aligned with Table 4.2 specification
+// 1. Unified Category Configuration (Exact match with Frontend CATEGORY_CONFIG)
+const CATEGORY_CONFIG = {
+  EXPENSE: [
+    { key: "FOOD_AND_BEVERAGE", name: "Food & Beverage", budgetType: "NEEDS" },
+    { key: "GROCERIES", name: "Groceries", budgetType: "NEEDS" },
+    { key: "TRANSPORT", name: "Transportation", budgetType: "NEEDS" },
+    { key: "HOUSING", name: "Housing", budgetType: "NEEDS" },
+    { key: "BILLS_AND_UTILITIES", name: "Bills & Utilities", budgetType: "NEEDS" },
+    { key: "HEALTH_AND_WELLNESS", name: "Health & Wellness", budgetType: "NEEDS" },
+    { key: "EDUCATION", name: "Education", budgetType: "NEEDS" },
+    { key: "SHOPPING", name: "Shopping", budgetType: "WANTS" },
+    { key: "LEISURE_AND_ENTERTAINMENT", name: "Leisure & Entertainment", budgetType: "WANTS" },
+    { key: "OTHER_EXPENSE", name: "Other Expenses", budgetType: "WANTS" },
+  ],
+  INCOME: [
+    { key: "SALARY", name: "Salary" },
+    { key: "ALLOWANCE", name: "Allowance" },
+    { key: "FREELANCE", name: "Freelance" },
+    { key: "INVESTMENT_RETURN", name: "Investment Returns" },
+    { key: "GIFT", name: "Gifts" },
+    { key: "OTHER_INCOME", name: "Other Income" },
+  ],
+};
+
+// 2. Extract strict enum key lists and budgetType lookup map
+const EXPENSE_CATEGORIES = CATEGORY_CONFIG.EXPENSE.map((c) => c.key);
+const INCOME_CATEGORIES = CATEGORY_CONFIG.INCOME.map((c) => c.key);
+const ALL_CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES];
+
+const BUDGET_TYPE_MAP = {};
+CATEGORY_CONFIG.EXPENSE.forEach((c) => {
+  BUDGET_TYPE_MAP[c.key] = c.budgetType;
+});
+
+// 3. Define the Transaction schema
 const transactionSchema = new mongoose.Schema(
   {
-    // Reference to the unique user identifier in the Users collection (Foreign Key)
+    // Foreign Key referencing the Users collection
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
-    // Numerical transaction cost value stored up to two decimal places (Not Null)
+    // Monetary value in RM
     amount: {
       type: Number,
       required: true,
       min: 0.01,
     },
-    // Direction flow tracking parameter: INCOME or EXPENSE
+    // Transaction flow direction
     type: {
       type: String,
-      enum: ["INCOME", "EXPENSE"],
       required: true,
+      enum: ["EXPENSE", "INCOME"],
     },
-    // Fixed category choice enum values (5 INCOME categories + 8 EXPENSE categories)
+    // Strict 16-category enum
     category: {
       type: String,
-      enum: [
-        // Allowed values for INCOME
-        "SALARY",
-        "ALLOWANCE",
-        "INVESTMENT",
-        "GIFT",
-        "OTHER_INCOME",
-        // Allowed values for EXPENSE
-        "FOOD_AND_BEVERAGE",
-        "TRANSPORT",
-        "SHOPPING",
-        "LEISURE_AND_ENTERTAINMENT",
-        "BILLS_AND_UTILITIES",
-        "HEALTH_AND_EDUCATION",
-        "SAVINGS_AND_INVESTMENT",
-        "OTHER_EXPENSE",
-      ],
       required: true,
+      enum: ALL_CATEGORIES,
     },
-    // Identified retail store name or recipient business entity
+    // Budget bucket ("NEEDS" or "WANTS" for expenses, "NONE" for income)
+    budgetType: {
+      type: String,
+      enum: ["NEEDS", "WANTS", "NONE"],
+      default: "NONE",
+    },
+    // Store or income source name
     merchantName: {
       type: String,
-      required: true,
-      trim: true,
+      default: "General",
     },
-    // Optional text area where users can type extra custom notes (Nullable)
+    // Optional user notes
     description: {
       type: String,
       default: null,
-      trim: true,
     },
-    // True historical calendar day when the transaction actually took place
+    // Date of the transaction
     date: {
       type: Date,
-      default: Date.now,
       required: true,
+      default: Date.now,
     },
-    // Ingestion pathway channel: MANUAL, NOTIFICATION, or OCR
+    // Entry origin (Manual vs OCR scanner)
     source: {
       type: String,
-      enum: ["MANUAL", "NOTIFICATION", "OCR"],
-      default: "MANUAL",
       required: true,
+      enum: ["MANUAL", "OCR"],
+      default: "MANUAL",
     },
-    // System state flag for verification flow: PENDING_VERIFICATION or VERIFIED
+    // Verification state
     status: {
       type: String,
-      enum: ["PENDING_VERIFICATION", "VERIFIED"],
-      default: "VERIFIED",
       required: true,
+      enum: ["VERIFIED", "PENDING_VERIFICATION"],
+      default: "VERIFIED",
     },
-    // Optical recognition reliability rating between 0.0 and 1.0 (Defaults to 1.0)
+    // OCR confidence score (0.0 to 1.0)
     confidenceScore: {
       type: Number,
       default: 1.0,
-      min: 0.0,
-      max: 1.0,
     },
   },
-  { timestamps: true },
+  {
+    timestamps: true,
+  },
 );
 
-// Create compound index on userId (asc) and date (desc) to speed up multi-user queries
-transactionSchema.index({ userId: 1, date: -1 });
+// 4. Automatically assign budgetType ("NEEDS" | "WANTS" | "NONE") from category key
+transactionSchema.pre("validate", function (next) {
+  if (this.type === "EXPENSE") {
+    this.budgetType = BUDGET_TYPE_MAP[this.category] || "WANTS";
+  } else {
+    this.budgetType = "NONE";
+  }
+  next();
+});
 
-// Export the Transaction model for controller use
-module.exports = mongoose.model("Transaction", transactionSchema);
+const TransactionModel = mongoose.model("Transaction", transactionSchema);
+
+TransactionModel.CATEGORY_CONFIG = CATEGORY_CONFIG;
+TransactionModel.EXPENSE_CATEGORIES = EXPENSE_CATEGORIES;
+TransactionModel.INCOME_CATEGORIES = INCOME_CATEGORIES;
+TransactionModel.ALL_CATEGORIES = ALL_CATEGORIES;
+TransactionModel.BUDGET_TYPE_MAP = BUDGET_TYPE_MAP;
+
+module.exports = TransactionModel;

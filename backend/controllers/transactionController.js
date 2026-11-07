@@ -106,7 +106,11 @@ exports.getTransactions = async (req, res) => {
     }
 
     if (category && category !== "ALL") {
-      query.category = category;
+      const catList = String(category)
+        .split(",")
+        .map((c) => c.trim())
+        .filter(Boolean);
+      query.category = catList.length > 1 ? { $in: catList } : catList[0];
     }
 
     if (search && search.trim() !== "") {
