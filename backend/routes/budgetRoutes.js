@@ -1,13 +1,20 @@
+/**
+ * @file backend/routes/budgetRoutes.js
+ * @layer Backend Route (Express Router)
+ * @description Maps HTTP POST and GET endpoints under /api/budgets to budgetController methods.
+ * @exports default router
+ */
+
 // Import Express router and the budget controller
 const express = require("express");
 const router = express.Router();
 const budgetController = require("../controllers/budgetController");
 
-// Route to create or update a monthly budget
-router.post("/", budgetController.setOrUpdateBudget);
+// 1. Route to create or update a user's monthly budget (POST /api/budgets)
+router.post("/", budgetController.setBudget);
 
-// Route to get the active budget for a specific user
-router.get("/:userId", budgetController.getUserBudget);
+// 2. Route to get the active or historical budget for a user (GET /api/budgets/:userId)
+router.get("/:userId", budgetController.getBudget);
 
 // Export the router module
 module.exports = router;

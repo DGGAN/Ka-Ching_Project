@@ -1,19 +1,56 @@
+/**
+ * @file frontend/src/screens/NotificationsScreen.js
+ * @layer Screen (Notification Center — 100% Original Commit a357cef Design)
+ * @description Displays system alerts, OCR updates, and AI insights with tag filtering, mark-as-read, mark-all-read, and single deletion.
+ * @props {object} user - Logged-in user object
+ * @props {function} [onUnreadChange] - Optional callback to sync unread badge count in TopHeader
+ * @exports default NotificationsScreen
+ */
+
 // Import React hooks, core React Native UI components, and Lucide icons
 import React, { useState, useEffect } from "react";
 import { View, Text, TouchableOpacity, FlatList, ScrollView, ActivityIndicator, StyleSheet } from "react-native";
 import { Bell, AlertTriangle, Camera, Sparkles, ArrowLeftRight, Award, CheckCheck, Trash2 } from "lucide-react-native";
-import apiClient from "../api/client";
-import { COLORS, SHAPES, FONTS } from "../theme/theme";
-import { WireBox, WireChip, FloatingToast, useFloatingToast } from "../components/WireUI";
+import apiClient from "../api/apiClient";
+import { COLORS, SHAPES, FONTS } from "../theme/colors";
+import WireBox from "../components/shared/WireBox";
+import WireChip from "../components/shared/WireChip";
+import FloatingToast from "../components/shared/FloatingToast";
+import { useFloatingToast } from "../components/shared/useFloatingToast";
 
-// Visual configuration mapping each schema tag enum to its specific icon, label, and badge colors
-const TAG_CONFIG = {
-  ALERT: { label: "Budget Alert", icon: AlertTriangle, color: COLORS.danger, bg: COLORS.dangerBg },
-  OCR: { label: "Receipt OCR", icon: Camera, color: "#0284C7", bg: "#E0F2FE" },
-  AI: { label: "Smart Insight", icon: Sparkles, color: "#9333EA", bg: "#F3E8FF" },
-  TXN: { label: "Transaction", icon: ArrowLeftRight, color: "#D97706", bg: "#FEF3C7" },
-  GOAL: { label: "Savings Goal", icon: Award, color: "#15803D", bg: "#DCFCE7" },
-};
+// Helper function to get TAG_CONFIG with active theme danger colors
+const getTagConfig = () => ({
+  ALERT: {
+    label: "Budget Alert",
+    icon: AlertTriangle,
+    color: COLORS.danger,
+    bg: COLORS.dangerBg,
+  },
+  OCR: {
+    label: "Receipt OCR",
+    icon: Camera,
+    color: "#0284C7",
+    bg: "#E0F2FE",
+  },
+  AI: {
+    label: "Smart Insight",
+    icon: Sparkles,
+    color: "#9333EA",
+    bg: "#F3E8FF",
+  },
+  TXN: {
+    label: "Transaction",
+    icon: ArrowLeftRight,
+    color: "#D97706",
+    bg: "#FEF3C7",
+  },
+  GOAL: {
+    label: "Savings Goal",
+    icon: Award,
+    color: "#15803D",
+    bg: "#DCFCE7",
+  },
+});
 
 // Helper function to convert ISO timestamp into human-readable relative time (e.g. "5m ago")
 const formatTimeAgo = (dateString) => {
@@ -28,9 +65,10 @@ const formatTimeAgo = (dateString) => {
 };
 
 // Screen 8: Notification Center displaying system alerts, OCR updates, and AI insights
-export default function NotificationsScreen({ user }) {
+export default function NotificationsScreen({ user, onUnreadChange }) {
   // Dynamically generate styles on every render so runtime theme switches apply immediately
   const styles = getStyles();
+  const TAG_CONFIG = getTagConfig();
 
   // State for storing notifications, active tag filter, and loading spinner status
   const [notifications, setNotifications] = useState([]);
@@ -44,6 +82,14 @@ export default function NotificationsScreen({ user }) {
   useEffect(() => {
     fetchNotifications();
   }, []);
+
+  // Sync unread count with parent App.js whenever notifications state changes
+  useEffect(() => {
+    const unread = notifications.filter((n) => !n.isRead).length;
+    if (typeof onUnreadChange === "function") {
+      onUnreadChange(unread);
+    }
+  }, [notifications]);
 
   // Retrieve the user's notifications from GET /api/notifications/:userId
   const fetchNotifications = async () => {
@@ -140,7 +186,13 @@ export default function NotificationsScreen({ user }) {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.background, position: "relative" }}>
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: COLORS.background,
+        position: "relative",
+      }}
+    >
       <FloatingToast toast={toast} slideAnim={slideAnim} />
 
       {/* Top Action Bar showing unread count, tag filter chips, and "Mark All Read" button */}

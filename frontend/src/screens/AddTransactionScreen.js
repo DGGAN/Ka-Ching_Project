@@ -1,11 +1,25 @@
+/**
+ * @file frontend/src/screens/AddTransactionScreen.js
+ * @layer Screen (Manual Add Transaction — 100% Original Commit a357cef Design & Strict Validation)
+ * @description Preserves the exact Amount Hero Card, strict decimal/range validation, EXPENSE/INCOME toggle, 2-column category popup modal, and shared CalendarModal.
+ * @props {object} user - Logged-in user object
+ * @props {function} onTransactionSaved - Callback invoked after transaction is saved
+ * @exports default AddTransactionScreen
+ */
+
 // Import React state hooks, native UI components, Modal, and Lucide icon utilities
 import React, { useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet } from "react-native";
 import { Calendar as CalendarIcon, ChevronDown, Check } from "lucide-react-native";
-import apiClient from "../api/client";
-import { COLORS, SHAPES, FONTS } from "../theme/theme";
-import { WireInput, WireButton, FloatingToast, useFloatingToast, CalendarModal } from "../components/WireUI";
-import { CATEGORY_CONFIG, EXPENSE_CATEGORY_KEYS, INCOME_CATEGORY_KEYS, CategoryBadge } from "../utils/categoryIcons";
+import apiClient from "../api/apiClient";
+import { COLORS, SHAPES, FONTS } from "../theme/colors";
+import { EXPENSE_CATEGORY_KEYS, INCOME_CATEGORY_KEYS, getCategoryMeta } from "../utils/categoryConfig";
+import WireInput from "../components/shared/WireInput";
+import WireButton from "../components/shared/WireButton";
+import FloatingToast from "../components/shared/FloatingToast";
+import { useFloatingToast } from "../components/shared/useFloatingToast";
+import CalendarModal from "../components/shared/CalendarModal";
+import CategoryBadge from "../components/shared/CategoryBadge";
 
 // Manual Add Transaction Screen (Integrates global FloatingToast, shared CalendarModal & Category Popup)
 export default function AddTransactionScreen({ user, onTransactionSaved }) {
@@ -96,7 +110,7 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
         category,
         merchantName: merchant.trim(),
         description: description.trim() ? description.trim() : null,
-        date: selectedDate.toISOString(),
+        date: selectedDate instanceof Date && !isNaN(selectedDate.getTime()) ? selectedDate.toISOString() : new Date(selectedDate).toISOString(),
         source: "MANUAL",
         status: "VERIFIED",
         confidenceScore: 1.0,
@@ -104,7 +118,9 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
 
       showToast("success", "Transaction saved successfully!");
       setTimeout(() => {
-        onTransactionSaved();
+        if (typeof onTransactionSaved === "function") {
+          onTransactionSaved();
+        }
       }, 450);
     } catch (error) {
       const backendMsg = error.response?.data?.message || "Failed to save transaction. Please try again.";
@@ -115,7 +131,8 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
   };
 
   const activeCategoryKeys = type === "EXPENSE" ? EXPENSE_CATEGORY_KEYS : INCOME_CATEGORY_KEYS;
-  const currentCategoryConfig = CATEGORY_CONFIG[category] || CATEGORY_CONFIG.OTHER_EXPENSE;
+  const currentCategoryConfig = getCategoryMeta(category);
+  const displayDateObj = selectedDate instanceof Date && !isNaN(selectedDate.getTime()) ? selectedDate : new Date(selectedDate);
 
   return (
     <View style={{ flex: 1, position: "relative" }}>
@@ -167,7 +184,7 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
             <View style={styles.selectorLeft}>
               <CategoryBadge category={category} size={36} iconSize={18} />
               <View>
-                <Text style={styles.selectorTitle}>{currentCategoryConfig.label}</Text>
+                <Text style={styles.selectorTitle}>{currentCategoryConfig.name || currentCategoryConfig.label}</Text>
                 <Text style={styles.selectorCode}>Tap to choose category</Text>
               </View>
             </View>
@@ -192,7 +209,7 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
           <TouchableOpacity style={styles.selectorBtn} activeOpacity={0.8} onPress={() => setShowCalendarModal(true)}>
             <View>
               <Text style={styles.selectorTitle}>
-                {selectedDate.toLocaleDateString("en-GB", {
+                {displayDateObj.toLocaleDateString("en-GB", {
                   weekday: "short",
                   day: "2-digit",
                   month: "short",
@@ -224,7 +241,7 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
 
               <View style={styles.categoryGrid}>
                 {activeCategoryKeys.map((catKey) => {
-                  const cfg = CATEGORY_CONFIG[catKey];
+                  const cfg = getCategoryMeta(catKey);
                   const isSelected = category === catKey;
                   return (
                     <TouchableOpacity
@@ -239,7 +256,7 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
                       <CategoryBadge category={catKey} size={34} iconSize={17} />
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.catCardTitle, isSelected && { color: COLORS.primary }]} numberOfLines={1}>
-                          {cfg.label}
+                          {cfg.name || cfg.label}
                         </Text>
                       </View>
                       {isSelected && (
@@ -257,7 +274,7 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
           </View>
         </Modal>
 
-        {/* Modal 2: Shared Reusable Calendar Modal from WireUI.js */}
+        {/* Modal 2: Shared Reusable Calendar Modal */}
         <CalendarModal
           visible={showCalendarModal}
           selectedDate={selectedDate}

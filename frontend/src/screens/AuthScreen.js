@@ -1,11 +1,33 @@
+/**
+ * @file frontend/src/screens/AuthScreen.js
+ * @layer Screen (Authentication Entry — 100% Original Commit a357cef Design & Validation)
+ * @description Preserves the exact original duck logo header, form validation, classic black 4-color Google OAuth button, and adds .env-configured multi-account quick Google login.
+ * @props {function} onLoginSuccess - Callback invoked with authenticated user object
+ * @exports default AuthScreen
+ */
+
 // Import React state hooks, native UI components, SVG vector components, and local storage tool
 import React, { useState } from "react";
 import { View, Text, Image, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import apiClient from "../api/client";
-import { COLORS, SHAPES, FONTS } from "../theme/theme";
-import { WireInput, WireButton } from "../components/WireUI";
+import apiClient from "../api/apiClient";
+import { COLORS, SHAPES, FONTS } from "../theme/colors";
+import WireInput from "../components/shared/WireInput";
+import WireButton from "../components/shared/WireButton";
+
+// Read Primary & Secondary Google Login Accounts from frontend/.env with safe fallbacks
+const PRIMARY_GOOGLE_ACCOUNT = {
+  email: process.env.EXPO_PUBLIC_GOOGLE_EMAIL || "darren.google@gmail.com",
+  username: process.env.EXPO_PUBLIC_GOOGLE_USERNAME || "Darren Google",
+  oauthId: process.env.EXPO_PUBLIC_GOOGLE_OAUTH_ID || "109283746554321098765",
+};
+
+const ALT_GOOGLE_ACCOUNT = {
+  email: process.env.EXPO_PUBLIC_GOOGLE_ALT_EMAIL || "ganzhunyin@gmail.com",
+  username: process.env.EXPO_PUBLIC_GOOGLE_ALT_USERNAME || "Gan Zhun Yin",
+  oauthId: process.env.EXPO_PUBLIC_GOOGLE_ALT_OAUTH_ID || "109283746554321098888",
+};
 
 // Official 4-color Google "G" SVG icon component (Blue, Red, Yellow, Green)
 const GoogleColorfulIcon = () => (
@@ -73,14 +95,14 @@ export default function AuthScreen({ onLoginSuccess }) {
     }
   };
 
-  // Handle Google OAuth login button press (connects to backend /api/auth/google)
-  const handleGoogleLogin = async () => {
+  // Handle Google OAuth login button press (connects to backend /api/auth/google using .env account or passed account)
+  const handleGoogleLogin = async (accountObj = PRIMARY_GOOGLE_ACCOUNT) => {
     setErrorMsg("");
     try {
       const response = await apiClient.post("/auth/google", {
-        email: "darren.google@gmail.com",
-        username: "Darren Google",
-        oauthId: "109283746554321098765",
+        email: accountObj.email,
+        username: accountObj.username,
+        oauthId: accountObj.oauthId,
       });
       await AsyncStorage.setItem("userToken", response.data.token);
       await AsyncStorage.setItem("userData", JSON.stringify(response.data.user));
@@ -133,12 +155,20 @@ export default function AuthScreen({ onLoginSuccess }) {
           <View style={styles.dashedLine} />
         </View>
 
-        {/* Classic black background + official 4-color Google OAuth login button */}
-        <TouchableOpacity style={styles.googleBlackBtn} onPress={handleGoogleLogin} activeOpacity={0.85}>
+        {/* Primary Google OAuth button (Uses PRIMARY_GOOGLE_ACCOUNT from .env: darren.google@gmail.com) */}
+        <TouchableOpacity style={styles.googleBlackBtn} onPress={() => handleGoogleLogin(PRIMARY_GOOGLE_ACCOUNT)} activeOpacity={0.85}>
           <View style={styles.googleWhiteBadge}>
             <GoogleColorfulIcon />
           </View>
           <Text style={styles.googleBlackBtnText}>Continue with Google</Text>
+        </TouchableOpacity>
+
+        {/* Secondary Quick Google Account Button for convenient testing (Uses ALT_GOOGLE_ACCOUNT from .env) */}
+        <TouchableOpacity style={styles.googleAltBtn} onPress={() => handleGoogleLogin(ALT_GOOGLE_ACCOUNT)} activeOpacity={0.8}>
+          <GoogleColorfulIcon />
+          <Text style={styles.googleAltBtnText}>
+            Quick Login: {ALT_GOOGLE_ACCOUNT.username} ({ALT_GOOGLE_ACCOUNT.email})
+          </Text>
         </TouchableOpacity>
 
         {/* Bottom row to switch between Login and Register modes */}
@@ -262,14 +292,14 @@ const getStyles = () =>
     },
     googleBlackBtn: {
       width: "100%",
-      backgroundColor: "#111111",
+      backgroundColor: "#121212",
       borderRadius: SHAPES.buttonRadius,
       paddingVertical: 11,
       paddingHorizontal: 16,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      marginBottom: 20,
+      marginBottom: 10,
       position: "relative",
     },
     googleWhiteBadge: {
@@ -288,6 +318,26 @@ const getStyles = () =>
       fontSize: 12,
       fontWeight: "bold",
       letterSpacing: 0.5,
+    },
+    googleAltBtn: {
+      width: "100%",
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.buttonRadius,
+      backgroundColor: COLORS.card,
+      paddingVertical: 9,
+      paddingHorizontal: 12,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      marginBottom: 20,
+    },
+    googleAltBtnText: {
+      color: COLORS.text,
+      fontFamily: FONTS.mono,
+      fontSize: 10,
+      fontWeight: "bold",
     },
     bottomSwitchRow: {
       flexDirection: "row",

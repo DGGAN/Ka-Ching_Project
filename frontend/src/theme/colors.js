@@ -1,19 +1,26 @@
+/**
+ * @file frontend/src/theme/colors.js
+ * @layer Theme & Styling (Design Tokens)
+ * @description Defines the Warm Khaki Earth default palette (#F1ECE5, #D7CBB6, #C3B091, #937A50, #5F4E34) and runtime theme switching.
+ * @exports ACTIVE_THEME, THEMES, COLORS, SHAPES, FONTS, applyTheme
+ */
+
 // Import Platform utility to select the appropriate system monospace font
 import { Platform } from "react-native";
 
-// 1. Default active theme key on startup (Warm Khaki Earth Palette)
+// 1. Default active theme key on startup (Khaki Earth palette)
 export let ACTIVE_THEME = "kaching";
 
-// 2. Complete dictionary of available visual themes for runtime switching
+// 2. Complete dictionary of available visual themes
 export const THEMES = {
   kaching: {
     id: "kaching",
-    name: "Warm Khaki",
-    subtitle: "Earthy oat, classic khaki & deep mocha palette",
-    previewColors: ["#937A50", "#D7CBB6", "#5F4E34"],
+    name: "Ka-Ching! Khaki",
+    subtitle: "Warm oat khaki, mocha & espresso earth tones",
+    previewColors: ["#937A50", "#F1ECE5", "#D7CBB6"],
     colors: {
       background: "#F1ECE5",
-      card: "#FAF7F2",
+      card: "#FAF8F5",
       text: "#5F4E34",
       textMuted: "#937A50",
       border: "#5F4E34",
@@ -21,20 +28,19 @@ export const THEMES = {
       primary: "#937A50",
       primaryText: "#FFFFFF",
       secondary: "#D7CBB6",
-      inputBg: "#F7F4EF",
+      inputBg: "#FFFFFF",
       danger: "#C93B2B",
-      dangerBg: "#FDE8E8",
-      success: "#2E7D32",
+      dangerBg: "#FDECEB",
+      success: "#2E6F40",
     },
     shapes: {
-      borderWidth: 1.6,
+      borderWidth: 1.5,
       cardRadius: 16,
       buttonRadius: 14,
       inputRadius: 12,
-      chipRadius: 18,
+      chipRadius: 16,
     },
   },
-
   pink: {
     id: "pink",
     name: "Blossom Pink",
@@ -63,7 +69,6 @@ export const THEMES = {
       chipRadius: 20,
     },
   },
-
   emerald: {
     id: "emerald",
     name: "Prosperity Green",
@@ -92,7 +97,6 @@ export const THEMES = {
       chipRadius: 16,
     },
   },
-
   wireframe: {
     id: "wireframe",
     name: "Wireframe Mono",
@@ -123,14 +127,11 @@ export const THEMES = {
   },
 };
 
-// 3. Safely resolve initial theme object with fallback to prevent undefined crashes
 const initialThemeObj = THEMES[ACTIVE_THEME] || THEMES.kaching;
 
-// 4. Mutable exported COLORS and SHAPES objects so components reflect theme updates
 export const COLORS = { ...initialThemeObj.colors };
 export const SHAPES = { ...initialThemeObj.shapes };
 
-// 5. Function to dynamically mutate COLORS and SHAPES at runtime when user selects a new theme
 export const applyTheme = (themeKey) => {
   const targetTheme = THEMES[themeKey] || THEMES.kaching;
   ACTIVE_THEME = targetTheme.id;
@@ -138,7 +139,6 @@ export const applyTheme = (themeKey) => {
   Object.assign(SHAPES, targetTheme.shapes);
 };
 
-// 6. Unified typography font configuration
 export const FONTS = {
   mono: Platform.OS === "ios" ? "Courier" : "monospace",
   sans: Platform.OS === "ios" ? "Avenir Next" : "sans-serif-medium",

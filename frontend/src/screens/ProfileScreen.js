@@ -1,10 +1,23 @@
+/**
+ * @file frontend/src/screens/ProfileScreen.js
+ * @layer Screen (User Profile & Theme Switcher — 100% Original Commit a357cef Design)
+ * @description Displays user identity card, live database stats (records logged, monthly limit, savings goal), modal-based theme switcher, and logout button.
+ * @props {object} user - Logged-in user object
+ * @props {function} onChangeTheme - Callback invoked when user selects a new theme
+ * @props {function} onLogout - Callback invoked when user logs out
+ * @exports default ProfileScreen
+ */
+
 // Import React hooks, core React Native UI components, Modal, and Lucide icons
 import React, { useState, useEffect } from "react";
 import { View, Text, ScrollView, TouchableOpacity, Modal, ActivityIndicator, StyleSheet } from "react-native";
 import { Mail, Palette, Check, ShieldCheck, LogOut, Wallet, ArrowLeftRight, Sparkles, ChevronRight, X } from "lucide-react-native";
-import apiClient from "../api/client";
-import { COLORS, SHAPES, FONTS, THEMES, ACTIVE_THEME } from "../theme/theme";
-import { WireBox, WireButton, FloatingToast, useFloatingToast } from "../components/WireUI";
+import apiClient from "../api/apiClient";
+import { COLORS, SHAPES, FONTS, THEMES, ACTIVE_THEME } from "../theme/colors";
+import WireBox from "../components/shared/WireBox";
+import WireButton from "../components/shared/WireButton";
+import FloatingToast from "../components/shared/FloatingToast";
+import { useFloatingToast } from "../components/shared/useFloatingToast";
 
 // User Profile, Account Summary, and Modal-Based Theme Switcher
 export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
@@ -66,7 +79,7 @@ export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
   };
 
   const userInitial = (user?.username || user?.email || "U").charAt(0).toUpperCase();
-  const activeThemeObj = THEMES[selectedTheme] || THEMES.pink;
+  const activeThemeObj = THEMES[selectedTheme] || THEMES.kaching || Object.values(THEMES)[0];
 
   return (
     <View
@@ -143,7 +156,7 @@ export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
           <View style={{ padding: 12 }}>
             <TouchableOpacity style={styles.themeTriggerBtn} activeOpacity={0.8} onPress={() => setShowThemeModal(true)}>
               <View style={styles.swatchRow}>
-                {activeThemeObj.previewColors.map((hex, i) => (
+                {(activeThemeObj.previewColors || []).map((hex, i) => (
                   <View key={i} style={[styles.colorDot, { backgroundColor: hex }]} />
                 ))}
               </View>
@@ -200,7 +213,7 @@ export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
                         onPress={() => handleSelectTheme(themeItem.id)}
                       >
                         <View style={styles.swatchRow}>
-                          {themeItem.previewColors.map((hex, i) => (
+                          {(themeItem.previewColors || []).map((hex, i) => (
                             <View key={i} style={[styles.colorDot, { backgroundColor: hex }]} />
                           ))}
                         </View>
