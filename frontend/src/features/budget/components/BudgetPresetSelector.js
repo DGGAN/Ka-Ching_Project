@@ -1,19 +1,16 @@
 /**
  * @file frontend/src/features/budget/components/BudgetPresetSelector.js
- * @layer Component (Presentational UI — 100% Original AI Smart Plan Card)
- * @description Renders the CHOOSE ALLOCATION RATIO header, How it works button, 3 preset mini cards, collapsible Why recommendation box, embedded Bucket Breakdown, and APPLY button.
+ * @layer Component (Presentational UI)
+ * @description Renders the 3 allocation ratio cards (Balanced, Fast Saver, Student-Friendly) and the collapsible 1-line "Why?" recommendation box.
  * @exports default BudgetPresetSelector
  */
 
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import { Sparkles, Info, ChevronUp, ChevronDown } from "lucide-react-native";
+import { Sparkles, Info, ChevronDown, ChevronUp } from "lucide-react-native";
 import { COLORS, SHAPES, FONTS } from "../../../theme/colors";
 import { playUiSound } from "../../../utils/soundEffects";
 import { BUDGET_PRESETS } from "../utils/budgetRecommendations";
-import WireBox from "../../../components/shared/WireBox";
-import WireButton from "../../../components/shared/WireButton";
-import BudgetCategoryBreakdown from "./BudgetCategoryBreakdown";
 
 export default function BudgetPresetSelector({
   baselineIncome = 3000,
@@ -23,53 +20,29 @@ export default function BudgetPresetSelector({
   showWhyReasons = false,
   onToggleWhyReasons,
   onOpenHowItWorks,
-  activePreset,
-  needsAllowance = 0,
-  wantsAllowance = 0,
-  recommendedLimit = 0,
-  recommendedSavings = 0,
-  actualNeedsSpent = 0,
-  actualWantsSpent = 0,
-  projectedNetSavings = 0,
-  savingsProgressPct = 0,
-  selectedMonthSpent = 0,
-  needsCategoryList = [],
-  wantsCategoryList = [],
-  activeBucketTab = "needs",
-  onSelectBucketTab,
-  activeMonthLabel = "",
-  saving = false,
-  onApplyPreset,
 }) {
   const styles = getStyles();
-
-  const suggestedPresetObj = BUDGET_PRESETS.find((p) => p.id === aiRec?.presetId);
+  const safeAiRec = aiRec || { presetId: "50_30_20", reasons: [] };
+  const suggestedPresetObj = BUDGET_PRESETS.find((p) => p.id === safeAiRec.presetId) || BUDGET_PRESETS[0];
 
   return (
-    <WireBox style={styles.plannerCard}>
-      {/* Header with "How it works" Modal Trigger */}
+    <View>
       <View style={styles.plannerTopRow}>
         <View style={{ flex: 1 }}>
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <Text style={styles.plannerTitle}>CHOOSE ALLOCATION RATIO</Text>
             <View style={styles.aiTagPill}>
               <Text style={styles.aiTagPillText}>AI-ASSISTED</Text>
             </View>
           </View>
-          <Text style={styles.plannerSub}>Based on RM {baselineIncome.toFixed(0)} income & spending history</Text>
+          <Text style={styles.plannerSub}>Based on RM {Number(baselineIncome || 0).toFixed(0)} income & spending history</Text>
         </View>
 
         <TouchableOpacity
           style={styles.infoPillBtn}
           onPress={() => {
             playUiSound("tab");
-            onOpenHowItWorks();
+            if (onOpenHowItWorks) onOpenHowItWorks();
           }}
         >
           <Info size={12} color={COLORS.primary} strokeWidth={2.5} />
@@ -77,18 +50,17 @@ export default function BudgetPresetSelector({
         </TouchableOpacity>
       </View>
 
-      {/* 3 Compact Ratio Cards */}
       <View style={styles.presetCardsRow}>
         {BUDGET_PRESETS.map((p) => {
           const isSelected = p.id === selectedPresetId;
-          const isSuggested = p.id === aiRec?.presetId;
+          const isSuggested = p.id === safeAiRec.presetId;
           return (
             <TouchableOpacity
               key={p.id}
               style={[styles.presetMiniCard, isSelected && styles.presetMiniCardActive]}
               onPress={() => {
                 playUiSound("tab");
-                onSelectPreset(p.id);
+                if (onSelectPreset) onSelectPreset(p.id);
               }}
               activeOpacity={0.8}
             >
@@ -106,19 +78,18 @@ export default function BudgetPresetSelector({
         })}
       </View>
 
-      {/* Collapsible 1-Line AI Recommendation Reason Box */}
       <TouchableOpacity style={styles.whyRecommendBox} activeOpacity={0.8} onPress={onToggleWhyReasons}>
         <View style={styles.whyHeaderRow}>
           <Sparkles size={12} color={COLORS.primary} strokeWidth={2.5} />
           <Text style={styles.whyHeaderTitle} numberOfLines={1}>
-            AI Suggests {suggestedPresetObj?.name} ({suggestedPresetObj?.ratioLabel}) — Why?
+            AI Suggests {suggestedPresetObj.name} ({suggestedPresetObj.ratioLabel}) — Why?
           </Text>
           {showWhyReasons ? <ChevronUp size={14} color={COLORS.textMuted} /> : <ChevronDown size={14} color={COLORS.textMuted} />}
         </View>
 
         {showWhyReasons && (
           <View style={{ marginTop: 6, gap: 3 }}>
-            {(aiRec?.reasons || []).map((r, i) => (
+            {(safeAiRec.reasons || []).map((r, i) => (
               <Text key={i} style={styles.whyBulletText}>
                 • {r}
               </Text>
@@ -126,41 +97,12 @@ export default function BudgetPresetSelector({
           </View>
         )}
       </TouchableOpacity>
-
-      {/* Interactive 3-Bucket Breakdown + Category Progress Bars */}
-      <BudgetCategoryBreakdown
-        activePreset={activePreset}
-        needsCap={needsAllowance}
-        wantsCap={wantsAllowance}
-        saveGoal={recommendedSavings}
-        actualNeedsSpent={actualNeedsSpent}
-        actualWantsSpent={actualWantsSpent}
-        projectedNetSavings={projectedNetSavings}
-        savingsProgressPct={savingsProgressPct}
-        baselineIncome={baselineIncome}
-        selectedMonthSpent={selectedMonthSpent}
-        needsCategoryList={needsCategoryList}
-        wantsCategoryList={wantsCategoryList}
-        activeBucketTab={activeBucketTab}
-        onSelectBucketTab={onSelectBucketTab}
-        activeMonthLabel={activeMonthLabel}
-      />
-
-      <WireButton
-        label={saving ? "APPLYING..." : `APPLY ${activePreset.ratioLabel} PLAN (RM ${recommendedLimit} LIMIT)`}
-        onPress={onApplyPreset}
-        disabled={saving}
-        style={{ marginTop: 12 }}
-      />
-    </WireBox>
+    </View>
   );
 }
 
 const getStyles = () =>
   StyleSheet.create({
-    plannerCard: {
-      padding: 14,
-    },
     plannerTopRow: {
       flexDirection: "row",
       justifyContent: "space-between",

@@ -1,37 +1,27 @@
 /**
  * @file frontend/src/screens/AuthScreen.js
- * @layer Screen (Authentication Entry — 100% Original Commit a357cef Design & Validation)
- * @description Preserves the exact original duck logo header, form validation, classic black 4-color Google OAuth button, and adds .env-configured multi-account quick Google login.
+ * @layer Screen (Authentication Entry — 100% Original Commit a357cef Design + FloatingToast + 3 Google Options)
+ * @description Uses named { useFloatingToast } import. Button #1 ("Continue with Google") is for real users; Buttons #2 and #3 below are quick dev shortcuts for your two .env Google accounts.
  * @props {function} onLoginSuccess - Callback invoked with authenticated user object
  * @exports default AuthScreen
  */
 
-// Import React state hooks, native UI components, SVG vector components, and local storage tool
 import React, { useState } from "react";
-import { View, Text, Image, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
+import { View, Text, Image, TouchableOpacity, Modal, TextInput, StyleSheet, ScrollView, Platform } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { X } from "lucide-react-native";
 import apiClient from "../api/apiClient";
 import { COLORS, SHAPES, FONTS } from "../theme/colors";
 import WireInput from "../components/shared/WireInput";
 import WireButton from "../components/shared/WireButton";
-
-// Read Primary & Secondary Google Login Accounts from frontend/.env with safe fallbacks
-const PRIMARY_GOOGLE_ACCOUNT = {
-  email: process.env.EXPO_PUBLIC_GOOGLE_EMAIL || "darren.google@gmail.com",
-  username: process.env.EXPO_PUBLIC_GOOGLE_USERNAME || "Darren Google",
-  oauthId: process.env.EXPO_PUBLIC_GOOGLE_OAUTH_ID || "109283746554321098765",
-};
-
-const ALT_GOOGLE_ACCOUNT = {
-  email: process.env.EXPO_PUBLIC_GOOGLE_ALT_EMAIL || "ganzhunyin@gmail.com",
-  username: process.env.EXPO_PUBLIC_GOOGLE_ALT_USERNAME || "Gan Zhun Yin",
-  oauthId: process.env.EXPO_PUBLIC_GOOGLE_ALT_OAUTH_ID || "109283746554321098888",
-};
+import FloatingToast from "../components/shared/FloatingToast";
+import { useFloatingToast } from "../components/shared/useFloatingToast";
+import { playUiSound } from "../utils/soundEffects";
 
 // Official 4-color Google "G" SVG icon component (Blue, Red, Yellow, Green)
-const GoogleColorfulIcon = () => (
-  <Svg width={18} height={18} viewBox="0 0 48 48">
+const GoogleColorfulIcon = ({ size = 18 }) => (
+  <Svg width={size} height={size} viewBox="0 0 48 48">
     <Path
       fill="#EA4335"
       d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
@@ -51,54 +41,64 @@ const GoogleColorfulIcon = () => (
   </Svg>
 );
 
-// Login & Register Screen (Seamlessly blends duck Logo and classic black & colorful Google button)
+// Shortcut #2 & #3: Your 2 Developer Quick-Login Accounts from frontend/.env
+const PRIMARY_GOOGLE_ACCOUNT = {
+  email: process.env.EXPO_PUBLIC_GOOGLE_EMAIL || "darren.google@gmail.com",
+  username: process.env.EXPO_PUBLIC_GOOGLE_USERNAME || "Darren Google",
+  oauthId: process.env.EXPO_PUBLIC_GOOGLE_OAUTH_ID || "109283746554321098765",
+};
+
+const ALT_GOOGLE_ACCOUNT = {
+  email: process.env.EXPO_PUBLIC_GOOGLE_ALT_EMAIL || "ganzhunyin@gmail.com",
+  username: process.env.EXPO_PUBLIC_GOOGLE_ALT_USERNAME || "Gan Zhun Yin",
+  oauthId: process.env.EXPO_PUBLIC_GOOGLE_ALT_OAUTH_ID || "109283746554321098888",
+};
+
 export default function AuthScreen({ onLoginSuccess }) {
-  // Dynamically generate styles on every render so runtime theme switches apply immediately
   const styles = getStyles();
+  const { toast, slideAnim, showToast } = useFloatingToast();
 
-  // State to toggle between "Login mode (false)" and "Register mode (true)"
   const [isRegistering, setIsRegistering] = useState(false);
-
-  // State variables for username, email, password inputs, and error messages
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [errorMsg, setErrorMsg] = useState("");
 
-  // Function to handle Login or Register primary button press
+  // Modal state for Button #1 (Real User Google Sign-In)
+  const [showGoogleModal, setShowGoogleModal] = useState(false);
+  const [googleEmailInput, setGoogleEmailInput] = useState("");
+  const [googleNameInput, setGoogleNameInput] = useState("");
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  // 1. Standard Email/Password Login or Register (with FloatingToast)
   const handleSubmit = async () => {
-    setErrorMsg("");
-
-    // Frontend basic validation: ensure required fields are not empty
-    if (!email || !password || (isRegistering && !username)) {
-      setErrorMsg("Please fill in all required fields.");
+    if (!email.trim() || !password || (isRegistering && !username.trim())) {
+      showToast("error", "Please fill in all required fields.");
       return;
     }
 
     try {
-      // Select backend register or login endpoint based on current mode
       const endpoint = isRegistering ? "/auth/register" : "/auth/login";
-      const payload = isRegistering ? { username, email, password } : { email, password };
+      const payload = isRegistering ? { username: username.trim(), email: email.trim(), password } : { email: email.trim(), password };
 
       const response = await apiClient.post(endpoint, payload);
 
-      // Save JWT Token and user data returned from backend into local storage
       await AsyncStorage.setItem("userToken", response.data.token);
       await AsyncStorage.setItem("userData", JSON.stringify(response.data.user));
 
-      // Notify parent component App.js of login success to switch to Dashboard
-      onLoginSuccess(response.data.user);
+      showToast("success", isRegistering ? "Account registered!" : "Welcome back!");
+      setTimeout(() => {
+        onLoginSuccess(response.data.user);
+      }, 300);
     } catch (error) {
-      // Catch and display bilingual validation error message from backend
       const backendMessage = error.response?.data?.message || "Cannot connect to server. Is backend running?";
-      setErrorMsg(backendMessage);
+      showToast("error", backendMessage);
     }
   };
 
-  // Handle Google OAuth login button press (connects to backend /api/auth/google using .env account or passed account)
-  const handleGoogleLogin = async (accountObj = PRIMARY_GOOGLE_ACCOUNT) => {
-    setErrorMsg("");
+  // Shared helper to call POST /api/auth/google
+  const handleGoogleLogin = async (accountObj) => {
     try {
+      setGoogleLoading(true);
       const response = await apiClient.post("/auth/google", {
         email: accountObj.email,
         username: accountObj.username,
@@ -106,89 +106,235 @@ export default function AuthScreen({ onLoginSuccess }) {
       });
       await AsyncStorage.setItem("userToken", response.data.token);
       await AsyncStorage.setItem("userData", JSON.stringify(response.data.user));
-      onLoginSuccess(response.data.user);
+      setShowGoogleModal(false);
+      showToast("success", `Signed in as ${response.data.user.username}!`);
+      setTimeout(() => {
+        onLoginSuccess(response.data.user);
+      }, 300);
     } catch (error) {
-      setErrorMsg(error.response?.data?.message || "Google login failed");
+      showToast("error", error.response?.data?.message || "Google login failed");
+    } finally {
+      setGoogleLoading(false);
     }
   };
 
+  // 2. Button #1: Real User "Continue with Google"
+  const handleRealUserGoogleButton = () => {
+    playUiSound("pop");
+    const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
+
+    // If EXPO_PUBLIC_GOOGLE_CLIENT_ID is configured on Web, launch real Google OAuth 2.0 popup
+    if (Platform.OS === "web" && clientId && typeof window !== "undefined") {
+      const redirectUri = window.location.origin;
+      const scope = encodeURIComponent("openid email profile");
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
+        redirectUri,
+      )}&response_type=token&scope=${scope}&prompt=select_account`;
+
+      const popup = window.open(authUrl, "google_oauth_popup", "width=500,height=620");
+      if (popup) {
+        const pollTimer = setInterval(async () => {
+          try {
+            if (popup.closed) {
+              clearInterval(pollTimer);
+              return;
+            }
+            if (popup.location.href.includes("access_token=")) {
+              const hash = popup.location.hash.substring(1);
+              const params = new URLSearchParams(hash);
+              const accessToken = params.get("access_token");
+              popup.close();
+              clearInterval(pollTimer);
+
+              if (accessToken) {
+                const userInfoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+                  headers: { Authorization: `Bearer ${accessToken}` },
+                });
+                const profile = await userInfoRes.json();
+                await handleGoogleLogin({
+                  email: profile.email,
+                  username: profile.name || profile.email.split("@")[0],
+                  oauthId: profile.sub,
+                });
+              }
+            }
+          } catch (err) {
+            // Wait until redirect returns to same origin
+          }
+        }, 400);
+        return;
+      }
+    }
+
+    // Otherwise open the interactive Google Account Sign-In Modal for any real user
+    setShowGoogleModal(true);
+  };
+
+  const handleConfirmRealGoogleModal = async () => {
+    const cleanEmail = googleEmailInput.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes("@")) {
+      showToast("error", "Please enter a valid Google email address.");
+      return;
+    }
+    const derivedName =
+      googleNameInput.trim() ||
+      cleanEmail
+        .split("@")[0]
+        .replace(/[._]/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+
+    await handleGoogleLogin({
+      email: cleanEmail,
+      username: derivedName,
+      oauthId: `google_${cleanEmail}`,
+    });
+  };
+
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      {/* Top Logo & Title Section (Full-bleed rounded clipping without white padding) */}
-      <View style={styles.headerSection}>
-        <View style={styles.logoContainer}>
-          <Image source={require("../../assets/kaching_logo.png")} style={styles.logoImage} resizeMode="cover" />
-        </View>
-        <Text style={styles.appTitle}>Ka-Ching!</Text>
-        <Text style={styles.subtitle1}>Your personal finance companion.</Text>
-        <Text style={styles.subtitle2}>Track smarter. Save better.</Text>
-      </View>
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: COLORS.background,
+        position: "relative",
+      }}
+    >
+      <FloatingToast toast={toast} slideAnim={slideAnim} />
 
-      {/* Form Input Section */}
-      <View style={styles.formSection}>
-        {/* Error message box (displayed when validation fails) */}
-        {errorMsg ? (
-          <View style={styles.errorBox}>
-            <Text style={styles.errorText}>{errorMsg}</Text>
+      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+        <View style={styles.headerSection}>
+          <View style={styles.logoContainer}>
+            <Image source={require("../../assets/kaching_logo.png")} style={styles.logoImage} resizeMode="cover" />
           </View>
-        ) : null}
-
-        {/* Show Username input only in Register mode */}
-        {isRegistering && <WireInput label="Username" placeholder="tommy" value={username} onChangeText={setUsername} />}
-
-        <WireInput label="Email Address" placeholder="tommy@example.com" value={email} onChangeText={setEmail} keyboardType="email-address" />
-
-        <WireInput label="Password" placeholder="••••••••" value={password} onChangeText={setPassword} secureTextEntry={true} />
-
-        {!isRegistering && (
-          <View style={styles.forgotRow}>
-            <Text style={styles.forgotText}>Forgot Password?</Text>
-          </View>
-        )}
-
-        <WireButton label={isRegistering ? "Register Account" : "Login"} onPress={handleSubmit} variant="filled" />
-
-        {/* Dashed divider: OR CONTINUE WITH */}
-        <View style={styles.dividerRow}>
-          <View style={styles.dashedLine} />
-          <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
-          <View style={styles.dashedLine} />
+          <Text style={styles.appTitle}>Ka-Ching!</Text>
+          <Text style={styles.subtitle1}>Your personal finance companion.</Text>
+          <Text style={styles.subtitle2}>Track smarter. Save better.</Text>
         </View>
 
-        {/* Primary Google OAuth button (Uses PRIMARY_GOOGLE_ACCOUNT from .env: darren.google@gmail.com) */}
-        <TouchableOpacity style={styles.googleBlackBtn} onPress={() => handleGoogleLogin(PRIMARY_GOOGLE_ACCOUNT)} activeOpacity={0.85}>
-          <View style={styles.googleWhiteBadge}>
-            <GoogleColorfulIcon />
+        <View style={styles.formSection}>
+          {isRegistering && <WireInput label="Username" placeholder="tommy" value={username} onChangeText={setUsername} />}
+
+          <WireInput label="Email Address" placeholder="tommy@example.com" value={email} onChangeText={setEmail} keyboardType="email-address" />
+
+          <WireInput label="Password" placeholder="••••••••" value={password} onChangeText={setPassword} secureTextEntry={true} />
+
+          {!isRegistering && (
+            <View style={styles.forgotRow}>
+              <Text style={styles.forgotText}>Forgot Password?</Text>
+            </View>
+          )}
+
+          <WireButton label={isRegistering ? "Register Account" : "Login"} onPress={handleSubmit} variant="filled" />
+
+          <View style={styles.dividerRow}>
+            <View style={styles.dashedLine} />
+            <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
+            <View style={styles.dashedLine} />
           </View>
-          <Text style={styles.googleBlackBtnText}>Continue with Google</Text>
-        </TouchableOpacity>
 
-        {/* Secondary Quick Google Account Button for convenient testing (Uses ALT_GOOGLE_ACCOUNT from .env) */}
-        <TouchableOpacity style={styles.googleAltBtn} onPress={() => handleGoogleLogin(ALT_GOOGLE_ACCOUNT)} activeOpacity={0.8}>
-          <GoogleColorfulIcon />
-          <Text style={styles.googleAltBtnText}>
-            Quick Login: {ALT_GOOGLE_ACCOUNT.username} ({ALT_GOOGLE_ACCOUNT.email})
-          </Text>
-        </TouchableOpacity>
-
-        {/* Bottom row to switch between Login and Register modes */}
-        <View style={styles.bottomSwitchRow}>
-          <Text style={styles.switchHint}>{isRegistering ? "Already have an account?" : "No account yet?"}</Text>
-          <TouchableOpacity
-            onPress={() => {
-              setIsRegistering(!isRegistering);
-              setErrorMsg("");
-            }}
-          >
-            <Text style={styles.switchLink}>{isRegistering ? "Login here" : "Register here"}</Text>
+          {/* BUTTON #1: Official Black Google OAuth Button for Real Users */}
+          <TouchableOpacity style={styles.googleBlackBtn} onPress={handleRealUserGoogleButton} activeOpacity={0.85}>
+            <View style={styles.googleWhiteBadge}>
+              <GoogleColorfulIcon size={18} />
+            </View>
+            <Text style={styles.googleBlackBtnText}>Continue with Google</Text>
           </TouchableOpacity>
+
+          {/* BUTTON #2: Your Primary Google Shortcut Account */}
+          <TouchableOpacity
+            style={styles.googleAltBtn}
+            onPress={() => {
+              playUiSound("pop");
+              handleGoogleLogin(PRIMARY_GOOGLE_ACCOUNT);
+            }}
+            activeOpacity={0.8}
+          >
+            <GoogleColorfulIcon size={15} />
+            <Text style={styles.googleAltBtnText} numberOfLines={1}>
+              Quick Login 1: {PRIMARY_GOOGLE_ACCOUNT.username} ({PRIMARY_GOOGLE_ACCOUNT.email})
+            </Text>
+          </TouchableOpacity>
+
+          {/* BUTTON #3: Your Secondary Google Shortcut Account */}
+          <TouchableOpacity
+            style={[styles.googleAltBtn, { marginBottom: 20 }]}
+            onPress={() => {
+              playUiSound("pop");
+              handleGoogleLogin(ALT_GOOGLE_ACCOUNT);
+            }}
+            activeOpacity={0.8}
+          >
+            <GoogleColorfulIcon size={15} />
+            <Text style={styles.googleAltBtnText} numberOfLines={1}>
+              Quick Login 2: {ALT_GOOGLE_ACCOUNT.username} ({ALT_GOOGLE_ACCOUNT.email})
+            </Text>
+          </TouchableOpacity>
+
+          <View style={styles.bottomSwitchRow}>
+            <Text style={styles.switchHint}>{isRegistering ? "Already have an account?" : "No account yet?"}</Text>
+            <TouchableOpacity
+              onPress={() => {
+                playUiSound("pop");
+                setIsRegistering(!isRegistering);
+              }}
+            >
+              <Text style={styles.switchLink}>{isRegistering ? "Login here" : "Register here"}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
-    </ScrollView>
+      </ScrollView>
+
+      {/* Interactive Google Sign-In Modal for Button #1 */}
+      <Modal visible={showGoogleModal} transparent animationType="fade" onRequestClose={() => setShowGoogleModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.googleModalCard}>
+            <View style={styles.googleModalHeader}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <GoogleColorfulIcon size={18} />
+                <Text style={styles.googleModalTitle}>SIGN IN WITH GOOGLE</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowGoogleModal(false)}>
+                <X size={18} color={COLORS.text} strokeWidth={2.5} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.googleModalSub}>Enter your Google email address to sign in or create your Ka-Ching! account:</Text>
+
+            <Text style={styles.modalInputLabel}>GOOGLE EMAIL</Text>
+            <TextInput
+              style={styles.modalTextInput}
+              placeholder="yourname@gmail.com"
+              placeholderTextColor={COLORS.textMuted}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              value={googleEmailInput}
+              onChangeText={setGoogleEmailInput}
+            />
+
+            <Text style={styles.modalInputLabel}>DISPLAY NAME (OPTIONAL)</Text>
+            <TextInput
+              style={styles.modalTextInput}
+              placeholder="e.g. Alex Tan"
+              placeholderTextColor={COLORS.textMuted}
+              value={googleNameInput}
+              onChangeText={setGoogleNameInput}
+            />
+
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 6 }}>
+              <WireButton label="CANCEL" variant="outline" onPress={() => setShowGoogleModal(false)} style={{ flex: 1 }} />
+              <WireButton
+                label={googleLoading ? "SIGNING IN..." : "CONTINUE"}
+                onPress={handleConfirmRealGoogleModal}
+                disabled={googleLoading}
+                style={{ flex: 1 }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
-// Stylesheet: Optimized seamless rounded Logo container and classic black Google button
 const getStyles = () =>
   StyleSheet.create({
     container: {
@@ -247,19 +393,6 @@ const getStyles = () =>
     formSection: {
       paddingHorizontal: 24,
       paddingTop: 20,
-    },
-    errorBox: {
-      borderWidth: SHAPES.borderWidth,
-      borderColor: COLORS.danger,
-      borderRadius: SHAPES.inputRadius,
-      backgroundColor: COLORS.dangerBg,
-      padding: 10,
-      marginBottom: 14,
-    },
-    errorText: {
-      color: COLORS.danger,
-      fontFamily: FONTS.mono,
-      fontSize: 11,
     },
     forgotRow: {
       alignItems: "flex-end",
@@ -331,7 +464,7 @@ const getStyles = () =>
       alignItems: "center",
       justifyContent: "center",
       gap: 8,
-      marginBottom: 20,
+      marginBottom: 8,
     },
     googleAltBtnText: {
       color: COLORS.text,
@@ -360,5 +493,63 @@ const getStyles = () =>
       fontWeight: "bold",
       color: COLORS.text,
       textDecorationLine: "underline",
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.55)",
+      justifyContent: "center",
+      alignItems: "center",
+      padding: 18,
+    },
+    googleModalCard: {
+      width: "100%",
+      maxWidth: 360,
+      backgroundColor: COLORS.card,
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.cardRadius,
+      padding: 16,
+    },
+    googleModalHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      borderBottomWidth: 1.5,
+      borderColor: COLORS.borderMuted,
+      borderStyle: "dashed",
+      paddingBottom: 10,
+      marginBottom: 10,
+    },
+    googleModalTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 12,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    googleModalSub: {
+      fontFamily: FONTS.mono,
+      fontSize: 9,
+      color: COLORS.textMuted,
+      lineHeight: 14,
+      marginBottom: 12,
+    },
+    modalInputLabel: {
+      fontFamily: FONTS.mono,
+      fontSize: 9.5,
+      fontWeight: "bold",
+      color: COLORS.text,
+      marginBottom: 4,
+    },
+    modalTextInput: {
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.inputRadius,
+      backgroundColor: COLORS.inputBg,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      fontFamily: FONTS.mono,
+      fontSize: 11,
+      color: COLORS.text,
+      marginBottom: 10,
     },
   });

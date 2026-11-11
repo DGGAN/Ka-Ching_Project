@@ -1,20 +1,12 @@
 /**
  * @file frontend/src/features/budget/utils/budgetRecommendations.js
- * @layer Utils (Rule-Based AI Preset Recommender — 100% Original Logic + New Category Keys)
- * @description Defines the 3 allocation presets (50/30/20, 50/20/30, 60/25/15) and computes the suggested preset and reasons.
- * @exports BUDGET_PRESETS, getCategoryBucketType, computeAiPresetRecommendation
+ * @layer Utils (Pure Rule-Based Preset Recommendation Engine)
+ * @description Defines the 3 allocation presets (50/30/20, 50/20/30, 60/25/15) and computes rule-based preset recommendations.
+ * @exports BUDGET_PRESETS, computeBudgetRecommendation
  */
 
-import { NEEDS_CATEGORY_KEYS, WANTS_CATEGORY_KEYS } from "../../../utils/categoryConfig";
+import { getCategoryBucketType } from "./budgetCalculations";
 
-// Helper to check if a transaction category belongs to Needs or Wants (using unified 16 categories)
-export const getCategoryBucketType = (categoryKey) => {
-  if (NEEDS_CATEGORY_KEYS.includes(categoryKey)) return "needs";
-  if (WANTS_CATEGORY_KEYS.includes(categoryKey)) return "wants";
-  return "wants";
-};
-
-// Define the 3 Allocation Presets (Clean labels without "Primary baseline" or "Proposed alt")
 export const BUDGET_PRESETS = [
   {
     id: "50_30_20",
@@ -45,9 +37,8 @@ export const BUDGET_PRESETS = [
   },
 ];
 
-// Dynamic AI Preset Recommender based on user's actual transaction patterns
-export const computeAiPresetRecommendation = (transactions = [], baselineIncome = 3000) => {
-  const expenseTxs = transactions.filter((t) => t.type === "EXPENSE");
+export const computeBudgetRecommendation = (transactions = [], baselineIncome = 3000) => {
+  const expenseTxs = (transactions || []).filter((t) => t.type === "EXPENSE");
   if (expenseTxs.length === 0) {
     return {
       presetId: "50_30_20",
@@ -81,7 +72,7 @@ export const computeAiPresetRecommendation = (transactions = [], baselineIncome 
   const essentialShareOfIncome = baselineIncome > 0 ? Math.round((needsTotal / baselineIncome) * 100) : 50;
   const totalSpendShareOfIncome = baselineIncome > 0 ? Math.round((totalSpent / baselineIncome) * 100) : 70;
 
-  // Rule A: High essential share -> Recommend Student-Friendly (60/25/15)
+  // Rule A: High essential share -> Student-Friendly (60/25/15)
   if (essentialShareOfSpend >= 62 || essentialShareOfIncome >= 55) {
     return {
       presetId: "60_25_15",
@@ -93,7 +84,7 @@ export const computeAiPresetRecommendation = (transactions = [], baselineIncome 
     };
   }
 
-  // Rule B: Low overall spending relative to income -> Recommend Fast Saver (50/20/30)
+  // Rule B: Low overall spending -> Fast Saver (50/20/30)
   if (totalSpendShareOfIncome <= 65 && wantsTotal <= needsTotal * 0.45) {
     return {
       presetId: "50_20_30",
@@ -105,7 +96,7 @@ export const computeAiPresetRecommendation = (transactions = [], baselineIncome 
     };
   }
 
-  // Rule C: Default -> Recommend Balanced (50/30/20)
+  // Rule C: Default -> Balanced (50/30/20)
   return {
     presetId: "50_30_20",
     reasons: [

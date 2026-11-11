@@ -1,23 +1,23 @@
 /**
  * @file frontend/src/features/budget/services/budgetService.js
- * @layer Service (API Communication — 100% Original Budget Logic)
- * @description Fetches user transactions + budget history in parallel and saves monthly budget updates.
- * @exports fetchBudgetAndTransactionsApi, saveBudgetApi
+ * @layer Service (API Communication)
+ * @description Handles GET /api/budgets/:userId + GET /api/transactions/:userId and POST /api/budgets.
+ * @exports fetchBudgetData, saveMonthlyBudget
  */
 
 import apiClient from "../../../api/apiClient";
 
-export const fetchBudgetAndTransactionsApi = async (userId) => {
+export const fetchBudgetData = async (userId) => {
   const [txRes, budgetRes] = await Promise.all([apiClient.get(`/transactions/${userId}`), apiClient.get(`/budgets/${userId}`)]);
 
   return {
-    txList: txRes.data?.data || [],
+    transactions: txRes.data?.data || [],
     currentBudget: budgetRes.data?.data || null,
     historyList: budgetRes.data?.history || [],
   };
 };
 
-export const saveBudgetApi = async (payload) => {
-  const res = await apiClient.post("/budgets", payload);
-  return res.data?.data;
+export const saveMonthlyBudget = async (payload) => {
+  const response = await apiClient.post("/budgets", payload);
+  return response.data?.data;
 };

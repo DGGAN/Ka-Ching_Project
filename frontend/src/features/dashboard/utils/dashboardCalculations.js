@@ -1,13 +1,12 @@
 /**
  * @file frontend/src/features/dashboard/utils/dashboardCalculations.js
- * @layer Utils (Pure Financial & Chart Math Functions — 100% Original Dashboard Logic)
- * @description Computes raw 6-month window, all-time accumulated savings, strict per-month budget lookup (only shows budget strip if that specific month has a budget set), contiguous month trimming, MoM % diff, and 154px chart node coordinates.
+ * @layer Utils (Pure Financial & Chart Math Functions — Strict Per-Month Budget Matching)
+ * @description Strictly matches each month's budget by (year, monthNum) from budgetHistory without falling back to another month's budget.
  * @exports getRawSixMonthWindow, computeDashboardMetrics, computeChartGeometry
  */
 
 import { getCategoryMeta } from "../../../utils/categoryConfig";
 
-// 1. Helper: Generate the raw 6-month chronological window (oldest to newest: index 0 -> 5)
 export const getRawSixMonthWindow = () => {
   const list = [];
   const now = new Date();
@@ -32,7 +31,6 @@ export const getRawSixMonthWindow = () => {
   return list;
 };
 
-// 2. Compute All-Time Savings, Enriched 6 Months, Contiguous Trimming, and Active Month stats
 export const computeDashboardMetrics = (transactions = [], latestBudget = null, budgetHistory = [], rawSixMonths = [], selectedMonthKey = "") => {
   let allTimeIncome = 0;
   let allTimeExpense = 0;
@@ -65,13 +63,14 @@ export const computeDashboardMetrics = (transactions = [], latestBudget = null, 
       }
     });
 
-    // STRICTLY match budget for this exact year & month ONLY (no fallback to old months!)
-    const matchedBudgetFromHistory = (budgetHistory || []).find((b) => Number(b.year) === mObj.year && Number(b.month) === mObj.monthNum);
+    // STRICTLY match budget for this exact (year, monthNum) ONLY!
+    // Never fall back to another month's budget if this month had no budget set.
+    const matchedFromHistory = (budgetHistory || []).find((b) => Number(b.year) === mObj.year && Number(b.month) === mObj.monthNum);
     const matchedFromLatest =
       latestBudget && Number(latestBudget.year) === mObj.year && Number(latestBudget.month) === mObj.monthNum ? latestBudget : null;
 
-    const matchedBudget = matchedBudgetFromHistory || matchedFromLatest || null;
-    const monthLimit = matchedBudget?.monthlyLimit || 0;
+    const matchedBudget = matchedFromHistory || matchedFromLatest || null;
+    const monthLimit = Number(matchedBudget?.monthlyLimit) || 0;
 
     const categories = Object.entries(catMap)
       .map(([catKey, amount]) => {
@@ -132,7 +131,6 @@ export const computeDashboardMetrics = (transactions = [], latestBudget = null, 
   };
 };
 
-// 3. Compute exact geometry for the 154px Interactive Stacked Bar + SVG Trend Line Chart
 export const computeChartGeometry = (visibleMonths = [], chartBoxWidth = 0) => {
   const CHART_HEIGHT = 154;
   const TOP_PAD = 28;

@@ -1,7 +1,7 @@
 /**
  * @file frontend/src/features/ocr/hooks/useReceiptScanner.js
  * @layer Hook (State, Auto-Trigger Camera/Gallery & Verification Queue — 100% Original Logic)
- * @description Manages scannedItems, auto-launching camera/gallery based on initialMode, strict 2-decimal amount input filtering, and batch verification save.
+ * @description Uses scanReceiptImagesApi and saveVerifiedReceiptApi from ocrService.js, and replaces deprecated ImagePicker.MediaTypeOptions with mediaTypes: ["images"].
  * @exports useReceiptScanner
  */
 
@@ -27,7 +27,7 @@ export function useReceiptScanner(user, initialMode = "ocr_batch", showToast, on
     }
   }, [initialMode]);
 
-  // 1. Capture a single receipt photo using the device camera
+  // 1. Capture a single receipt photo using the device camera (mediaTypes: ["images"])
   const handleTakePhoto = async () => {
     try {
       const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -37,7 +37,7 @@ export function useReceiptScanner(user, initialMode = "ocr_batch", showToast, on
       }
 
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaType.Images,
+        mediaTypes: ["images"],
         quality: 0.6,
         base64: true,
       });
@@ -50,7 +50,7 @@ export function useReceiptScanner(user, initialMode = "ocr_batch", showToast, on
     }
   };
 
-  // 2. Pick one or multiple receipt screenshots from the photo gallery
+  // 2. Pick one or multiple receipt screenshots from the photo gallery (mediaTypes: ["images"])
   const handlePickFromGallery = async () => {
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -60,7 +60,7 @@ export function useReceiptScanner(user, initialMode = "ocr_batch", showToast, on
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaType.Images,
+        mediaTypes: ["images"],
         allowsMultipleSelection: true,
         selectionLimit: 5,
         quality: 0.6,
@@ -75,7 +75,7 @@ export function useReceiptScanner(user, initialMode = "ocr_batch", showToast, on
     }
   };
 
-  // 3. Send selected images to backend POST /api/ocr/scan
+  // 3. Send selected images to backend POST /api/ocr/scan via scanReceiptImagesApi
   const processImagesWithOCR = async (assets) => {
     try {
       setScanning(true);
@@ -127,7 +127,7 @@ export function useReceiptScanner(user, initialMode = "ocr_batch", showToast, on
     showToast("success", "Removed receipt from queue.");
   };
 
-  // 4. Verify & Save all scanned receipts into MongoDB as VERIFIED OCR transactions
+  // 4. Verify & Save all scanned receipts into MongoDB via saveVerifiedReceiptApi
   const handleVerifyAndSaveAll = async () => {
     if (scannedItems.length === 0) {
       showToast("error", "No scanned receipts to save.");

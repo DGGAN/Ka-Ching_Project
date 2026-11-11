@@ -1,9 +1,7 @@
 /**
  * @file frontend/src/screens/BudgetScreen.js
- * @layer Screen (Top-Level Page Skeleton — 100% Original Design & Validation)
- * @description Assembles the exact BudgetScreen layout: BudgetMonthSelector, BudgetProgressCard, Read-Only Archive vs Smart/Custom Mode Tabs, BudgetPresetSelector, and BudgetHowItWorksModal.
- * @props {object} user - Logged-in user object
- * @props {function} [onBudgetUpdated] - Optional callback after budget save
+ * @layer Screen (Top-Level Page Skeleton)
+ * @description Assembles the Monthly Budget Planner screen with Current-First month bar, saved historical setup inspection, and concise preset apply button.
  * @exports default BudgetScreen
  */
 
@@ -17,6 +15,7 @@ import WireInput from "../components/shared/WireInput";
 import WireButton from "../components/shared/WireButton";
 import FloatingToast from "../components/shared/FloatingToast";
 import { useFloatingToast } from "../components/shared/useFloatingToast";
+
 import { useBudgetData } from "../features/budget/hooks/useBudgetData";
 import BudgetMonthSelector from "../features/budget/components/BudgetMonthSelector";
 import BudgetProgressCard from "../features/budget/components/BudgetProgressCard";
@@ -31,6 +30,7 @@ export default function BudgetScreen({ user, onBudgetUpdated }) {
   const {
     visibleMonths,
     activeMonthObj,
+    isCurrentMonthSelected,
     setSelectedMonthKey,
     activeMode,
     setActiveMode,
@@ -48,8 +48,6 @@ export default function BudgetScreen({ user, onBudgetUpdated }) {
     setSavingsTargetInput,
     loading,
     saving,
-    handleSaveBudget,
-    isCurrentMonthSelected,
     selectedMonthSpent,
     actualNeedsSpent,
     actualWantsSpent,
@@ -68,7 +66,10 @@ export default function BudgetScreen({ user, onBudgetUpdated }) {
     savingsProgressPct,
     needsCategoryList,
     wantsCategoryList,
-  } = useBudgetData(user, showToast, onBudgetUpdated);
+    handleSaveBudget,
+  } = useBudgetData(user, showToast);
+
+  const safePresetName = (activePreset?.name || "BALANCED").toUpperCase();
 
   return (
     <View
@@ -82,7 +83,7 @@ export default function BudgetScreen({ user, onBudgetUpdated }) {
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         {/* 1. Month Selector Bar */}
-        <BudgetMonthSelector visibleMonths={visibleMonths} activeMonthKey={activeMonthObj.key} onSelectMonth={setSelectedMonthKey} />
+        <BudgetMonthSelector visibleMonths={visibleMonths} activeMonthObj={activeMonthObj} onSelectMonth={setSelectedMonthKey} />
 
         {/* 2. Monthly Budget Status Hero Card */}
         <BudgetProgressCard
@@ -101,16 +102,34 @@ export default function BudgetScreen({ user, onBudgetUpdated }) {
           <WireBox style={styles.lockedArchiveCard}>
             <View style={styles.lockedTitleRow}>
               <Lock size={15} color={COLORS.primary} strokeWidth={2.5} />
-              <Text style={styles.lockedTitle}>{activeMonthObj.label.toUpperCase()} BREAKDOWN (READ-ONLY)</Text>
+              <Text style={styles.lockedTitle}>{(activeMonthObj?.label || "").toUpperCase()} SAVED SETUP (READ-ONLY)</Text>
             </View>
-            <Text style={styles.lockedSub}>
-              Past months are locked to preserve your historical records, but you can inspect your category spending below:
-            </Text>
+
+            {/* Clear Historical Setup Summary Banner */}
+            <View style={styles.archiveSetupSummaryBox}>
+              <Text style={styles.archiveSetupText}>
+                SAVED PLAN: {activePreset?.name?.toUpperCase()} ({activePreset?.ratioLabel}) • LIMIT: RM {Number(activeLimit).toFixed(0)} • SAVE GOAL:
+                RM {Number(activeSavings).toFixed(0)}
+              </Text>
+            </View>
+
+            <Text style={styles.lockedSub}>Past months preserve the exact budget setup and category breakdown recorded at that time:</Text>
 
             <BudgetCategoryBreakdown
               activePreset={activePreset}
-              needsCap={activeLimit > 0 ? Math.round(activeLimit * 0.625) : needsAllowance}
-              wantsCap={activeLimit > 0 ? Math.round(activeLimit * 0.375) : wantsAllowance}
+              activeBucketTab={activeBucketTab}
+              onSelectBucketTab={setActiveBucketTab}
+              setActiveBucketTab={setActiveBucketTab}
+              needsCap={
+                activeLimit > 0
+                  ? Math.round((activeLimit * (activePreset?.needsPct || 50)) / ((activePreset?.needsPct || 50) + (activePreset?.wantsPct || 30)))
+                  : needsAllowance
+              }
+              wantsCap={
+                activeLimit > 0
+                  ? Math.round((activeLimit * (activePreset?.wantsPct || 30)) / ((activePreset?.needsPct || 50) + (activePreset?.wantsPct || 30)))
+                  : wantsAllowance
+              }
               saveGoal={activeSavings > 0 ? activeSavings : recommendedSavings}
               actualNeedsSpent={actualNeedsSpent}
               actualWantsSpent={actualWantsSpent}
@@ -120,15 +139,12 @@ export default function BudgetScreen({ user, onBudgetUpdated }) {
               selectedMonthSpent={selectedMonthSpent}
               needsCategoryList={needsCategoryList}
               wantsCategoryList={wantsCategoryList}
-              activeBucketTab={activeBucketTab}
-              onSelectBucketTab={setActiveBucketTab}
-              activeMonthLabel={activeMonthObj.label}
-              sectionTitle={`TAP ANY BUCKET TO INSPECT ${activeMonthObj.shortMonth.toUpperCase()} SPENDING`}
+              activeMonthLabel={activeMonthObj?.label || ""}
+              sectionTitle={`TAP ANY BUCKET TO INSPECT ${(activeMonthObj?.shortMonth || "MONTH").toUpperCase()} SPENDING`}
             />
           </WireBox>
         ) : (
           <>
-            {/* Segmented Switcher: AI Smart Plan vs Custom Input */}
             <View style={styles.modeTabsRow}>
               <TouchableOpacity
                 style={[styles.modeTabBtn, activeMode === "smart" && styles.modeTabBtnActive]}
@@ -154,32 +170,46 @@ export default function BudgetScreen({ user, onBudgetUpdated }) {
             </View>
 
             {activeMode === "smart" ? (
-              <BudgetPresetSelector
-                baselineIncome={baselineIncome}
-                selectedPresetId={selectedPresetId}
-                onSelectPreset={setSelectedPresetId}
-                aiRec={aiRec}
-                showWhyReasons={showWhyReasons}
-                onToggleWhyReasons={() => setShowWhyReasons(!showWhyReasons)}
-                onOpenHowItWorks={() => setShowHowItWorksModal(true)}
-                activePreset={activePreset}
-                needsAllowance={needsAllowance}
-                wantsAllowance={wantsAllowance}
-                recommendedLimit={recommendedLimit}
-                recommendedSavings={recommendedSavings}
-                actualNeedsSpent={actualNeedsSpent}
-                actualWantsSpent={actualWantsSpent}
-                projectedNetSavings={projectedNetSavings}
-                savingsProgressPct={savingsProgressPct}
-                selectedMonthSpent={selectedMonthSpent}
-                needsCategoryList={needsCategoryList}
-                wantsCategoryList={wantsCategoryList}
-                activeBucketTab={activeBucketTab}
-                onSelectBucketTab={setActiveBucketTab}
-                activeMonthLabel={activeMonthObj.label}
-                saving={saving}
-                onApplyPreset={() => handleSaveBudget(recommendedLimit, recommendedSavings)}
-              />
+              <WireBox style={styles.plannerCard}>
+                <BudgetPresetSelector
+                  baselineIncome={baselineIncome}
+                  selectedPresetId={selectedPresetId}
+                  onSelectPreset={setSelectedPresetId}
+                  aiRec={aiRec}
+                  showWhyReasons={showWhyReasons}
+                  onToggleWhyReasons={() => setShowWhyReasons(!showWhyReasons)}
+                  onOpenHowItWorks={() => setShowHowItWorksModal(true)}
+                />
+
+                <BudgetCategoryBreakdown
+                  activePreset={activePreset}
+                  activeBucketTab={activeBucketTab}
+                  onSelectBucketTab={setActiveBucketTab}
+                  setActiveBucketTab={setActiveBucketTab}
+                  needsCap={needsAllowance}
+                  wantsCap={wantsAllowance}
+                  saveGoal={recommendedSavings}
+                  actualNeedsSpent={actualNeedsSpent}
+                  actualWantsSpent={actualWantsSpent}
+                  projectedNetSavings={projectedNetSavings}
+                  savingsProgressPct={savingsProgressPct}
+                  baselineIncome={baselineIncome}
+                  selectedMonthSpent={selectedMonthSpent}
+                  needsCategoryList={needsCategoryList}
+                  wantsCategoryList={wantsCategoryList}
+                  activeMonthLabel={activeMonthObj?.label || ""}
+                />
+
+                <WireButton
+                  label={saving ? "APPLYING..." : `APPLY ${safePresetName} PLAN`}
+                  onPress={async () => {
+                    await handleSaveBudget(recommendedLimit, recommendedSavings, false);
+                    if (onBudgetUpdated) onBudgetUpdated();
+                  }}
+                  disabled={saving}
+                  style={{ marginTop: 12 }}
+                />
+              </WireBox>
             ) : (
               <WireBox style={styles.plannerCard}>
                 <Text style={styles.plannerTitle}>CUSTOM MONTHLY TARGETS</Text>
@@ -203,7 +233,10 @@ export default function BudgetScreen({ user, onBudgetUpdated }) {
 
                 <WireButton
                   label={saving ? "SAVING..." : "SAVE CUSTOM BUDGET"}
-                  onPress={() => handleSaveBudget(monthlyLimitInput, savingsTargetInput)}
+                  onPress={async () => {
+                    await handleSaveBudget(monthlyLimitInput, savingsTargetInput, true);
+                    if (onBudgetUpdated) onBudgetUpdated();
+                  }}
                   disabled={saving}
                 />
               </WireBox>
@@ -282,6 +315,21 @@ const getStyles = () =>
     lockedTitle: {
       fontFamily: FONTS.mono,
       fontSize: 10.5,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    archiveSetupSummaryBox: {
+      borderWidth: 1.2,
+      borderColor: COLORS.primary,
+      borderRadius: SHAPES.inputRadius,
+      backgroundColor: COLORS.secondary,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      marginBottom: 8,
+    },
+    archiveSetupText: {
+      fontFamily: FONTS.mono,
+      fontSize: 8.5,
       fontWeight: "bold",
       color: COLORS.text,
     },

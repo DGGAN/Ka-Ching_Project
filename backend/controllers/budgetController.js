@@ -1,136 +1,137 @@
 /**
  * @file backend/controllers/budgetController.js
- * @layer Backend Controller (REST API Handler)
- * @description Handles creating/updating current-month budgets and fetching historical monthly budget records.
+ * @layer Backend Controller (Budget CRUD & Auto Carry-Forward)
+ * @description Saves per-month budget setup and returns both current month budget and full monthly history array.
  * @exports setBudget, getBudget
  */
 
-// Import the Budget model, AI analytics engine, and notification trigger helper
 const Budget = require("../models/Budget");
-const { runAnalyticsEngine } = require("./analyticsController");
-const { triggerBudgetGoalNotification } = require("./notificationController");
+const Notification = require("../models/Notification");
 
-// 1. Create or update a user's monthly spending limit and savings target (POST /api/budgets)
 exports.setBudget = async (req, res) => {
   try {
-    // Step 1: Destructure budget parameters from request body
-    const { userId, monthlyLimit, savingsTarget, month, year } = req.body;
+    const { userId, monthlyLimit, savingsTarget, month, year, presetId, presetName, needsPct, wantsPct, savingsPct } = req.body;
 
-    // Validation 1: Check required fields
     if (!userId || monthlyLimit === undefined) {
       return res.status(400).json({
-        message: "userId and monthlyLimit are required fields.",
+        success: false,
+        message: "userId and monthlyLimit are required",
       });
     }
 
-    // Step 2: Parse numeric values
-    const parsedLimit = Number(monthlyLimit);
-    const parsedSavings = savingsTarget !== undefined ? Number(savingsTarget) : 0;
-
-    // Validation 2: Ensure monthly spending limit > RM 0
-    if (isNaN(parsedLimit) || parsedLimit <= 0) {
+    const numericLimit = Number(monthlyLimit);
+    if (isNaN(numericLimit) || numericLimit <= 0) {
       return res.status(400).json({
-        message: "Monthly spending limit must be a valid number greater than RM 0.",
+        success: false,
+        message: "Monthly budget limit must be greater than RM 0.",
       });
     }
 
-    // Validation 3: Ensure monthly savings target >= RM 0
-    if (isNaN(parsedSavings) || parsedSavings < 0) {
-      return res.status(400).json({
-        message: "Monthly savings target cannot be negative.",
-      });
-    }
-
-    // Validation 4: Prevent modifying past months (only current month is editable)
     const now = new Date();
-    const currentMonth = now.getMonth() + 1;
-    const currentYear = now.getFullYear();
-    const targetMonth = month !== undefined ? Number(month) : currentMonth;
-    const targetYear = year !== undefined ? Number(year) : currentYear;
+    const targetYear = Number(year) || now.getFullYear();
+    const targetMonth = Number(month) || now.getMonth() + 1;
 
-    if (targetYear !== currentYear || targetMonth !== currentMonth) {
-      return res.status(403).json({
-        message: "Past month budgets are locked and read-only.",
-      });
-    }
-
-    // Step 3: Upsert budget for current month and year
     const budget = await Budget.findOneAndUpdate(
-      { userId, month: targetMonth, year: targetYear },
+      { userId, year: targetYear, month: targetMonth },
       {
         userId,
-        monthlyLimit: Number(parsedLimit.toFixed(2)),
-        savingsTarget: Number(parsedSavings.toFixed(2)),
-        month: targetMonth,
         year: targetYear,
+        month: targetMonth,
+        monthlyLimit: numericLimit,
+        savingsTarget: Number(savingsTarget) || 0,
+        presetId: presetId || "50_30_20",
+        presetName: presetName || "Balanced",
+        needsPct: Number(needsPct) || 50,
+        wantsPct: Number(wantsPct) || 30,
+        savingsPct: Number(savingsPct) || 20,
       },
-      { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
+      { new: true, upsert: true },
     );
 
-    // Step 4: Trigger background analytics engine and GOAL notification
-    try {
-      await runAnalyticsEngine(userId);
-      await triggerBudgetGoalNotification(userId, budget.monthlyLimit, budget.savingsTarget);
-    } catch (bgErr) {
-      console.log("Background budget sync warning:", bgErr.message);
-    }
+    await Notification.create({
+      userId,
+      tag: "GOAL",
+      title: "Monthly Budget Updated",
+      message: `Your ${budget.presetName} budget limit is set to RM ${numericLimit.toFixed(
+        2,
+      )} with a savings goal of RM ${Number(savingsTarget || 0).toFixed(2)}.`,
+    });
 
-    // Step 5: Return saved budget document
-    res.status(200).json({
-      message: "Budget saved successfully.",
+    const history = await Budget.find({ userId }).sort({
+      year: -1,
+      month: -1,
+    });
+
+    return res.status(200).json({
+      success: true,
       data: budget,
+      history,
     });
   } catch (error) {
-    res.status(500).json({
-      message: "Failed to save budget.",
+    return res.status(500).json({
+      success: false,
+      message: "Failed to save budget",
       error: error.message,
     });
   }
 };
 
-// 2. Get the active or historical budget configuration for a user (GET /api/budgets/:userId)
 exports.getBudget = async (req, res) => {
   try {
-    // Step 1: Extract userId and query flags
     const { userId } = req.params;
-    const { all, month, year } = req.query;
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
 
-    // Validation 1: Ensure userId parameter is provided
-    if (!userId) {
-      return res.status(400).json({
-        message: "userId parameter is required.",
-      });
+    let history = await Budget.find({ userId }).sort({
+      year: -1,
+      month: -1,
+    });
+
+    for (const doc of history) {
+      if (!doc.year || !doc.month) {
+        doc.year = currentYear;
+        doc.month = currentMonth;
+        await doc.save();
+      }
     }
 
-    // Step 2: Return all historical budgets if ?all=true is requested
-    if (all === "true") {
-      const budgets = await Budget.find({ userId }).sort({
-        year: -1,
-        month: -1,
-        updatedAt: -1,
-      });
-      return res.status(200).json({
-        message: "All user budgets fetched successfully.",
-        data: budgets,
-      });
+    let currentBudget = history.find((b) => Number(b.year) === currentYear && Number(b.month) === currentMonth);
+
+    // Auto carry-forward from most recent prior month if a new month has started
+    if (!currentBudget && history.length > 0) {
+      const latestPrior = history[0];
+      const isLatestFromPast = latestPrior.year < currentYear || (latestPrior.year === currentYear && latestPrior.month < currentMonth);
+
+      if (isLatestFromPast && latestPrior.monthlyLimit > 0) {
+        currentBudget = await Budget.create({
+          userId,
+          year: currentYear,
+          month: currentMonth,
+          monthlyLimit: latestPrior.monthlyLimit,
+          savingsTarget: latestPrior.savingsTarget || 0,
+          presetId: latestPrior.presetId || "50_30_20",
+          presetName: latestPrior.presetName || "Balanced",
+          needsPct: latestPrior.needsPct || 50,
+          wantsPct: latestPrior.wantsPct || 30,
+          savingsPct: latestPrior.savingsPct || 20,
+        });
+        history = await Budget.find({ userId }).sort({
+          year: -1,
+          month: -1,
+        });
+      }
     }
 
-    // Step 3: Return specific month/year budget or latest budget
-    const filter = { userId };
-    if (month && year) {
-      filter.month = Number(month);
-      filter.year = Number(year);
-    }
-
-    const budget = await Budget.findOne(filter).sort({ updatedAt: -1 });
-
-    res.status(200).json({
-      message: "Budget fetched successfully.",
-      data: budget || null,
+    return res.status(200).json({
+      success: true,
+      data: currentBudget || null,
+      history,
     });
   } catch (error) {
-    res.status(500).json({
-      message: "Failed to fetch budget.",
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch budget",
       error: error.message,
     });
   }

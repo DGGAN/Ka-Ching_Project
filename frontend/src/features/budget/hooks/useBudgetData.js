@@ -1,19 +1,21 @@
 /**
  * @file frontend/src/features/budget/hooks/useBudgetData.js
- * @layer Hook (State, Lifecycle & Form Submission — 100% Original Budget Logic)
- * @description Manages month selection, AI vs Custom mode, preset selection, bucket tab inspection, and budget saving.
+ * @layer Hook (State, Month Filtering & Per-Month Setup Resolution)
+ * @description Filters visibleMonths so ONLY the Current Month and past months that actually have a saved budget are shown. Resolves each month's exact saved preset setup.
  * @exports useBudgetData
  */
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { getSixMonthWindow } from "../../../utils/dateHelpers";
 import { playUiSound } from "../../../utils/soundEffects";
-import { fetchBudgetAndTransactionsApi, saveBudgetApi } from "../services/budgetService";
-import { computeVisibleBudgetMonths, computeSelectedMonthBudgetMetrics } from "../utils/budgetCalculations";
+import { fetchBudgetData, saveMonthlyBudget } from "../services/budgetService";
+import { BUDGET_PRESETS, computeBudgetRecommendation } from "../utils/budgetRecommendations";
+import { calculateMonthlySpending, getNonZeroBucketCategories } from "../utils/budgetCalculations";
 
-export function useBudgetData(user, showToast, onBudgetUpdated) {
-  const sixMonthList = useMemo(() => getSixMonthWindow(), []);
-  const [selectedMonthKey, setSelectedMonthKey] = useState(sixMonthList[sixMonthList.length - 1].key);
+export function useBudgetData(user, showToast) {
+  const sixMonthList = getSixMonthWindow();
+  const currentMonthKey = sixMonthList[sixMonthList.length - 1].key;
+  const [selectedMonthKey, setSelectedMonthKey] = useState(currentMonthKey);
 
   const [transactions, setTransactions] = useState([]);
   const [budgetHistoryMap, setBudgetHistoryMap] = useState({});
@@ -30,29 +32,35 @@ export function useBudgetData(user, showToast, onBudgetUpdated) {
 
   useEffect(() => {
     if (user?.id) {
-      loadData();
+      loadBudgetAndTransactions();
     }
   }, [user?.id]);
 
-  const loadData = async () => {
+  const loadBudgetAndTransactions = async () => {
     try {
       setLoading(true);
-      const { txList, currentBudget, historyList } = await fetchBudgetAndTransactionsApi(user.id);
+      const { transactions: txList, currentBudget, historyList } = await fetchBudgetData(user.id);
       setTransactions(txList);
 
       const map = {};
-      historyList.forEach((b) => {
-        if (b.year && b.month) {
+      (historyList || []).forEach((b) => {
+        if (b.year && b.month && Number(b.monthlyLimit) > 0) {
           const k = `${b.year}-${String(b.month).padStart(2, "0")}`;
           map[k] = b;
         }
       });
 
-      if (currentBudget) {
-        const currentKey = sixMonthList[sixMonthList.length - 1].key;
-        if (!map[currentKey]) map[currentKey] = currentBudget;
+      if (currentBudget && Number(currentBudget.monthlyLimit) > 0) {
+        const cYear = currentBudget.year || new Date().getFullYear();
+        const cMonth = currentBudget.month || new Date().getMonth() + 1;
+        const cKey = `${cYear}-${String(cMonth).padStart(2, "0")}`;
+        map[cKey] = currentBudget;
+
         setMonthlyLimitInput(String(currentBudget.monthlyLimit || ""));
         setSavingsTargetInput(String(currentBudget.savingsTarget || ""));
+        if (currentBudget.presetId && currentBudget.presetId !== "CUSTOM") {
+          setSelectedPresetId(currentBudget.presetId);
+        }
       }
 
       setBudgetHistoryMap(map);
@@ -63,36 +71,69 @@ export function useBudgetData(user, showToast, onBudgetUpdated) {
     }
   };
 
-  const visibleMonths = useMemo(
-    () => computeVisibleBudgetMonths(sixMonthList, transactions, budgetHistoryMap),
-    [sixMonthList, transactions, budgetHistoryMap],
+  // STRICT RULE: Only show the Current Month + Past Months that ACTUALLY have a saved budget
+  const visibleMonths = sixMonthList.filter(
+    (m) => m.isCurrentMonth || m.isCurrent || Boolean(budgetHistoryMap[m.key] && Number(budgetHistoryMap[m.key].monthlyLimit) > 0),
   );
 
-  const activeMonthObj = useMemo(
-    () => visibleMonths.find((m) => m.key === selectedMonthKey) || visibleMonths[visibleMonths.length - 1],
-    [visibleMonths, selectedMonthKey],
+  const activeMonthObj =
+    visibleMonths.find((m) => m.key === selectedMonthKey) || visibleMonths[visibleMonths.length - 1] || sixMonthList[sixMonthList.length - 1];
+
+  const isCurrentMonthSelected = Boolean(activeMonthObj.isCurrentMonth || activeMonthObj.isCurrent);
+
+  // Compute selected month's income, total spent, and per-category expenses
+  const { selectedMonthSpent, selectedMonthIncome, actualNeedsSpent, actualWantsSpent, categorySpendMap } = calculateMonthlySpending(
+    transactions,
+    activeMonthObj,
   );
 
-  const metrics = useMemo(
-    () =>
-      computeSelectedMonthBudgetMetrics({
-        transactions,
-        budgetHistoryMap,
-        activeMonthObj,
-        selectedPresetId,
-      }),
-    [transactions, budgetHistoryMap, activeMonthObj, selectedPresetId],
-  );
+  const baselineIncome = selectedMonthIncome > 0 ? selectedMonthIncome : 3000;
 
-  // Auto-select AI recommended preset when transactions/income load
+  // Compute AI Recommendation for current month
+  const aiRec = computeBudgetRecommendation(transactions, baselineIncome);
   useEffect(() => {
-    if (metrics.aiRec?.presetId) {
-      setSelectedPresetId(metrics.aiRec.presetId);
+    const currentSaved = budgetHistoryMap[currentMonthKey];
+    if (!currentSaved && aiRec?.presetId) {
+      setSelectedPresetId(aiRec.presetId);
     }
-  }, [transactions.length, metrics.baselineIncome]);
+  }, [transactions.length, baselineIncome]);
 
-  const handleSaveBudget = async (limitVal, savingsVal) => {
-    if (!metrics.isCurrentMonthSelected) {
+  // Strict per-month budget lookup
+  const savedBudgetForMonth = budgetHistoryMap[activeMonthObj.key] || null;
+
+  const currentSelectedPreset = BUDGET_PRESETS.find((p) => p.id === selectedPresetId) || BUDGET_PRESETS[0];
+
+  const activePreset =
+    !isCurrentMonthSelected && savedBudgetForMonth
+      ? {
+          id: savedBudgetForMonth.presetId || "50_30_20",
+          name: savedBudgetForMonth.presetName || "Saved Plan",
+          ratioLabel: `${savedBudgetForMonth.needsPct || 50} / ${savedBudgetForMonth.wantsPct || 30} / ${savedBudgetForMonth.savingsPct || 20}`,
+          needsPct: savedBudgetForMonth.needsPct || 50,
+          wantsPct: savedBudgetForMonth.wantsPct || 30,
+          savingsPct: savedBudgetForMonth.savingsPct || 20,
+        }
+      : currentSelectedPreset;
+
+  const needsAllowance = Math.round((baselineIncome * activePreset.needsPct) / 100);
+  const wantsAllowance = Math.round((baselineIncome * activePreset.wantsPct) / 100);
+  const recommendedLimit = needsAllowance + wantsAllowance;
+  const recommendedSavings = Math.round((baselineIncome * activePreset.savingsPct) / 100);
+
+  const activeLimit = savedBudgetForMonth?.monthlyLimit || 0;
+  const activeSavings = savedBudgetForMonth?.savingsTarget || 0;
+  const usagePct = activeLimit > 0 ? Math.min(100, (selectedMonthSpent / activeLimit) * 100) : 0;
+  const isOverBudget = activeLimit > 0 && selectedMonthSpent > activeLimit;
+
+  const projectedNetSavings = Math.max(0, baselineIncome - selectedMonthSpent);
+  const targetSavingsGoal = activeSavings > 0 ? activeSavings : recommendedSavings;
+  const savingsProgressPct = targetSavingsGoal > 0 ? Math.min(100, Math.round((projectedNetSavings / targetSavingsGoal) * 100)) : 0;
+
+  const needsCategoryList = getNonZeroBucketCategories("needs", actualNeedsSpent, categorySpendMap);
+  const wantsCategoryList = getNonZeroBucketCategories("wants", actualWantsSpent, categorySpendMap);
+
+  const handleSaveBudget = async (limitVal, savingsVal, isCustomMode = false) => {
+    if (!isCurrentMonthSelected) {
       showToast("error", "Past months are read-only.");
       return;
     }
@@ -105,27 +146,36 @@ export function useBudgetData(user, showToast, onBudgetUpdated) {
       return;
     }
 
+    const totalPlanPool = parsedLimit + parsedSavings;
+    const customSavingsPct = totalPlanPool > 0 ? Math.round((parsedSavings / totalPlanPool) * 100) : 20;
+    const customNeedsPct = Math.round((100 - customSavingsPct) * 0.625);
+    const customWantsPct = Math.max(0, 100 - customSavingsPct - customNeedsPct);
+
+    const payload = {
+      userId: user.id,
+      monthlyLimit: parsedLimit,
+      savingsTarget: parsedSavings,
+      month: activeMonthObj.monthNum,
+      year: activeMonthObj.year,
+      presetId: isCustomMode ? "CUSTOM" : currentSelectedPreset.id,
+      presetName: isCustomMode ? "Custom Plan" : currentSelectedPreset.name,
+      needsPct: isCustomMode ? customNeedsPct : currentSelectedPreset.needsPct,
+      wantsPct: isCustomMode ? customWantsPct : currentSelectedPreset.wantsPct,
+      savingsPct: isCustomMode ? customSavingsPct : currentSelectedPreset.savingsPct,
+    };
+
     try {
       setSaving(true);
-      const savedDoc = await saveBudgetApi({
-        userId: user.id,
-        monthlyLimit: parsedLimit,
-        savingsTarget: parsedSavings,
-        month: activeMonthObj.monthNum || activeMonthObj.month + 1,
-        year: activeMonthObj.year,
-      });
+      const savedDoc = await saveMonthlyBudget(payload);
 
       setBudgetHistoryMap((prev) => ({
         ...prev,
-        [activeMonthObj.key]: savedDoc,
+        [activeMonthObj.key]: savedDoc || payload,
       }));
       setMonthlyLimitInput(String(parsedLimit));
       setSavingsTargetInput(String(parsedSavings));
       playUiSound("success");
       showToast("success", "Monthly budget updated!");
-      if (typeof onBudgetUpdated === "function") {
-        onBudgetUpdated();
-      }
     } catch (error) {
       showToast("error", error.response?.data?.message || "Failed to save budget.");
     } finally {
@@ -136,6 +186,8 @@ export function useBudgetData(user, showToast, onBudgetUpdated) {
   return {
     visibleMonths,
     activeMonthObj,
+    isCurrentMonthSelected,
+    selectedMonthKey,
     setSelectedMonthKey,
     activeMode,
     setActiveMode,
@@ -153,7 +205,26 @@ export function useBudgetData(user, showToast, onBudgetUpdated) {
     setSavingsTargetInput,
     loading,
     saving,
+    selectedMonthSpent,
+    selectedMonthIncome,
+    actualNeedsSpent,
+    actualWantsSpent,
+    baselineIncome,
+    aiRec,
+    activePreset,
+    savedBudgetForMonth,
+    needsAllowance,
+    wantsAllowance,
+    recommendedLimit,
+    recommendedSavings,
+    activeLimit,
+    activeSavings,
+    usagePct,
+    isOverBudget,
+    projectedNetSavings,
+    savingsProgressPct,
+    needsCategoryList,
+    wantsCategoryList,
     handleSaveBudget,
-    ...metrics,
   };
 }

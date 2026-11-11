@@ -1,58 +1,67 @@
 /**
  * @file frontend/src/utils/dateHelpers.js
- * @layer Utils (Pure Date Functions)
- * @description Pure date formatting (YYYY-MM-DD) and smart 6-month contiguous window calculation.
- * @exports formatDateYMD, getSixMonthWindow
+ * @layer Utils (Pure Date Formatting & 6-Month Window Generator)
+ * @description Provides formatDateYMD, getCurrentMonthKey, and getSixMonthWindow with both shortMonth ("Nov") and label ("Nov 2026") fields.
+ * @exports formatDateYMD, getCurrentMonthKey, getSixMonthWindow
  */
 
-// Pure date formatting and 6-month contiguous window helpers
 // 1. Format Date object or ISO string into YYYY-MM-DD
-export const formatDateYMD = (dateInput = new Date()) => {
-  const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+export const formatDateYMD = (dateInput) => {
+  const d = dateInput instanceof Date ? dateInput : new Date(dateInput || Date.now());
   if (isNaN(d.getTime())) {
     const fallback = new Date();
     return `${fallback.getFullYear()}-${String(fallback.getMonth() + 1).padStart(2, "0")}-${String(fallback.getDate()).padStart(2, "0")}`;
   }
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 };
 
-// 2. Build contiguous 6-month window (trims leading empty months, keeps current month at index N-1)
-export const getSixMonthWindow = (transactions = []) => {
+// 2. Return current YYYY-MM key
+export const getCurrentMonthKey = () => {
   const now = new Date();
-  const rawWindow = [];
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+};
+
+// 3. Generate the 6-month chronological window (oldest -> newest)
+// Includes BOTH shortMonth/isCurrentMonth (used by BudgetScreen) AND label/isCurrent (used by TransactionsScreen)
+export const getSixMonthWindow = (transactions = []) => {
+  const rawList = [];
+  const now = new Date();
 
   for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    const label = d.toLocaleDateString("en-US", {
+    const shortMonth = d.toLocaleDateString("en-US", { month: "short" });
+    const fullLabel = d.toLocaleDateString("en-US", {
       month: "short",
       year: "numeric",
     });
-    const shortLabel = d.toLocaleDateString("en-US", { month: "short" });
-    rawWindow.push({
+
+    rawList.push({
       key,
-      label,
-      shortLabel,
+      shortMonth, // e.g., "Nov" (Required by BudgetMonthSelector & BudgetScreen)
+      label: fullLabel, // e.g., "Nov 2026" (Required by TransactionsScreen & Headers)
       year: d.getFullYear(),
       month: d.getMonth(),
+      monthNum: d.getMonth() + 1,
       isCurrent: i === 0,
-      hasData: false,
+      isCurrentMonth: i === 0,
     });
   }
 
-  (transactions || []).forEach((tx) => {
-    if (!tx.date) return;
-    const d = new Date(tx.date);
-    const match = rawWindow.find((m) => m.year === d.getFullYear() && m.month === d.getMonth());
-    if (match) {
-      match.hasData = true;
-    }
-  });
+  // If transactions array is passed (e.g., from TransactionsScreen), trim leading empty months
+  if (Array.isArray(transactions) && transactions.length > 0) {
+    const firstActiveIdx = rawList.findIndex((m) =>
+      transactions.some((tx) => {
+        if (!tx.date) return false;
+        const txDate = new Date(tx.date);
+        return txDate.getFullYear() === m.year && txDate.getMonth() === m.month;
+      }),
+    );
+    return firstActiveIdx === -1 ? [rawList[rawList.length - 1]] : rawList.slice(firstActiveIdx);
+  }
 
-  const firstActiveIdx = rawWindow.findIndex((m) => m.hasData);
-  const startIdx = firstActiveIdx === -1 ? rawWindow.length - 1 : firstActiveIdx;
-  return rawWindow.slice(startIdx);
+  return rawList;
 };
