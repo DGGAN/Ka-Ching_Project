@@ -290,3 +290,202 @@ exports.deleteTransaction = async (req, res) => {
     });
   }
 };
+
+/**
+ * ============================================================================
+ * SMART AUTO-CAPTURE ENDPOINTS (Profile Master Switch + Webhook Gatekeeper)
+ * ============================================================================
+ */
+const User = require("../models/User");
+const Budget = require("../models/Budget");
+const Notification = require("../models/Notification");
+const { parseMalaysianPaymentNotification } = require("../utils/notificationParser");
+
+// 1. GET /api/transactions/auto-capture-status/:userId
+exports.getAutoCaptureStatus = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const userDoc = await User.findById(userId).select("autoCaptureEnabled");
+    return res.status(200).json({
+      success: true,
+      autoCaptureEnabled: Boolean(userDoc?.autoCaptureEnabled),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to read Auto-Capture status.",
+      error: error.message,
+    });
+  }
+};
+
+// 2. PUT /api/transactions/auto-capture-toggle/:userId
+exports.toggleAutoCaptureSetting = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { enabled } = req.body;
+
+    const updatedUser = await User.findByIdAndUpdate(userId, { autoCaptureEnabled: Boolean(enabled) }, { new: true });
+
+    return res.status(200).json({
+      success: true,
+      autoCaptureEnabled: Boolean(updatedUser?.autoCaptureEnabled),
+      message: Boolean(enabled)
+        ? "Smart Auto-Capture ENABLED! Incoming TNG/MAE notifications will now be logged automatically."
+        : "Smart Auto-Capture DISABLED. Background notifications will not be captured.",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update Auto-Capture setting.",
+      error: error.message,
+    });
+  }
+};
+
+// 3. POST /api/transactions/auto-capture
+exports.autoCaptureNotification = async (req, res) => {
+  try {
+    const {
+      userId,
+      title = "",
+      text = "",
+      packageName = "my.com.tngdigital.ewallet",
+      platform = "ANDROID_LISTENER", // "ANDROID_LISTENER" | "IOS_27_SHORTCUT"
+    } = req.body;
+
+    if (!userId || (!text && !title)) {
+      return res.status(400).json({
+        success: false,
+        message: "userId and notification text are required.",
+      });
+    }
+
+    // STRICT GATE 1: Verify the user has explicitly ENABLED Auto-Capture in ProfileScreen!
+    const userDoc = await User.findById(userId);
+    if (!userDoc || userDoc.autoCaptureEnabled !== true) {
+      return res.status(403).json({
+        success: false,
+        blockedBySetting: true,
+        message: "Auto-Capture is currently DISABLED in your Profile settings. Enable the master switch first!",
+      });
+    }
+
+    // STRICT GATE 2: Parse RM amount, merchant name, and 16-category key
+    const parsed = parseMalaysianPaymentNotification({ title, text, packageName });
+    if (!parsed) {
+      return res.status(422).json({
+        success: false,
+        message: "No valid RM payment amount detected in notification (e.g. 'paid RM 15.90 to FAMILYMART').",
+      });
+    }
+
+    // STRICT GATE 3: 60-Second Deduplication Check
+    const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
+    const duplicate = await Transaction.findOne({
+      userId,
+      amount: parsed.amount,
+      merchantName: parsed.merchantName,
+      createdAt: { $gte: oneMinuteAgo },
+    });
+
+    if (duplicate) {
+      return res.status(200).json({
+        success: true,
+        duplicateSkipped: true,
+        message: `Already logged ${parsed.merchantName} (RM ${parsed.amount.toFixed(2)}) within the last 60s.`,
+        data: duplicate,
+      });
+    }
+
+    // 4. Insert verified transaction with source: "NOTIFICATION"
+    const now = new Date();
+    const newTx = await Transaction.create({
+      userId,
+      amount: parsed.amount,
+      type: parsed.type,
+      category: parsed.category,
+      budgetType: parsed.type === "EXPENSE" ? Transaction.BUDGET_TYPE_MAP?.[parsed.category] || "WANTS" : "NONE",
+      merchantName: parsed.merchantName,
+      description: `Auto-captured from ${parsed.appLabel} (${platform === "IOS_27_SHORTCUT" ? "iOS 27 Shortcut" : "Android Listener"})`,
+      date: now,
+      source: "NOTIFICATION",
+      status: "VERIFIED",
+      confidenceScore: 0.98,
+    });
+
+    // 5. Non-blocking Notification & Budget Alert Check
+    try {
+      await Notification.create({
+        userId,
+        tag: "TXN",
+        title: `Auto-Captured: ${parsed.merchantName}`,
+        message: `${parsed.appLabel} ${parsed.type === "INCOME" ? "receipt" : "payment"} of RM ${parsed.amount.toFixed(2)} (${parsed.category.replace(
+          /_/g,
+          " ",
+        )}) was automatically added to your Transaction History.`,
+      });
+
+      if (parsed.type === "EXPENSE") {
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth() + 1;
+
+        const activeBudget = await Budget.findOne({
+          userId,
+          year: currentYear,
+          month: currentMonth,
+        });
+
+        if (activeBudget && activeBudget.monthlyLimit > 0) {
+          const startOfMonth = new Date(currentYear, currentMonth - 1, 1);
+          const endOfMonth = new Date(currentYear, currentMonth, 0, 23, 59, 59, 999);
+
+          const monthExpenses = await Transaction.find({
+            userId,
+            type: "EXPENSE",
+            date: { $gte: startOfMonth, $lte: endOfMonth },
+          });
+
+          const totalSpent = monthExpenses.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+          const ratio = totalSpent / activeBudget.monthlyLimit;
+
+          if (ratio >= 1.0) {
+            await Notification.create({
+              userId,
+              tag: "ALERT",
+              title: "Budget Limit Exceeded!",
+              message: `After auto-capturing RM ${parsed.amount.toFixed(2)} at ${parsed.merchantName}, your monthly spending (RM ${totalSpent.toFixed(
+                2,
+              )}) has exceeded your RM ${activeBudget.monthlyLimit.toFixed(2)} limit.`,
+            });
+          } else if (ratio >= (activeBudget.alertThreshold || 0.8)) {
+            await Notification.create({
+              userId,
+              tag: "ALERT",
+              title: "Approaching Monthly Budget (80%+)",
+              message: `You have used ${Math.round(ratio * 100)}% (RM ${totalSpent.toFixed(2)} / RM ${activeBudget.monthlyLimit.toFixed(
+                2,
+              )}) of your monthly budget.`,
+            });
+          }
+        }
+      }
+    } catch (notifErr) {
+      console.log("Auto-capture notification warning:", notifErr.message);
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: `Auto-captured RM ${parsed.amount.toFixed(2)} at ${parsed.merchantName}!`,
+      data: newTx,
+      parsedMeta: parsed,
+    });
+  } catch (error) {
+    console.error("[AutoCapture Error]:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to process auto-capture notification.",
+      error: error.message,
+    });
+  }
+};

@@ -1,12 +1,13 @@
 /**
  * @file frontend/App.js
  * @layer Root Application Entry & Navigation Shell
- * @description Coordinates authentication, theme persistence, unread notifications, toggleable Notification/Profile screens (press to open, press again to close back to previous page), and bottom tab navigation.
+ * @description Coordinates authentication, theme persistence (works on both Web & Android Expo Go), 8 distinct UI sound effects, unread notifications, toggleable Notification/Profile screens, and bottom tab navigation.
  * @exports default App
  */
 
 import React, { useState, useEffect, useRef } from "react";
-import { SafeAreaView, StatusBar, Animated, Platform, StyleSheet } from "react-native";
+import { View, StatusBar, Animated, Platform, StyleSheet } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Import refactored theme configuration, API client, sound effects, and shared navigation components
@@ -37,25 +38,33 @@ export default function App() {
   const [showIngestionModal, setShowIngestionModal] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [themeKey, setThemeKey] = useState(ACTIVE_THEME);
+  const [themeRenderTick, setThemeRenderTick] = useState(0);
 
   // 2. Animated values for smooth screen fade and vertical slide transitions
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
 
-  // 3. Load saved visual theme preference from AsyncStorage when app starts
+  // 3. Load saved visual theme preference AND saved user session from AsyncStorage when app starts
   useEffect(() => {
-    const loadSavedTheme = async () => {
+    const loadSavedThemeAndUser = async () => {
       try {
-        const saved = await AsyncStorage.getItem("kaching_selected_theme");
-        if (saved) {
-          applyTheme(saved);
-          setThemeKey(saved);
+        const [savedTheme, savedUserJson] = await Promise.all([AsyncStorage.getItem("kaching_selected_theme"), AsyncStorage.getItem("userData")]);
+        if (savedTheme) {
+          applyTheme(savedTheme);
+          setThemeKey(savedTheme);
+          setThemeRenderTick((t) => t + 1);
+        }
+        if (savedUserJson) {
+          const parsedUser = JSON.parse(savedUserJson);
+          if (parsedUser && parsedUser.id) {
+            setCurrentUser(parsedUser);
+          }
         }
       } catch (e) {
         console.log("Failed to load saved theme:", e.message);
       }
     };
-    loadSavedTheme();
+    loadSavedThemeAndUser();
   }, []);
 
   // 4. Trigger smooth fade-and-slide transition whenever activeTab changes
@@ -103,8 +112,9 @@ export default function App() {
     setActiveTab(nextTab);
   };
 
-  // 7. Toggle Notification Screen: Press once to open, press again to close back to previous page!
+  // 7. Toggle Notification Screen: Play #5 "bell" Glass Chime sound!
   const handleToggleNotifications = () => {
+    playUiSound("bell");
     if (activeTab === "notifications") {
       setActiveTab(previousTab || "home");
     } else {
@@ -115,8 +125,9 @@ export default function App() {
     }
   };
 
-  // 8. Toggle Profile Screen: Press once to open, press again to close back to previous page!
+  // 8. Toggle Profile Screen: Play #6 "profile" Neon Charge sound!
   const handleToggleProfile = () => {
+    playUiSound("profile");
     if (activeTab === "profile") {
       setActiveTab(previousTab || "home");
     } else {
@@ -127,11 +138,12 @@ export default function App() {
     }
   };
 
-  // 9. Handle runtime theme switching and persist choice to AsyncStorage
+  // 9. Handle runtime theme switching, play #6 "theme" Neon Charge sound, and force full re-render on Android & Web
   const handleThemeChange = async (newThemeKey) => {
     applyTheme(newThemeKey);
-    playUiSound("success");
-    setThemeKey(`${newThemeKey}_${Date.now()}`);
+    playUiSound("theme");
+    setThemeKey(newThemeKey);
+    setThemeRenderTick((prev) => prev + 1);
     try {
       await AsyncStorage.setItem("kaching_selected_theme", newThemeKey);
     } catch (e) {
@@ -171,6 +183,7 @@ export default function App() {
     if (activeTab === "home" || activeTab === "dashboard") {
       return (
         <DashboardScreen
+          key={`dash_${themeKey}_${themeRenderTick}`}
           user={currentUser}
           onNavigateToTransactions={() => {
             playUiSound("tab");
@@ -184,14 +197,16 @@ export default function App() {
       );
     }
     if (activeTab === "transactions") {
-      return <TransactionsScreen user={currentUser} />;
+      return <TransactionsScreen key={`tx_${themeKey}_${themeRenderTick}`} user={currentUser} />;
     }
     if (activeTab === "add") {
       return (
         <AddTransactionScreen
+          key={`add_${themeKey}_${themeRenderTick}`}
           user={currentUser}
-          onTransactionSaved={() => {
-            playUiSound("kaching");
+          onTransactionSaved={(savedType) => {
+            // Play #1 "income" (1-UP Gem) for INCOME, or #2 "expense" (Pipe Drain) for EXPENSE
+            playUiSound(savedType === "INCOME" ? "income" : "expense");
             fetchUnreadNotifications(currentUser.id);
             handleSelectMainTab("home");
           }}
@@ -205,10 +220,12 @@ export default function App() {
     if (activeTab === "ocr") {
       return (
         <OCRScannerScreen
+          key={`ocr_${themeKey}_${themeRenderTick}`}
           user={currentUser}
           initialMode={ocrMode}
           onTransactionsSaved={() => {
-            playUiSound("kaching");
+            // Verified OCR receipts are expenses -> play #2 "expense" sound
+            playUiSound("expense");
             fetchUnreadNotifications(currentUser.id);
             handleSelectMainTab("home");
           }}
@@ -220,11 +237,18 @@ export default function App() {
       );
     }
     if (activeTab === "budget") {
-      return <BudgetScreen user={currentUser} onBudgetUpdated={() => fetchUnreadNotifications(currentUser.id)} />;
+      return (
+        <BudgetScreen
+          key={`budget_${themeKey}_${themeRenderTick}`}
+          user={currentUser}
+          onBudgetUpdated={() => fetchUnreadNotifications(currentUser.id)}
+        />
+      );
     }
     if (activeTab === "insights") {
       return (
         <InsightsScreen
+          key={`insights_${themeKey}_${themeRenderTick}`}
           user={currentUser}
           onNavigateToBudget={() => {
             playUiSound("tab");
@@ -234,15 +258,24 @@ export default function App() {
       );
     }
     if (activeTab === "notifications") {
-      return <NotificationsScreen user={currentUser} onUnreadChange={(newCount) => setUnreadCount(newCount)} />;
+      return (
+        <NotificationsScreen
+          key={`notif_${themeKey}_${themeRenderTick}`}
+          user={currentUser}
+          onUnreadChange={(newCount) => setUnreadCount(newCount)}
+        />
+      );
     }
     if (activeTab === "profile") {
       return (
         <ProfileScreen
+          key={`profile_${themeKey}_${themeRenderTick}`}
           user={currentUser}
+          activeThemeKey={themeKey}
           onChangeTheme={handleThemeChange}
-          onLogout={() => {
-            playUiSound("tab");
+          onLogout={async () => {
+            playUiSound("pop");
+            await AsyncStorage.multiRemove(["userToken", "userData"]);
             setCurrentUser(null);
             setActiveTab("home");
             setPreviousTab("home");
@@ -256,66 +289,77 @@ export default function App() {
   // 13. Show Authentication Screen if user is not logged in
   if (!currentUser) {
     return (
-      <SafeAreaView key={themeKey} style={[styles.safeArea, { backgroundColor: COLORS.background }]}>
-        <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
-        <AuthScreen
-          onLoginSuccess={(userData) => {
-            playUiSound("success");
-            setCurrentUser(userData);
-            setActiveTab("home");
-            setPreviousTab("home");
-          }}
-        />
-      </SafeAreaView>
+      <SafeAreaProvider>
+        <SafeAreaView
+          key={`auth_${themeKey}_${themeRenderTick}`}
+          style={[styles.safeArea, { backgroundColor: COLORS.background }]}
+          edges={["top", "bottom"]}
+        >
+          <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} translucent={false} />
+          <AuthScreen
+            onLoginSuccess={(userData) => {
+              playUiSound("income");
+              setCurrentUser(userData);
+              setActiveTab("home");
+              setPreviousTab("home");
+            }}
+          />
+        </SafeAreaView>
+      </SafeAreaProvider>
     );
   }
 
   const isSubScreen = ["add", "ocr", "notifications", "profile"].includes(activeTab);
 
   return (
-    <SafeAreaView key={themeKey} style={[styles.safeArea, { backgroundColor: COLORS.background }]}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.card} />
+    <SafeAreaProvider>
+      <View key={`app_${themeKey}_${themeRenderTick}`} style={[styles.safeArea, { backgroundColor: COLORS.background }]}>
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.card} translucent={false} />
 
-      {/* Top Navigation Bar with Logo, Back button, Toggleable Bell button, and Toggleable Profile button */}
-      <TopHeader
-        title={getHeaderTitle()}
-        unreadCount={unreadCount}
-        activeTab={activeTab}
-        showBack={isSubScreen}
-        onBackPress={() => setActiveTab(previousTab || "home")}
-        onBellPress={handleToggleNotifications}
-        onProfilePress={handleToggleProfile}
-      />
+        {/* Top Navigation Bar with Logo, Back button, Toggleable Bell button, and Toggleable Profile button */}
+        <TopHeader
+          title={getHeaderTitle()}
+          unreadCount={unreadCount}
+          activeTab={activeTab}
+          showBack={isSubScreen}
+          onBackPress={() => {
+            playUiSound("pop");
+            setActiveTab(previousTab || "home");
+          }}
+          onBellPress={handleToggleNotifications}
+          onProfilePress={handleToggleProfile}
+        />
 
-      {/* Animated Main Screen Container */}
-      <Animated.View
-        style={{
-          flex: 1,
-          opacity: fadeAnim,
-          transform: [{ translateY: slideAnim }],
-        }}
-      >
-        {renderMainContent()}
-      </Animated.View>
+        {/* Animated Main Screen Container */}
+        <Animated.View
+          style={{
+            flex: 1,
+            opacity: fadeAnim,
+            transform: [{ translateY: slideAnim }],
+          }}
+        >
+          {renderMainContent()}
+        </Animated.View>
 
-      {/* Bottom 5-Button Navigation Bar */}
-      <BottomNav
-        activeTab={isSubScreen ? previousTab : activeTab}
-        onSelectTab={handleSelectMainTab}
-        onChangeTab={handleSelectMainTab}
-        onPressAdd={() => setShowIngestionModal(true)}
-        onOpenAddModal={() => setShowIngestionModal(true)}
-      />
+        {/* Bottom 5-Button Navigation Bar */}
+        <BottomNav
+          activeTab={isSubScreen ? previousTab : activeTab}
+          onSelectTab={handleSelectMainTab}
+          onChangeTab={handleSelectMainTab}
+          onPressAdd={() => setShowIngestionModal(true)}
+          onOpenAddModal={() => setShowIngestionModal(true)}
+        />
 
-      {/* "+" Add Transaction Method Selection Modal */}
-      <IngestionModal
-        visible={showIngestionModal}
-        onClose={() => setShowIngestionModal(false)}
-        onSelectMethod={handleSelectIngestionMethod}
-        onSelectManual={() => handleSelectIngestionMethod("manual")}
-        onSelectOCR={() => handleSelectIngestionMethod("ocr_batch")}
-      />
-    </SafeAreaView>
+        {/* "+" Add Transaction Method Selection Modal */}
+        <IngestionModal
+          visible={showIngestionModal}
+          onClose={() => setShowIngestionModal(false)}
+          onSelectMethod={handleSelectIngestionMethod}
+          onSelectManual={() => handleSelectIngestionMethod("manual")}
+          onSelectOCR={() => handleSelectIngestionMethod("ocr_batch")}
+        />
+      </View>
+    </SafeAreaProvider>
   );
 }
 

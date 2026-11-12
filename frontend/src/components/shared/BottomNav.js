@@ -1,127 +1,123 @@
 /**
  * @file frontend/src/components/shared/BottomNav.js
- * @layer Shared Component (Bottom 5-Button Navigation Bar — Universal Callback Support)
- * @description Supports every prop name used in both old and new App.js: onSelectTab, onChangeTab, onTabChange, setActiveTab, onPressAdd, onOpenAddModal, onAddPress, onPlusPress.
+ * @layer Shared Navigation Component
+ * @description Renders the 5-tab bottom navigation bar with SafeArea bottom inset protection and plays "tab" for tabs and "pop" for the central "+" button.
  * @exports default BottomNav
  */
 
 import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Home, ListOrdered, Plus, PieChart, Sparkles } from "lucide-react-native";
 import { COLORS, SHAPES, FONTS } from "../../theme/colors";
 import { playUiSound } from "../../utils/soundEffects";
 
-export default function BottomNav({
-  activeTab,
-  onSelectTab,
-  onChangeTab,
-  onTabChange,
-  setActiveTab,
-  onPressAdd,
-  onOpenAddModal,
-  onAddPress,
-  onPlusPress,
-}) {
-  const styles = getStyles();
+export default function BottomNav({ activeTab = "home", onSelectTab, onChangeTab, onTabChange, onPressAdd, onOpenAddModal, onOpenIngestionModal }) {
+  const insets = useSafeAreaInsets();
+  const bottomInsetPadding = Platform.OS === "web" ? 10 : Math.max(insets.bottom, Platform.OS === "android" ? 28 : 20) + 6;
 
-  // Unified tab switch handler (supports old App.js "home" and new App.js "dashboard")
-  const handleSelectTab = (tabKey) => {
+  const styles = getStyles(bottomInsetPadding);
+
+  const triggerTabSwitch = (tabKey) => {
     playUiSound("tab");
-    const fn = onSelectTab || onChangeTab || onTabChange || setActiveTab;
+    const fn = onSelectTab || onChangeTab || onTabChange;
     if (typeof fn === "function") {
       fn(tabKey);
     }
   };
 
-  // Unified "+" button handler
-  const handleCenterAdd = () => {
-    playUiSound("tab");
-    const fn = onPressAdd || onOpenAddModal || onAddPress || onPlusPress;
+  const triggerAddModal = () => {
+    playUiSound("pop");
+    const fn = onPressAdd || onOpenAddModal || onOpenIngestionModal;
     if (typeof fn === "function") {
       fn();
     }
   };
 
-  // Normalize activeTab so both "home" and "dashboard" highlight the first Home icon
-  const normalizedActive = activeTab === "dashboard" ? "home" : activeTab || "home";
-
-  const navItems = [
-    { key: "home", label: "Home", Icon: Home },
-    { key: "transactions", label: "History", Icon: ListOrdered },
-    { key: "ADD_CENTER", isCenter: true },
-    { key: "budget", label: "Budget", Icon: PieChart },
-    { key: "insights", label: "Insights", Icon: Sparkles },
-  ];
+  const isHomeActive = activeTab === "home" || activeTab === "dashboard";
 
   return (
-    <View style={styles.bottomBar}>
-      {navItems.map((item) => {
-        if (item.isCenter) {
-          return (
-            <TouchableOpacity key="center-add" style={styles.centerAddBtn} activeOpacity={0.85} onPress={handleCenterAdd}>
-              <Plus size={22} color={COLORS.primaryText} strokeWidth={2.8} />
-            </TouchableOpacity>
-          );
-        }
+    <View style={styles.navBar}>
+      <TouchableOpacity style={styles.navItem} onPress={() => triggerTabSwitch("home")}>
+        <Home size={18} color={isHomeActive ? COLORS.primary : COLORS.textMuted} strokeWidth={isHomeActive ? 2.6 : 2} />
+        <Text style={[styles.navText, isHomeActive && styles.navTextActive]}>Home</Text>
+      </TouchableOpacity>
 
-        const isActive = normalizedActive === item.key;
-        const IconComp = item.Icon;
+      <TouchableOpacity style={styles.navItem} onPress={() => triggerTabSwitch("transactions")}>
+        <ListOrdered
+          size={18}
+          color={activeTab === "transactions" ? COLORS.primary : COLORS.textMuted}
+          strokeWidth={activeTab === "transactions" ? 2.6 : 2}
+        />
+        <Text style={[styles.navText, activeTab === "transactions" && styles.navTextActive]}>History</Text>
+      </TouchableOpacity>
 
-        return (
-          <TouchableOpacity key={item.key} style={styles.navTabItem} activeOpacity={0.75} onPress={() => handleSelectTab(item.key)}>
-            <IconComp size={18} color={isActive ? COLORS.primary : COLORS.textMuted} strokeWidth={isActive ? 2.5 : 2} />
-            <Text style={[styles.navTabLabel, isActive && styles.navTabLabelActive]}>{item.label}</Text>
-          </TouchableOpacity>
-        );
-      })}
+      <TouchableOpacity style={styles.plusBtnWrapper} activeOpacity={0.85} onPress={triggerAddModal}>
+        <View style={styles.plusBtn}>
+          <Plus size={22} color={COLORS.primaryText} strokeWidth={2.8} />
+        </View>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.navItem} onPress={() => triggerTabSwitch("budget")}>
+        <PieChart size={18} color={activeTab === "budget" ? COLORS.primary : COLORS.textMuted} strokeWidth={activeTab === "budget" ? 2.6 : 2} />
+        <Text style={[styles.navText, activeTab === "budget" && styles.navTextActive]}>Budget</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.navItem} onPress={() => triggerTabSwitch("insights")}>
+        <Sparkles size={18} color={activeTab === "insights" ? COLORS.primary : COLORS.textMuted} strokeWidth={activeTab === "insights" ? 2.6 : 2} />
+        <Text style={[styles.navText, activeTab === "insights" && styles.navTextActive]}>Insights</Text>
+      </TouchableOpacity>
     </View>
   );
 }
 
-const getStyles = () =>
+const getStyles = (bottomInsetPadding) =>
   StyleSheet.create({
-    bottomBar: {
+    navBar: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-around",
-      paddingVertical: 8,
-      paddingHorizontal: 10,
       backgroundColor: COLORS.card,
       borderTopWidth: SHAPES.borderWidth,
       borderColor: COLORS.border,
+      paddingTop: 8,
+      paddingBottom: bottomInsetPadding,
+      paddingHorizontal: 8,
       zIndex: 50,
-      elevation: 10,
+      elevation: 12,
     },
-    navTabItem: {
+    navItem: {
       flex: 1,
       alignItems: "center",
       justifyContent: "center",
-      paddingVertical: 4,
       gap: 3,
     },
-    navTabLabel: {
+    navText: {
       fontFamily: FONTS.mono,
       fontSize: 9,
       color: COLORS.textMuted,
     },
-    navTabLabelActive: {
-      color: COLORS.primary,
+    navTextActive: {
       fontWeight: "bold",
+      color: COLORS.primary,
     },
-    centerAddBtn: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
+    plusBtnWrapper: {
+      paddingHorizontal: 8,
+      marginTop: -14,
+    },
+    plusBtn: {
+      width: 46,
+      height: 46,
+      borderRadius: 23,
       backgroundColor: COLORS.primary,
-      borderWidth: SHAPES.borderWidth,
+      borderWidth: 2,
       borderColor: COLORS.border,
       alignItems: "center",
       justifyContent: "center",
-      marginTop: -16,
       shadowColor: COLORS.text,
-      shadowOffset: { width: 2, height: 2 },
-      shadowOpacity: 0.2,
+      shadowOffset: { width: 2, height: 3 },
+      shadowOpacity: 0.25,
       shadowRadius: 0,
-      elevation: 4,
+      elevation: 5,
     },
   });

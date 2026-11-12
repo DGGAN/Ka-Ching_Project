@@ -1,44 +1,43 @@
-// Import the mongoose core library
-const mongoose = require('mongoose');
+/**
+ * @file backend/models/User.js
+ * @description User schema with autoCaptureEnabled master switch (defaults to false until user explicitly enables it in ProfileScreen).
+ */
 
-// Strictly define the user model according to Table 4.1 of the document
-const userSchema = new mongoose.Schema({
-    // Unique display name chosen by the user
+const mongoose = require("mongoose");
+
+const userSchema = new mongoose.Schema(
+  {
     username: {
-        type: String,
-        required: true,
-        unique: true
+      type: String,
+      required: true,
+      trim: true,
     },
-    // Registered email address used for login authentication
     email: {
-        type: String,
-        required: true,
-        unique: true
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
     },
-    // Encrypted password string, nullable for third-party social logins
-    passwordHash: {
-        type: String,
-        default: null
+    password: {
+      type: String,
+      default: null,
     },
-    // Third-party login service provider, defaults to NONE
     oauthProvider: {
-        type: String,
-        enum: ['GOOGLE', 'NONE'],
-        default: 'NONE'
+      type: String,
+      default: null,
     },
-    // Unique user identification string sent back by Google sign-in
     oauthId: {
-        type: String,
-        default: null
+      type: String,
+      default: null,
     },
-    // System switch toggle controlling push alerts, defaults to true
-    isNotificationEnabled: {
-        type: Boolean,
-        default: true
-    }
-}, {
-    // Mongoose will automatically generate createdAt and updatedAt timestamps
-    timestamps: true
-});
+    // Master toggle controlled exclusively in ProfileScreen (Default FALSE for PDPA privacy compliance)
+    autoCaptureEnabled: {
+      type: Boolean,
+      default: false,
+    },
+  },
+  { timestamps: true },
+);
 
-module.exports = mongoose.model('User', userSchema);
+module.exports = mongoose.model("User", userSchema);

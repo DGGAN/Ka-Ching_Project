@@ -1,56 +1,62 @@
 /**
  * @file frontend/src/screens/ProfileScreen.js
- * @layer Screen (User Profile & Theme Switcher — 100% Original Commit a357cef Design)
- * @description Displays user identity card, live database stats (records logged, monthly limit, savings goal), modal-based theme switcher, and logout button.
- * @props {object} user - Logged-in user object
- * @props {function} onChangeTheme - Callback invoked when user selects a new theme
- * @props {function} onLogout - Callback invoked when user logs out
+ * @layer Screen (User Profile, Smart Auto-Capture Setup & Theme Switcher)
+ * @description Displays user account overview, Smart Auto-Capture (TNG/DuitNow) setup trigger, modal-based theme switcher, and logout action.
  * @exports default ProfileScreen
  */
 
-// Import React hooks, core React Native UI components, Modal, and Lucide icons
 import React, { useState, useEffect } from "react";
 import { View, Text, ScrollView, TouchableOpacity, Modal, ActivityIndicator, StyleSheet } from "react-native";
-import { Mail, Palette, Check, ShieldCheck, LogOut, Wallet, ArrowLeftRight, Sparkles, ChevronRight, X } from "lucide-react-native";
+import { Mail, Palette, Check, ShieldCheck, LogOut, Wallet, ArrowLeftRight, Sparkles, ChevronRight, X, Zap } from "lucide-react-native";
 import apiClient from "../api/apiClient";
 import { COLORS, SHAPES, FONTS, THEMES, ACTIVE_THEME } from "../theme/colors";
+import { playUiSound } from "../utils/soundEffects";
 import WireBox from "../components/shared/WireBox";
 import WireButton from "../components/shared/WireButton";
 import FloatingToast from "../components/shared/FloatingToast";
 import { useFloatingToast } from "../components/shared/useFloatingToast";
+import AutoCaptureModal from "../components/shared/AutoCaptureModal";
 
-// User Profile, Account Summary, and Modal-Based Theme Switcher
-export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
-  // Dynamically generate styles on every render so runtime theme switches apply immediately
+export default function ProfileScreen({ user, activeThemeKey, onChangeTheme, onLogout }) {
   const styles = getStyles();
 
-  // 1. State for user's quick financial stats, active theme, and Theme Picker Modal visibility
   const [stats, setStats] = useState({
     totalTxCount: 0,
     monthlyLimit: 0,
     savingsTarget: 0,
   });
   const [loadingStats, setLoadingStats] = useState(true);
-  const [selectedTheme, setSelectedTheme] = useState(ACTIVE_THEME);
+  const [selectedTheme, setSelectedTheme] = useState(activeThemeKey || ACTIVE_THEME);
   const [showThemeModal, setShowThemeModal] = useState(false);
 
-  // Global floating toast hook
+  // Smart Auto-Capture state & Modal visibility
+  const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(false);
+  const [showAutoCaptureModal, setShowAutoCaptureModal] = useState(false);
+
   const { toast, slideAnim, showToast } = useFloatingToast();
 
-  // 2. Load account statistics on mount
   useEffect(() => {
-    fetchAccountStats();
-  }, []);
+    if (activeThemeKey) {
+      setSelectedTheme(activeThemeKey);
+    }
+  }, [activeThemeKey]);
 
-  // 3. Fetch total transaction count and active budget settings for the profile summary card
+  useEffect(() => {
+    if (user?.id) {
+      fetchAccountStats();
+    }
+  }, [user?.id]);
+
+  // Fetch total transaction count, active budget settings, and Auto-Capture opt-in status
   const fetchAccountStats = async () => {
     try {
       setLoadingStats(true);
-      const [txRes, budgetRes] = await Promise.all([
+      const [txRes, budgetRes, autoRes] = await Promise.all([
         apiClient.get(`/transactions/${user.id}`, {
           params: { page: 1, limit: 1 },
         }),
         apiClient.get(`/budgets/${user.id}`),
+        apiClient.get(`/transactions/auto-capture-status/${user.id}`).catch(() => ({ data: { autoCaptureEnabled: false } })),
       ]);
 
       const totalTxCount = txRes.data?.totalCount ?? (txRes.data?.data?.length || 0);
@@ -61,6 +67,7 @@ export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
         monthlyLimit: budgetData.monthlyLimit || 0,
         savingsTarget: budgetData.savingsTarget || 0,
       });
+      setAutoCaptureEnabled(Boolean(autoRes.data?.autoCaptureEnabled));
     } catch (error) {
       console.log("Failed to load profile stats:", error.message);
     } finally {
@@ -68,7 +75,7 @@ export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
     }
   };
 
-  // 4. Handle selecting a theme inside the modal, apply immediately, and close modal
+  // Handle selecting a theme inside the modal, play "theme" sound, and apply immediately
   const handleSelectTheme = (themeKey) => {
     setSelectedTheme(themeKey);
     setShowThemeModal(false);
@@ -79,7 +86,7 @@ export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
   };
 
   const userInitial = (user?.username || user?.email || "U").charAt(0).toUpperCase();
-  const activeThemeObj = THEMES[selectedTheme] || THEMES.kaching || Object.values(THEMES)[0];
+  const activeThemeObj = THEMES[selectedTheme] || THEMES.khaki;
 
   return (
     <View
@@ -143,7 +150,55 @@ export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
           )}
         </WireBox>
 
-        {/* Section 3: Compact Theme Selector Row (Opens Theme Modal on Tap) */}
+        {/* Section 3: Smart Auto-Capture (TNG eWallet / DuitNow / iOS 27 Shortcuts) */}
+        <WireBox style={styles.sectionCard}>
+          <View style={styles.cardHeaderRow}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Zap size={15} color={COLORS.primary} strokeWidth={2.5} />
+              <Text style={styles.cardHeaderTitle}>SMART AUTO-CAPTURE (TNG & DUITNOW)</Text>
+            </View>
+            <View
+              style={[
+                styles.statusBadgePill,
+                {
+                  backgroundColor: autoCaptureEnabled ? "#DCFCE7" : "#FFE4E6",
+                  borderColor: autoCaptureEnabled ? "#15803D" : "#E11D48",
+                },
+              ]}
+            >
+              <Text style={[styles.statusBadgePillText, { color: autoCaptureEnabled ? "#15803D" : "#E11D48" }]}>
+                {autoCaptureEnabled ? "ENABLED" : "DISABLED"}
+              </Text>
+            </View>
+          </View>
+
+          <View style={{ padding: 12 }}>
+            <TouchableOpacity
+              style={styles.themeTriggerBtn}
+              activeOpacity={0.8}
+              onPress={() => {
+                playUiSound("pop");
+                setShowAutoCaptureModal(true);
+              }}
+            >
+              <View style={styles.zapCircleIcon}>
+                <Zap size={16} color="#121212" strokeWidth={2.4} />
+              </View>
+
+              <View style={{ flex: 1, marginLeft: 4 }}>
+                <Text style={styles.themeTitle}>{autoCaptureEnabled ? "Auto-Capture is Active" : "Enable Payment Auto-Capture"}</Text>
+                <Text style={styles.themeSub}>Auto-log TNG eWallet, MAE & GrabPay notifications (Android & iOS 27 Shortcuts)</Text>
+              </View>
+
+              <View style={styles.changePillBtn}>
+                <Text style={styles.changePillText}>SETUP</Text>
+                <ChevronRight size={13} color={COLORS.text} strokeWidth={2.5} />
+              </View>
+            </TouchableOpacity>
+          </View>
+        </WireBox>
+
+        {/* Section 4: Compact Theme Selector Row (Opens Theme Modal on Tap) */}
         <WireBox style={styles.sectionCard}>
           <View style={styles.cardHeaderRow}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -154,9 +209,16 @@ export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
           </View>
 
           <View style={{ padding: 12 }}>
-            <TouchableOpacity style={styles.themeTriggerBtn} activeOpacity={0.8} onPress={() => setShowThemeModal(true)}>
+            <TouchableOpacity
+              style={styles.themeTriggerBtn}
+              activeOpacity={0.8}
+              onPress={() => {
+                playUiSound("pop");
+                setShowThemeModal(true);
+              }}
+            >
               <View style={styles.swatchRow}>
-                {(activeThemeObj.previewColors || []).map((hex, i) => (
+                {activeThemeObj.previewColors.map((hex, i) => (
                   <View key={i} style={[styles.colorDot, { backgroundColor: hex }]} />
                 ))}
               </View>
@@ -174,20 +236,38 @@ export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
           </View>
         </WireBox>
 
-        {/* Section 4: System Architecture Info & Logout Button */}
+        {/* Section 5: System Architecture Info & Logout Button */}
         <WireBox style={[styles.sectionCard, { padding: 14 }]}>
           <Text style={styles.appVersionTitle}>Ka-Ching! Financial Habit Analyzer v1.0</Text>
           <Text style={styles.appVersionSub}>
             Powered by Google Cloud Vision OCR, Anchored Linear Regression Forecasting & Rule-Based Habit Mining.
           </Text>
 
-          <TouchableOpacity style={styles.logoutBtn} onPress={onLogout} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={styles.logoutBtn}
+            onPress={() => {
+              playUiSound("pop");
+              if (onLogout) onLogout();
+            }}
+            activeOpacity={0.8}
+          >
             <LogOut size={15} color="#FFFFFF" strokeWidth={2.5} />
             <Text style={styles.logoutBtnText}>LOG OUT OF ACCOUNT</Text>
           </TouchableOpacity>
         </WireBox>
 
-        {/* Modal: Scrollable Theme Selection Popup */}
+        {/* Modal 1: Smart Auto-Capture Setup & Live Sandbox Modal */}
+        <AutoCaptureModal
+          visible={showAutoCaptureModal}
+          onClose={() => setShowAutoCaptureModal(false)}
+          user={user}
+          autoCaptureEnabled={autoCaptureEnabled}
+          onStatusChanged={(nextStatus) => setAutoCaptureEnabled(nextStatus)}
+          onTransactionCaptured={() => fetchAccountStats()}
+          showToast={showToast}
+        />
+
+        {/* Modal 2: Scrollable Theme Selection Popup */}
         <Modal visible={showThemeModal} transparent={true} animationType="fade" onRequestClose={() => setShowThemeModal(false)}>
           <View style={styles.modalOverlay}>
             <View style={styles.modalCard}>
@@ -196,7 +276,12 @@ export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
                   <Text style={styles.modalTitle}>SELECT APP THEME</Text>
                   <Text style={styles.modalSubtitle}>Choose a color palette for your workspace</Text>
                 </View>
-                <TouchableOpacity onPress={() => setShowThemeModal(false)}>
+                <TouchableOpacity
+                  onPress={() => {
+                    playUiSound("pop");
+                    setShowThemeModal(false);
+                  }}
+                >
                   <X size={18} color={COLORS.text} strokeWidth={2.5} />
                 </TouchableOpacity>
               </View>
@@ -213,7 +298,7 @@ export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
                         onPress={() => handleSelectTheme(themeItem.id)}
                       >
                         <View style={styles.swatchRow}>
-                          {(themeItem.previewColors || []).map((hex, i) => (
+                          {themeItem.previewColors.map((hex, i) => (
                             <View key={i} style={[styles.colorDot, { backgroundColor: hex }]} />
                           ))}
                         </View>
@@ -234,7 +319,15 @@ export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
                 </View>
               </ScrollView>
 
-              <WireButton label="CLOSE" variant="outline" onPress={() => setShowThemeModal(false)} style={{ marginTop: 12 }} />
+              <WireButton
+                label="CLOSE"
+                variant="outline"
+                onPress={() => {
+                  playUiSound("pop");
+                  setShowThemeModal(false);
+                }}
+                style={{ marginTop: 12 }}
+              />
             </View>
           </View>
         </Modal>
@@ -243,7 +336,6 @@ export default function ProfileScreen({ user, onChangeTheme, onLogout }) {
   );
 }
 
-// Dynamic style generator so runtime theme switches update all Profile styles immediately
 const getStyles = () =>
   StyleSheet.create({
     container: {
@@ -341,6 +433,27 @@ const getStyles = () =>
       fontFamily: FONTS.mono,
       fontSize: 8.5,
       color: COLORS.textMuted,
+    },
+    statusBadgePill: {
+      borderWidth: 1.2,
+      borderRadius: SHAPES.chipRadius,
+      paddingHorizontal: 8,
+      paddingVertical: 2.5,
+    },
+    statusBadgePillText: {
+      fontFamily: FONTS.mono,
+      fontSize: 7.5,
+      fontWeight: "bold",
+    },
+    zapCircleIcon: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      backgroundColor: "#FEF08A",
+      borderWidth: 1.5,
+      borderColor: "#121212",
+      alignItems: "center",
+      justifyContent: "center",
     },
     statsGrid: {
       flexDirection: "row",

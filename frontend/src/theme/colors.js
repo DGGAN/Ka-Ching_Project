@@ -1,145 +1,153 @@
 /**
  * @file frontend/src/theme/colors.js
- * @layer Theme & Styling (Design Tokens)
- * @description Defines the Warm Khaki Earth default palette (#F1ECE5, #D7CBB6, #C3B091, #937A50, #5F4E34) and runtime theme switching.
- * @exports ACTIVE_THEME, THEMES, COLORS, SHAPES, FONTS, applyTheme
+ * @layer Theme Configuration (Multi-Theme Palette & Dynamic Runtime Mutator)
+ * @description Defines all available color themes, shapes, fonts, and mutates COLORS in-place when applyTheme(themeKey) is called so all screens re-style immediately on Android, iOS, and Web.
+ * @exports COLORS, SHAPES, FONTS, THEMES, ACTIVE_THEME, applyTheme
  */
 
-// Import Platform utility to select the appropriate system monospace font
 import { Platform } from "react-native";
 
-// 1. Default active theme key on startup (Khaki Earth palette)
-export let ACTIVE_THEME = "kaching";
-
-// 2. Complete dictionary of available visual themes
 export const THEMES = {
-  kaching: {
-    id: "kaching",
-    name: "Ka-Ching! Khaki",
-    subtitle: "Warm oat khaki, mocha & espresso earth tones",
-    previewColors: ["#937A50", "#F1ECE5", "#D7CBB6"],
-    colors: {
+  khaki: {
+    id: "khaki",
+    name: "Warm Khaki",
+    subtitle: "Earthy & calm vintage ledger palette",
+    previewColors: ["#937A50", "#F1ECE5", "#5F4E34"],
+    palette: {
       background: "#F1ECE5",
-      card: "#FAF8F5",
-      text: "#5F4E34",
-      textMuted: "#937A50",
-      border: "#5F4E34",
-      borderMuted: "#C3B091",
+      card: "#FAF7F2",
       primary: "#937A50",
       primaryText: "#FFFFFF",
-      secondary: "#D7CBB6",
-      inputBg: "#FFFFFF",
-      danger: "#C93B2B",
-      dangerBg: "#FDECEB",
-      success: "#2E6F40",
-    },
-    shapes: {
-      borderWidth: 1.5,
-      cardRadius: 16,
-      buttonRadius: 14,
-      inputRadius: 12,
-      chipRadius: 16,
+      secondary: "#E6DEC8",
+      inputBg: "#F5F0E6",
+      text: "#2C2418",
+      textMuted: "#6E5D46",
+      border: "#5F4E34",
+      borderMuted: "#B8A990",
+      danger: "#E11D48",
+      dangerBg: "#FFE4E6",
+      success: "#15803D",
+      successBg: "#DCFCE7",
     },
   },
   pink: {
     id: "pink",
-    name: "Blossom Pink",
-    subtitle: "Soft pastel rose with rounded cards",
-    previewColors: ["#E87A90", "#FFF8FA", "#FFE5EC"],
-    colors: {
-      background: "#FFF8FA",
+    name: "Sakura Rose",
+    subtitle: "Playful pastel pink & crisp ink borders",
+    previewColors: ["#E87A90", "#FFF5F7", "#1E1B18"],
+    palette: {
+      background: "#FFF5F7",
       card: "#FFFFFF",
-      text: "#4A2C35",
-      textMuted: "#9E7682",
-      border: "#F2BAC9",
-      borderMuted: "#FADCE4",
       primary: "#E87A90",
       primaryText: "#FFFFFF",
-      secondary: "#FFE5EC",
-      inputBg: "#FFFDFE",
+      secondary: "#FFE4E9",
+      inputBg: "#FFF9FA",
+      text: "#1E1B18",
+      textMuted: "#6B5E62",
+      border: "#1E1B18",
+      borderMuted: "#D4B5BC",
       danger: "#E11D48",
       dangerBg: "#FFE4E6",
-      success: "#10B981",
-    },
-    shapes: {
-      borderWidth: 1.5,
-      cardRadius: 18,
-      buttonRadius: 25,
-      inputRadius: 14,
-      chipRadius: 20,
+      success: "#15803D",
+      successBg: "#DCFCE7",
     },
   },
-  emerald: {
-    id: "emerald",
-    name: "Prosperity Green",
-    subtitle: "Fresh mint & emerald financial palette",
-    previewColors: ["#10B981", "#F2FBF7", "#D1FAE5"],
-    colors: {
-      background: "#F2FBF7",
+  matcha: {
+    id: "matcha",
+    name: "Kyoto Matcha",
+    subtitle: "Fresh botanical green for mindful saving",
+    previewColors: ["#3B7A57", "#F2F7F4", "#1B2E23"],
+    palette: {
+      background: "#F2F7F4",
       card: "#FFFFFF",
-      text: "#064E3B",
-      textMuted: "#047857",
-      border: "#6EE7B7",
-      borderMuted: "#A7F3D0",
-      primary: "#10B981",
+      primary: "#3B7A57",
       primaryText: "#FFFFFF",
-      secondary: "#D1FAE5",
-      inputBg: "#F9FEFC",
-      danger: "#EF4444",
-      dangerBg: "#FEE2E2",
-      success: "#059669",
-    },
-    shapes: {
-      borderWidth: 1.5,
-      cardRadius: 16,
-      buttonRadius: 14,
-      inputRadius: 12,
-      chipRadius: 16,
+      secondary: "#DDF0E4",
+      inputBg: "#F7FBF8",
+      text: "#1B2E23",
+      textMuted: "#526B5C",
+      border: "#1B2E23",
+      borderMuted: "#A3C2AF",
+      danger: "#E11D48",
+      dangerBg: "#FFE4E6",
+      success: "#15803D",
+      successBg: "#DCFCE7",
     },
   },
-  wireframe: {
-    id: "wireframe",
-    name: "Wireframe Mono",
-    subtitle: "High-contrast brutalist black & white",
-    previewColors: ["#121212", "#F4F4F4", "#FFFFFF"],
-    colors: {
-      background: "#F4F4F4",
+  ocean: {
+    id: "ocean",
+    name: "Nordic Ocean",
+    subtitle: "Crisp coastal blue with high-contrast clarity",
+    previewColors: ["#2563EB", "#F0F6FF", "#1E293B"],
+    palette: {
+      background: "#F0F6FF",
       card: "#FFFFFF",
-      text: "#121212",
-      textMuted: "#666666",
-      border: "#121212",
-      borderMuted: "#CCCCCC",
-      primary: "#121212",
+      primary: "#2563EB",
       primaryText: "#FFFFFF",
-      secondary: "#E8E8E8",
-      inputBg: "#FAFAFA",
-      danger: "#D9381E",
-      dangerBg: "#FFF0EE",
-      success: "#121212",
+      secondary: "#DBEAFE",
+      inputBg: "#F8FAFC",
+      text: "#1E293B",
+      textMuted: "#64748B",
+      border: "#1E293B",
+      borderMuted: "#94A3B8",
+      danger: "#E11D48",
+      dangerBg: "#FFE4E6",
+      success: "#15803D",
+      successBg: "#DCFCE7",
     },
-    shapes: {
-      borderWidth: 2,
-      cardRadius: 4,
-      buttonRadius: 4,
-      inputRadius: 4,
-      chipRadius: 4,
+  },
+  amber: {
+    id: "amber",
+    name: "Golden Duck",
+    subtitle: "Warm honey gold inspired by the Ka-Ching mascot",
+    previewColors: ["#D97706", "#FFFBEB", "#271C19"],
+    palette: {
+      background: "#FFFBEB",
+      card: "#FFFFFF",
+      primary: "#D97706",
+      primaryText: "#FFFFFF",
+      secondary: "#FEF3C7",
+      inputBg: "#FFFDF5",
+      text: "#271C19",
+      textMuted: "#785A3C",
+      border: "#271C19",
+      borderMuted: "#D6B88A",
+      danger: "#E11D48",
+      dangerBg: "#FFE4E6",
+      success: "#15803D",
+      successBg: "#DCFCE7",
     },
   },
 };
 
-const initialThemeObj = THEMES[ACTIVE_THEME] || THEMES.kaching;
+export let ACTIVE_THEME = "khaki";
 
-export const COLORS = { ...initialThemeObj.colors };
-export const SHAPES = { ...initialThemeObj.shapes };
+// Initialize mutable COLORS object with the default theme palette
+export const COLORS = {
+  ...THEMES.khaki.palette,
+};
 
+// Mutate COLORS in-place so all components referencing COLORS update immediately on re-render
 export const applyTheme = (themeKey) => {
-  const targetTheme = THEMES[themeKey] || THEMES.kaching;
+  const cleanKey = String(themeKey || "khaki").split("_")[0];
+  const targetTheme = THEMES[cleanKey] || THEMES.khaki;
   ACTIVE_THEME = targetTheme.id;
-  Object.assign(COLORS, targetTheme.colors);
-  Object.assign(SHAPES, targetTheme.shapes);
+  Object.assign(COLORS, targetTheme.palette);
+  return COLORS;
+};
+
+export const SHAPES = {
+  borderWidth: 1.8,
+  cardRadius: 12,
+  buttonRadius: 10,
+  inputRadius: 8,
+  chipRadius: 8,
 };
 
 export const FONTS = {
-  mono: Platform.OS === "ios" ? "Courier" : "monospace",
-  sans: Platform.OS === "ios" ? "Avenir Next" : "sans-serif-medium",
+  mono: Platform.select({
+    ios: "Menlo",
+    android: "monospace",
+    default: "monospace",
+  }),
 };

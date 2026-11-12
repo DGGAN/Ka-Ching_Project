@@ -1,25 +1,21 @@
 /**
  * @file frontend/src/features/transactions/hooks/useTransactions.js
- * @layer Hook (State, Pagination, Filter & Modal Management — 100% Original Logic)
- * @description Manages all states and handlers from the original TransactionsScreen.js without altering any validation or behavior.
+ * @layer Hook (Transactions State, Filtering, Edit & Delete with "edit" & "delete" Sounds)
+ * @description Manages paginated transactions, multi-category filter, standalone edit calendar, and plays "edit" on update and "delete" on removal.
  * @exports useTransactions
  */
 
-import { useState, useEffect, useMemo } from "react";
-import { getSixMonthWindow } from "../../../utils/dateHelpers";
+import { useState, useEffect } from "react";
 import { playUiSound } from "../../../utils/soundEffects";
-import {
-  fetchAllUserTransactionsForWindow,
-  fetchTransactionsPageApi,
-  updateTransactionApi,
-  deleteTransactionApi,
-} from "../services/transactionService";
-import { PAGE_LIMIT, getCurrentMonthKey, buildGroupedSections } from "../utils/transactionUtils";
+import { fetchTransactions, updateTransaction, deleteTransaction } from "../services/transactionService";
+import { getCurrentMonthKey, buildGroupedSections, getCategoryTriggerLabel } from "../utils/transactionUtils";
+import { getSixMonthWindow } from "../../../utils/dateHelpers";
+
+const PAGE_LIMIT = 15;
 
 export function useTransactions(user, showToast) {
   const currentMonthKey = getCurrentMonthKey();
 
-  // 1. State management for paginated transactions, filters, and modals
   const [transactions, setTransactions] = useState([]);
   const [allDatesForWindow, setAllDatesForWindow] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -28,19 +24,16 @@ export function useTransactions(user, showToast) {
   const [hasMorePages, setHasMorePages] = useState(false);
   const [totalRecordsCount, setTotalRecordsCount] = useState(0);
 
-  // Unified filter states: timeFilter defaults to currentMonthKey (e.g. "2026-11")
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedType, setSelectedType] = useState("ALL");
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [timeFilter, setTimeFilter] = useState(currentMonthKey);
 
-  // Modal visibility states
   const [showFilterCategoryModal, setShowFilterCategoryModal] = useState(false);
   const [detailTx, setDetailTx] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Edit Modal states
   const [editingTx, setEditingTx] = useState(null);
   const [editMerchant, setEditMerchant] = useState("");
   const [editAmount, setEditAmount] = useState("");
@@ -51,30 +44,29 @@ export function useTransactions(user, showToast) {
   const [showEditCalendar, setShowEditCalendar] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // 2. Fetch lightweight transaction dates once on mount to compute the smart 6-month window
   useEffect(() => {
     const loadMonthWindow = async () => {
-      if (!user?.id) return;
       try {
-        const list = await fetchAllUserTransactionsForWindow(user.id);
-        setAllDatesForWindow(list);
+        const res = await fetchTransactions(user.id, {});
+        if (res?.data) {
+          setAllDatesForWindow(res.data);
+        }
       } catch (e) {
         console.log("Month window check error:", e.message);
       }
     };
-    loadMonthWindow();
+    if (user?.id) {
+      loadMonthWindow();
+    }
   }, [user?.id]);
 
-  // 3. Re-fetch Page 1 whenever any filter or search query changes
   useEffect(() => {
-    if (!user?.id) return;
     const timer = setTimeout(() => {
       fetchTransactionsPage(1, true);
     }, 250);
     return () => clearTimeout(timer);
-  }, [user?.id, selectedType, selectedCategories, timeFilter, searchQuery]);
+  }, [selectedType, selectedCategories, timeFilter, searchQuery]);
 
-  // 4. Fetch paginated transactions from GET /api/transactions/:userId
   const fetchTransactionsPage = async (pageToLoad = 1, isReset = false) => {
     try {
       if (isReset) {
@@ -86,7 +78,7 @@ export function useTransactions(user, showToast) {
       const categoryParam = selectedCategories.length === 0 ? "ALL" : selectedCategories.join(",");
       const isMonthKey = /^\d{4}-\d{2}$/.test(timeFilter);
 
-      const resData = await fetchTransactionsPageApi(user.id, {
+      const resData = await fetchTransactions(user.id, {
         page: pageToLoad,
         limit: PAGE_LIMIT,
         type: selectedType,
@@ -100,7 +92,6 @@ export function useTransactions(user, showToast) {
       const moreAvailable = Boolean(resData?.hasMore);
       const totalCount = resData?.totalCount ?? fetchedItems.length;
 
-      // Client-side multi-category safeguard
       const filteredClientItems =
         selectedCategories.length > 0 ? fetchedItems.filter((tx) => selectedCategories.includes(tx.category)) : fetchedItems;
 
@@ -125,14 +116,12 @@ export function useTransactions(user, showToast) {
     }
   };
 
-  // 5. Load next page when user scrolls to the bottom of FlatList
   const handleLoadMore = () => {
     if (!loading && !loadingMore && hasMorePages) {
       fetchTransactionsPage(currentPage + 1, false);
     }
   };
 
-  // Toggle a category inside the multi-select filter array
   const toggleCategoryFilter = (catKey) => {
     playUiSound("pop");
     setSelectedCategories((prev) => {
@@ -143,24 +132,21 @@ export function useTransactions(user, showToast) {
     });
   };
 
-  // Reverse the smart 6-month window so Current Month is always first on the left!
-  const dynamicMonthOptions = useMemo(() => [...getSixMonthWindow(allDatesForWindow)].reverse(), [allDatesForWindow]);
+  const dynamicMonthOptions = [...getSixMonthWindow(allDatesForWindow)].reverse();
+  const sections = buildGroupedSections(transactions);
 
-  // 6. Group loaded transactions by calendar date for clean section headers
-  const sections = useMemo(() => buildGroupedSections(transactions), [transactions]);
-
-  // 7. Delete Transaction handler
+  // 7. Delete Transaction handler -> Plays #8 "delete" (Blackhole Suck) sound
   const confirmDeleteTransaction = async () => {
     if (!deleteTarget) return;
     try {
       setIsDeleting(true);
-      await deleteTransactionApi(deleteTarget._id);
+      await deleteTransaction(deleteTarget._id);
       setTransactions((prev) => prev.filter((item) => item._id !== deleteTarget._id));
       setTotalRecordsCount((prev) => Math.max(0, prev - 1));
       setAllDatesForWindow((prev) => prev.filter((item) => item._id !== deleteTarget._id));
       setDeleteTarget(null);
       setDetailTx(null);
-      playUiSound("pop");
+      playUiSound("delete");
       showToast("success", "Transaction deleted.");
     } catch (error) {
       showToast("error", "Failed to delete transaction.");
@@ -169,7 +155,6 @@ export function useTransactions(user, showToast) {
     }
   };
 
-  // 8. Open Edit Modal and populate current values
   const openEditModal = (tx) => {
     playUiSound("pop");
     setDetailTx(null);
@@ -183,7 +168,7 @@ export function useTransactions(user, showToast) {
     setShowEditCalendar(false);
   };
 
-  // 9. Save Updated Transaction (PUT /api/transactions/:id)
+  // 9. Save Updated Transaction -> Plays #7 "edit" (Arcade Reload) sound
   const handleSaveEdit = async () => {
     if (!editingTx) return;
 
@@ -203,7 +188,7 @@ export function useTransactions(user, showToast) {
       setIsUpdating(true);
       const isoDate = editDate instanceof Date && !isNaN(editDate.getTime()) ? editDate.toISOString() : new Date().toISOString();
 
-      const res = await updateTransactionApi(editingTx._id, {
+      const updatedFromServer = await updateTransaction(editingTx._id, {
         merchantName: cleanMerchant,
         amount: Number(numericAmount.toFixed(2)),
         category: editCategory,
@@ -211,7 +196,7 @@ export function useTransactions(user, showToast) {
         description: editDescription.trim() || null,
       });
 
-      const updatedDoc = res?.data || {
+      const updatedDoc = updatedFromServer || {
         ...editingTx,
         merchantName: cleanMerchant,
         amount: Number(numericAmount.toFixed(2)),
@@ -222,7 +207,7 @@ export function useTransactions(user, showToast) {
 
       setTransactions((prev) => prev.map((item) => (item._id === editingTx._id ? updatedDoc : item)));
       setEditingTx(null);
-      playUiSound("success");
+      playUiSound("edit");
       showToast("success", "Transaction updated!");
     } catch (error) {
       showToast("error", error.response?.data?.message || "Failed to update transaction.");
@@ -231,14 +216,7 @@ export function useTransactions(user, showToast) {
     }
   };
 
-  const handleResetFilters = () => {
-    playUiSound("pop");
-    setSelectedType("ALL");
-    setSelectedCategories([]);
-    setTimeFilter(currentMonthKey);
-    setSearchQuery("");
-  };
-
+  const categoryTriggerLabel = getCategoryTriggerLabel(selectedCategories);
   const hasCustomFilters = selectedType !== "ALL" || selectedCategories.length > 0 || timeFilter !== currentMonthKey || searchQuery !== "";
 
   return {
@@ -281,12 +259,12 @@ export function useTransactions(user, showToast) {
     isUpdating,
     dynamicMonthOptions,
     sections,
+    categoryTriggerLabel,
     hasCustomFilters,
     handleLoadMore,
     toggleCategoryFilter,
     confirmDeleteTransaction,
     openEditModal,
     handleSaveEdit,
-    handleResetFilters,
   };
 }

@@ -1,16 +1,16 @@
 /**
  * @file frontend/src/screens/AuthScreen.js
- * @layer Screen (Authentication Entry — 100% Original Commit a357cef Design + FloatingToast + 3 Google Options)
- * @description Uses named { useFloatingToast } import. Button #1 ("Continue with Google") is for real users; Buttons #2 and #3 below are quick dev shortcuts for your two .env Google accounts.
- * @props {function} onLoginSuccess - Callback invoked with authenticated user object
+ * @layer Screen (Authentication Entry — 100% Original Design + FloatingToast + Secret 5-Tap Logo Dev Panel)
+ * @description Normal users only see the clean login form and the real Google sign-in button. Tapping the top duck logo 5 times unlocks the hidden 4-persona developer shortcut panel.
+ * @props {Function} onLoginSuccess - Callback invoked with authenticated user object
  * @exports default AuthScreen
  */
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { View, Text, Image, TouchableOpacity, Modal, TextInput, StyleSheet, ScrollView, Platform } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { X } from "lucide-react-native";
+import { X, Lock } from "lucide-react-native";
 import apiClient from "../api/apiClient";
 import { COLORS, SHAPES, FONTS } from "../theme/colors";
 import WireInput from "../components/shared/WireInput";
@@ -41,35 +41,83 @@ const GoogleColorfulIcon = ({ size = 18 }) => (
   </Svg>
 );
 
-// Shortcut #2 & #3: Your 2 Developer Quick-Login Accounts from frontend/.env
-const PRIMARY_GOOGLE_ACCOUNT = {
-  email: process.env.EXPO_PUBLIC_GOOGLE_EMAIL || "darren.google@gmail.com",
-  username: process.env.EXPO_PUBLIC_GOOGLE_USERNAME || "Darren Google",
-  oauthId: process.env.EXPO_PUBLIC_GOOGLE_OAUTH_ID || "109283746554321098765",
-};
-
-const ALT_GOOGLE_ACCOUNT = {
-  email: process.env.EXPO_PUBLIC_GOOGLE_ALT_EMAIL || "ganzhunyin@gmail.com",
-  username: process.env.EXPO_PUBLIC_GOOGLE_ALT_USERNAME || "Gan Zhun Yin",
-  oauthId: process.env.EXPO_PUBLIC_GOOGLE_ALT_OAUTH_ID || "109283746554321098888",
-};
+// 4 Preset Developer Test Accounts loaded from .env
+const DEV_TEST_ACCOUNTS = [
+  {
+    tag: "1. Balanced",
+    email: process.env.EXPO_PUBLIC_GOOGLE_EMAIL || "darren.google@gmail.com",
+    username: process.env.EXPO_PUBLIC_GOOGLE_USERNAME || "Darren Google",
+    oauthId: process.env.EXPO_PUBLIC_GOOGLE_OAUTH_ID || "109283746554321098765",
+  },
+  {
+    tag: "2. 92% Risk",
+    email: process.env.EXPO_PUBLIC_GOOGLE_ALT_EMAIL || "ganzhunyin@gmail.com",
+    username: process.env.EXPO_PUBLIC_GOOGLE_ALT_USERNAME || "Gan Zhun Yin",
+    oauthId: process.env.EXPO_PUBLIC_GOOGLE_ALT_OAUTH_ID || "109283746554321098888",
+  },
+  {
+    tag: "3. Fast Saver",
+    email: process.env.EXPO_PUBLIC_GOOGLE_SAVER_EMAIL || "aiman.saver@gmail.com",
+    username: process.env.EXPO_PUBLIC_GOOGLE_SAVER_USERNAME || "Aiman Saver",
+    oauthId: process.env.EXPO_PUBLIC_GOOGLE_SAVER_OAUTH_ID || "109283746554321098777",
+  },
+  {
+    tag: "4. Empty New",
+    email: process.env.EXPO_PUBLIC_GOOGLE_FRESH_EMAIL || "chloe.fresh@gmail.com",
+    username: process.env.EXPO_PUBLIC_GOOGLE_FRESH_USERNAME || "Chloe Fresh",
+    oauthId: process.env.EXPO_PUBLIC_GOOGLE_FRESH_OAUTH_ID || "109283746554321098666",
+  },
+];
 
 export default function AuthScreen({ onLoginSuccess }) {
   const styles = getStyles();
   const { toast, slideAnim, showToast } = useFloatingToast();
 
+  // State to toggle between "Login mode (false)" and "Register mode (true)"
   const [isRegistering, setIsRegistering] = useState(false);
+
+  // Form input states
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  // Modal state for Button #1 (Real User Google Sign-In)
+  // Interactive Google Account Modal state for real users
   const [showGoogleModal, setShowGoogleModal] = useState(false);
   const [googleEmailInput, setGoogleEmailInput] = useState("");
   const [googleNameInput, setGoogleNameInput] = useState("");
   const [googleLoading, setGoogleLoading] = useState(false);
 
-  // 1. Standard Email/Password Login or Register (with FloatingToast)
+  // Secret 5-Tap Logo Unlock State (Hidden from normal users by default)
+  const [showSecretDevPanel, setShowSecretDevPanel] = useState(false);
+  const tapCountRef = useRef(0);
+  const tapTimerRef = useRef(null);
+
+  const isDevFeatureAllowed = process.env.EXPO_PUBLIC_ENABLE_DEV_SHORTCUTS !== "false";
+
+  // Secret Gesture: Tap the duck logo 5 times within 2 seconds to toggle developer panel
+  const handleSecretLogoTap = () => {
+    if (!isDevFeatureAllowed) return;
+
+    tapCountRef.current += 1;
+    if (tapTimerRef.current) {
+      clearTimeout(tapTimerRef.current);
+    }
+
+    if (tapCountRef.current >= 5) {
+      tapCountRef.current = 0;
+      const nextState = !showSecretDevPanel;
+      setShowSecretDevPanel(nextState);
+      playUiSound("pop");
+      showToast("info", nextState ? "Developer quick-login shortcuts unlocked." : "Developer shortcuts hidden.");
+      return;
+    }
+
+    tapTimerRef.current = setTimeout(() => {
+      tapCountRef.current = 0;
+    }, 2000);
+  };
+
+  // 1. Handle standard Email/Password Login or Register
   const handleSubmit = async () => {
     if (!email.trim() || !password || (isRegistering && !username.trim())) {
       showToast("error", "Please fill in all required fields.");
@@ -90,19 +138,20 @@ export default function AuthScreen({ onLoginSuccess }) {
         onLoginSuccess(response.data.user);
       }, 300);
     } catch (error) {
-      const backendMessage = error.response?.data?.message || "Cannot connect to server. Is backend running?";
+      const targetUrl = apiClient.defaults.baseURL;
+      const backendMessage = error.response?.data?.message || `Cannot reach server (${targetUrl}). Check Wi-Fi & backend.`;
       showToast("error", backendMessage);
     }
   };
 
-  // Shared helper to call POST /api/auth/google
-  const handleGoogleLogin = async (accountObj) => {
+  // Helper to complete backend /auth/google sign-in with any Google profile payload
+  const authenticateWithGoogleBackend = async ({ email: gEmail, username: gName, oauthId: gId }) => {
     try {
       setGoogleLoading(true);
       const response = await apiClient.post("/auth/google", {
-        email: accountObj.email,
-        username: accountObj.username,
-        oauthId: accountObj.oauthId,
+        email: gEmail,
+        username: gName,
+        oauthId: gId,
       });
       await AsyncStorage.setItem("userToken", response.data.token);
       await AsyncStorage.setItem("userData", JSON.stringify(response.data.user));
@@ -112,18 +161,19 @@ export default function AuthScreen({ onLoginSuccess }) {
         onLoginSuccess(response.data.user);
       }, 300);
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Google login failed");
+      const targetUrl = apiClient.defaults.baseURL;
+      const errMsg = error.response?.data?.message || `Cannot reach backend (${targetUrl}). Ensure phone & PC are on same Wi-Fi.`;
+      showToast("error", errMsg);
     } finally {
       setGoogleLoading(false);
     }
   };
 
-  // 2. Button #1: Real User "Continue with Google"
-  const handleRealUserGoogleButton = () => {
+  // 2. Primary Black Button: Real User "Continue with Google" Handler
+  const handleRealUserGoogleLogin = async () => {
     playUiSound("pop");
     const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
 
-    // If EXPO_PUBLIC_GOOGLE_CLIENT_ID is configured on Web, launch real Google OAuth 2.0 popup
     if (Platform.OS === "web" && clientId && typeof window !== "undefined") {
       const redirectUri = window.location.origin;
       const scope = encodeURIComponent("openid email profile");
@@ -151,7 +201,7 @@ export default function AuthScreen({ onLoginSuccess }) {
                   headers: { Authorization: `Bearer ${accessToken}` },
                 });
                 const profile = await userInfoRes.json();
-                await handleGoogleLogin({
+                await authenticateWithGoogleBackend({
                   email: profile.email,
                   username: profile.name || profile.email.split("@")[0],
                   oauthId: profile.sub,
@@ -159,17 +209,17 @@ export default function AuthScreen({ onLoginSuccess }) {
               }
             }
           } catch (err) {
-            // Wait until redirect returns to same origin
+            // Ignore cross-origin frame access errors while user is on accounts.google.com
           }
         }, 400);
         return;
       }
     }
 
-    // Otherwise open the interactive Google Account Sign-In Modal for any real user
     setShowGoogleModal(true);
   };
 
+  // Submit handler for the interactive Google Sign-In modal
   const handleConfirmRealGoogleModal = async () => {
     const cleanEmail = googleEmailInput.trim().toLowerCase();
     if (!cleanEmail || !cleanEmail.includes("@")) {
@@ -183,7 +233,7 @@ export default function AuthScreen({ onLoginSuccess }) {
         .replace(/[._]/g, " ")
         .replace(/\b\w/g, (c) => c.toUpperCase());
 
-    await handleGoogleLogin({
+    await authenticateWithGoogleBackend({
       email: cleanEmail,
       username: derivedName,
       oauthId: `google_${cleanEmail}`,
@@ -201,15 +251,17 @@ export default function AuthScreen({ onLoginSuccess }) {
       <FloatingToast toast={toast} slideAnim={slideAnim} />
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+        {/* Top Logo & Title Section (Tap Logo 5 times quickly to unlock secret Dev Panel) */}
         <View style={styles.headerSection}>
-          <View style={styles.logoContainer}>
+          <TouchableOpacity activeOpacity={0.9} onPress={handleSecretLogoTap} style={styles.logoContainer}>
             <Image source={require("../../assets/kaching_logo.png")} style={styles.logoImage} resizeMode="cover" />
-          </View>
+          </TouchableOpacity>
           <Text style={styles.appTitle}>Ka-Ching!</Text>
           <Text style={styles.subtitle1}>Your personal finance companion.</Text>
           <Text style={styles.subtitle2}>Track smarter. Save better.</Text>
         </View>
 
+        {/* Form Input Section */}
         <View style={styles.formSection}>
           {isRegistering && <WireInput label="Username" placeholder="tommy" value={username} onChangeText={setUsername} />}
 
@@ -225,50 +277,56 @@ export default function AuthScreen({ onLoginSuccess }) {
 
           <WireButton label={isRegistering ? "Register Account" : "Login"} onPress={handleSubmit} variant="filled" />
 
+          {/* Dashed divider: OR CONTINUE WITH */}
           <View style={styles.dividerRow}>
             <View style={styles.dashedLine} />
             <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
             <View style={styles.dashedLine} />
           </View>
 
-          {/* BUTTON #1: Official Black Google OAuth Button for Real Users */}
-          <TouchableOpacity style={styles.googleBlackBtn} onPress={handleRealUserGoogleButton} activeOpacity={0.85}>
+          {/* Official Black Google OAuth Button for Real Users */}
+          <TouchableOpacity style={styles.googleBlackBtn} onPress={handleRealUserGoogleLogin} activeOpacity={0.85}>
             <View style={styles.googleWhiteBadge}>
               <GoogleColorfulIcon size={18} />
             </View>
             <Text style={styles.googleBlackBtnText}>Continue with Google</Text>
           </TouchableOpacity>
 
-          {/* BUTTON #2: Your Primary Google Shortcut Account */}
-          <TouchableOpacity
-            style={styles.googleAltBtn}
-            onPress={() => {
-              playUiSound("pop");
-              handleGoogleLogin(PRIMARY_GOOGLE_ACCOUNT);
-            }}
-            activeOpacity={0.8}
-          >
-            <GoogleColorfulIcon size={15} />
-            <Text style={styles.googleAltBtnText} numberOfLines={1}>
-              Quick Login 1: {PRIMARY_GOOGLE_ACCOUNT.username} ({PRIMARY_GOOGLE_ACCOUNT.email})
-            </Text>
-          </TouchableOpacity>
+          {/* SECRET DEVELOPER PANEL: Completely invisible unless Logo is tapped 5 times */}
+          {showSecretDevPanel && (
+            <View style={styles.devShortcutsBox}>
+              <View style={styles.devHeaderRow}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                  <Lock size={11} color={COLORS.primary} strokeWidth={2.5} />
+                  <Text style={styles.devShortcutsLabel}>DEV TEST PERSONAS (UNLOCKED)</Text>
+                </View>
+                <TouchableOpacity onPress={() => setShowSecretDevPanel(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <X size={13} color={COLORS.textMuted} strokeWidth={2.5} />
+                </TouchableOpacity>
+              </View>
 
-          {/* BUTTON #3: Your Secondary Google Shortcut Account */}
-          <TouchableOpacity
-            style={[styles.googleAltBtn, { marginBottom: 20 }]}
-            onPress={() => {
-              playUiSound("pop");
-              handleGoogleLogin(ALT_GOOGLE_ACCOUNT);
-            }}
-            activeOpacity={0.8}
-          >
-            <GoogleColorfulIcon size={15} />
-            <Text style={styles.googleAltBtnText} numberOfLines={1}>
-              Quick Login 2: {ALT_GOOGLE_ACCOUNT.username} ({ALT_GOOGLE_ACCOUNT.email})
-            </Text>
-          </TouchableOpacity>
+              <View style={styles.devGrid}>
+                {DEV_TEST_ACCOUNTS.map((acc) => (
+                  <TouchableOpacity
+                    key={acc.email}
+                    style={styles.devShortcutPill}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      playUiSound("pop");
+                      authenticateWithGoogleBackend(acc);
+                    }}
+                  >
+                    <GoogleColorfulIcon size={12} />
+                    <Text style={styles.devShortcutText} numberOfLines={1}>
+                      {acc.tag}: {acc.username.split(" ")[0]}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
 
+          {/* Bottom row to switch between Login and Register modes */}
           <View style={styles.bottomSwitchRow}>
             <Text style={styles.switchHint}>{isRegistering ? "Already have an account?" : "No account yet?"}</Text>
             <TouchableOpacity
@@ -283,7 +341,7 @@ export default function AuthScreen({ onLoginSuccess }) {
         </View>
       </ScrollView>
 
-      {/* Interactive Google Sign-In Modal for Button #1 */}
+      {/* Modal for Real User Google Sign-In Prompt */}
       <Modal visible={showGoogleModal} transparent animationType="fade" onRequestClose={() => setShowGoogleModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.googleModalCard}>
@@ -425,14 +483,14 @@ const getStyles = () =>
     },
     googleBlackBtn: {
       width: "100%",
-      backgroundColor: "#121212",
+      backgroundColor: "#111111",
       borderRadius: SHAPES.buttonRadius,
       paddingVertical: 11,
       paddingHorizontal: 16,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      marginBottom: 10,
+      marginBottom: 16,
       position: "relative",
     },
     googleWhiteBadge: {
@@ -452,25 +510,52 @@ const getStyles = () =>
       fontWeight: "bold",
       letterSpacing: 0.5,
     },
-    googleAltBtn: {
-      width: "100%",
-      borderWidth: SHAPES.borderWidth,
-      borderColor: COLORS.border,
-      borderRadius: SHAPES.buttonRadius,
-      backgroundColor: COLORS.card,
-      paddingVertical: 9,
-      paddingHorizontal: 12,
+    devShortcutsBox: {
+      marginBottom: 18,
+      padding: 10,
+      borderWidth: 1.5,
+      borderColor: COLORS.primary,
+      borderStyle: "dashed",
+      borderRadius: SHAPES.inputRadius,
+      backgroundColor: COLORS.secondary,
+    },
+    devHeaderRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 8,
+    },
+    devShortcutsLabel: {
+      fontFamily: FONTS.mono,
+      fontSize: 8.5,
+      fontWeight: "bold",
+      color: COLORS.text,
+      letterSpacing: 0.5,
+    },
+    devGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      justifyContent: "space-between",
+      rowGap: 6,
+    },
+    devShortcutPill: {
+      width: "48.5%",
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      gap: 8,
-      marginBottom: 8,
+      gap: 6,
+      backgroundColor: COLORS.card,
+      borderWidth: 1.5,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.chipRadius,
+      paddingVertical: 7,
+      paddingHorizontal: 8,
     },
-    googleAltBtnText: {
-      color: COLORS.text,
+    devShortcutText: {
       fontFamily: FONTS.mono,
-      fontSize: 10,
+      fontSize: 8.5,
       fontWeight: "bold",
+      color: COLORS.text,
     },
     bottomSwitchRow: {
       flexDirection: "row",

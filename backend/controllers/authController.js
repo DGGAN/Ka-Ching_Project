@@ -5,7 +5,9 @@ const jwt = require("jsonwebtoken");
 
 // Helper function: Generate a JWT token valid for 30 days
 const generateToken = (userId) => {
-  return jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: "30d" });
+  return jwt.sign({ id: userId }, process.env.JWT_SECRET || "kaching_secret_key", {
+    expiresIn: "30d",
+  });
 };
 
 // Helper function: Validate email format using Regular Expression (Regex)
@@ -48,7 +50,7 @@ exports.register = async (req, res) => {
     }
 
     // Validation 4: Check password strength (min 8 chars, must contain letters and numbers)
-    const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d!@#$\%^&*]{8,}$/;
+    const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d!@#$%^&*]{8,}$/;
     if (!passwordRegex.test(password)) {
       return res.status(400).json({
         message: "Password must be at least 8 characters long and contain both letters and numbers.",
@@ -82,6 +84,8 @@ exports.register = async (req, res) => {
       passwordHash,
       oauthProvider: "NONE",
       oauthId: null,
+      isNotificationEnabled: true,
+      autoCaptureEnabled: false,
     });
 
     const savedUser = await newUser.save();
@@ -97,6 +101,7 @@ exports.register = async (req, res) => {
         email: savedUser.email,
         oauthProvider: savedUser.oauthProvider,
         isNotificationEnabled: savedUser.isNotificationEnabled,
+        autoCaptureEnabled: Boolean(savedUser.autoCaptureEnabled),
       },
     });
   } catch (error) {
@@ -121,16 +126,16 @@ exports.login = async (req, res) => {
 
     email = email.trim().toLowerCase();
 
-    // Find the user by email in the database
-    const user = await User.findOne({ email });
+    // Explicitly select +passwordHash in case the schema sets select: false
+    const user = await User.findOne({ email }).select("+passwordHash");
     if (!user) {
       return res.status(404).json({
         message: "Invalid email or password.",
       });
     }
 
-    // Prevent Google OAuth accounts (without passwordHash) from logging in via standard password
-    if (user.oauthProvider === "GOOGLE" && !user.passwordHash) {
+    // Prevent Google OAuth accounts (that truly have no passwordHash) from logging in via password
+    if (!user.passwordHash) {
       return res.status(400).json({
         message: 'This account was created using Google. Please click "Continue with Google" to login.',
       });
@@ -156,6 +161,7 @@ exports.login = async (req, res) => {
         email: user.email,
         oauthProvider: user.oauthProvider,
         isNotificationEnabled: user.isNotificationEnabled,
+        autoCaptureEnabled: Boolean(user.autoCaptureEnabled),
       },
     });
   } catch (error) {
@@ -181,11 +187,15 @@ exports.googleAuth = async (req, res) => {
     email = email.trim().toLowerCase();
 
     // Check if a user with this email already exists in the database
-    let user = await User.findOne({ email });
+    let user = await User.findOne({ email }).select("+passwordHash");
 
     if (!user) {
       // Case A: Brand new Google user, automatically create a new account
       let baseUsername = username ? username.trim().replace(/\s+/g, "_").toLowerCase() : email.split("@")[0];
+
+      if (baseUsername.length < 5) {
+        baseUsername = `${baseUsername}_user`;
+      }
 
       // Check if generated username conflicts with existing users; append random digits if needed
       const existingUsername = await User.findOne({ username: baseUsername });
@@ -193,20 +203,35 @@ exports.googleAuth = async (req, res) => {
         baseUsername = `${baseUsername}_${Math.floor(1000 + Math.random() * 9000)}`;
       }
 
+      // Assign default hashed password ("password123") so the account can also log in via standard password if needed
+      const salt = await bcrypt.genSalt(10);
+      const defaultPasswordHash = await bcrypt.hash("password123", salt);
+
       user = new User({
         username: baseUsername,
         email,
-        passwordHash: null, // No password needed for Google login
+        passwordHash: defaultPasswordHash,
         oauthProvider: "GOOGLE",
         oauthId: String(oauthId),
+        isNotificationEnabled: true,
+        autoCaptureEnabled: false,
       });
 
       await user.save();
     } else {
-      // Case B: Existing user, link Google ID if not already linked
+      // Case B: Existing user, link Google ID if not already linked, and ensure passwordHash is populated
+      let needsSave = false;
       if (!user.oauthId) {
         user.oauthId = String(oauthId);
         user.oauthProvider = "GOOGLE";
+        needsSave = true;
+      }
+      if (!user.passwordHash) {
+        const salt = await bcrypt.genSalt(10);
+        user.passwordHash = await bcrypt.hash("password123", salt);
+        needsSave = true;
+      }
+      if (needsSave) {
         await user.save();
       }
     }
@@ -223,10 +248,14 @@ exports.googleAuth = async (req, res) => {
         email: user.email,
         oauthProvider: user.oauthProvider,
         isNotificationEnabled: user.isNotificationEnabled,
+        autoCaptureEnabled: Boolean(user.autoCaptureEnabled),
       },
     });
   } catch (error) {
-    res.status(500).json({ message: "Google authentication failed.", error: error.message });
+    res.status(500).json({
+      message: "Google authentication failed.",
+      error: error.message,
+    });
   }
 };
 
@@ -236,7 +265,7 @@ exports.googleAuth = async (req, res) => {
 exports.updateUserProfile = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { username, isNotificationEnabled } = req.body;
+    const { username, isNotificationEnabled, autoCaptureEnabled } = req.body;
 
     const user = await User.findById(userId);
     if (!user) {
@@ -247,7 +276,9 @@ exports.updateUserProfile = async (req, res) => {
     if (username && username.trim() !== user.username) {
       const cleanUsername = username.trim();
       if (cleanUsername.length < 5) {
-        return res.status(400).json({ message: "Username must be at least 5 characters." });
+        return res.status(400).json({
+          message: "Username must be at least 5 characters.",
+        });
       }
       const taken = await User.findOne({ username: cleanUsername });
       if (taken) {
@@ -261,6 +292,11 @@ exports.updateUserProfile = async (req, res) => {
       user.isNotificationEnabled = isNotificationEnabled;
     }
 
+    // If autoCaptureEnabled toggle boolean is provided, update the setting
+    if (typeof autoCaptureEnabled === "boolean") {
+      user.autoCaptureEnabled = autoCaptureEnabled;
+    }
+
     const updatedUser = await user.save();
 
     res.status(200).json({
@@ -271,9 +307,13 @@ exports.updateUserProfile = async (req, res) => {
         email: updatedUser.email,
         oauthProvider: updatedUser.oauthProvider,
         isNotificationEnabled: updatedUser.isNotificationEnabled,
+        autoCaptureEnabled: Boolean(updatedUser.autoCaptureEnabled),
       },
     });
   } catch (error) {
-    res.status(500).json({ message: "Failed to update profile.", error: error.message });
+    res.status(500).json({
+      message: "Failed to update profile.",
+      error: error.message,
+    });
   }
 };

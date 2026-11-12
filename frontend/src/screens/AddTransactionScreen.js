@@ -1,19 +1,17 @@
 /**
  * @file frontend/src/screens/AddTransactionScreen.js
- * @layer Screen (Manual Add Transaction — 100% Original Commit a357cef Design & Strict Validation)
- * @description Preserves the exact Amount Hero Card, strict decimal/range validation, EXPENSE/INCOME toggle, 2-column category popup modal, and shared CalendarModal.
- * @props {object} user - Logged-in user object
- * @props {function} onTransactionSaved - Callback invoked after transaction is saved
+ * @layer Screen (100% Original Manual Add Transaction Design + Income/Expense Sound Trigger)
+ * @description Preserves the exact original large amount hero card, EXPENSE/INCOME toggle, 2-column category popup, and passes `type` to `onTransactionSaved(type)` so App.js plays "income" or "expense".
  * @exports default AddTransactionScreen
  */
 
-// Import React state hooks, native UI components, Modal, and Lucide icon utilities
 import React, { useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet } from "react-native";
 import { Calendar as CalendarIcon, ChevronDown, Check } from "lucide-react-native";
 import apiClient from "../api/apiClient";
 import { COLORS, SHAPES, FONTS } from "../theme/colors";
 import { EXPENSE_CATEGORY_KEYS, INCOME_CATEGORY_KEYS, getCategoryMeta } from "../utils/categoryConfig";
+import { playUiSound } from "../utils/soundEffects";
 import WireInput from "../components/shared/WireInput";
 import WireButton from "../components/shared/WireButton";
 import FloatingToast from "../components/shared/FloatingToast";
@@ -21,12 +19,9 @@ import { useFloatingToast } from "../components/shared/useFloatingToast";
 import CalendarModal from "../components/shared/CalendarModal";
 import CategoryBadge from "../components/shared/CategoryBadge";
 
-// Manual Add Transaction Screen (Integrates global FloatingToast, shared CalendarModal & Category Popup)
 export default function AddTransactionScreen({ user, onTransactionSaved }) {
-  // Dynamically generate styles on every render so runtime theme switches apply immediately
   const styles = getStyles();
 
-  // Core state variables for transaction form inputs
   const [type, setType] = useState("EXPENSE");
   const [amount, setAmount] = useState("");
   const [amountHintError, setAmountHintError] = useState("");
@@ -35,22 +30,19 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // State to control visibility of Category Icon Popup Modal and Shared Calendar Modal
   const [showCategoryPopup, setShowCategoryPopup] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showCalendarModal, setShowCalendarModal] = useState(false);
 
-  // Global top floating animated toast hook
   const { toast, slideAnim, showToast } = useFloatingToast();
 
-  // Toggle transaction type (EXPENSE or INCOME) and reset to default category
   const handleSwitchType = (newType) => {
+    playUiSound("pop");
     setType(newType);
     setCategory(newType === "EXPENSE" ? "FOOD_AND_BEVERAGE" : "SALARY");
     setAmountHintError("");
   };
 
-  // Strictly validate and sanitize amount input: block non-digits, multiple dots, and >2 decimals
   const handleAmountChange = (rawText) => {
     if (/[^0-9.]/.test(rawText)) {
       setAmountHintError("Only numbers and a decimal point are allowed.");
@@ -75,7 +67,6 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
     setAmount(rawText);
   };
 
-  // Validate all required fields and submit transaction to backend
   const handleSaveTransaction = async () => {
     setAmountHintError("");
 
@@ -110,7 +101,7 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
         category,
         merchantName: merchant.trim(),
         description: description.trim() ? description.trim() : null,
-        date: selectedDate instanceof Date && !isNaN(selectedDate.getTime()) ? selectedDate.toISOString() : new Date(selectedDate).toISOString(),
+        date: selectedDate.toISOString(),
         source: "MANUAL",
         status: "VERIFIED",
         confidenceScore: 1.0,
@@ -119,7 +110,8 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
       showToast("success", "Transaction saved successfully!");
       setTimeout(() => {
         if (typeof onTransactionSaved === "function") {
-          onTransactionSaved();
+          // Pass `type` ("EXPENSE" | "INCOME") so App.js plays "expense" or "income"
+          onTransactionSaved(type);
         }
       }, 450);
     } catch (error) {
@@ -132,11 +124,9 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
 
   const activeCategoryKeys = type === "EXPENSE" ? EXPENSE_CATEGORY_KEYS : INCOME_CATEGORY_KEYS;
   const currentCategoryConfig = getCategoryMeta(category);
-  const displayDateObj = selectedDate instanceof Date && !isNaN(selectedDate.getTime()) ? selectedDate : new Date(selectedDate);
 
   return (
     <View style={{ flex: 1, position: "relative" }}>
-      {/* Global top FloatingToast banner */}
       <FloatingToast toast={toast} slideAnim={slideAnim} />
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
@@ -180,7 +170,14 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
         {/* Category Selector Trigger */}
         <View style={styles.fieldBlock}>
           <Text style={styles.fieldLabel}>CATEGORY</Text>
-          <TouchableOpacity style={styles.selectorBtn} activeOpacity={0.8} onPress={() => setShowCategoryPopup(true)}>
+          <TouchableOpacity
+            style={styles.selectorBtn}
+            activeOpacity={0.8}
+            onPress={() => {
+              playUiSound("pop");
+              setShowCategoryPopup(true);
+            }}
+          >
             <View style={styles.selectorLeft}>
               <CategoryBadge category={category} size={36} iconSize={18} />
               <View>
@@ -206,10 +203,17 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
         {/* Interactive Date Picker Trigger */}
         <View style={styles.fieldBlock}>
           <Text style={styles.fieldLabel}>DATE</Text>
-          <TouchableOpacity style={styles.selectorBtn} activeOpacity={0.8} onPress={() => setShowCalendarModal(true)}>
+          <TouchableOpacity
+            style={styles.selectorBtn}
+            activeOpacity={0.8}
+            onPress={() => {
+              playUiSound("pop");
+              setShowCalendarModal(true);
+            }}
+          >
             <View>
               <Text style={styles.selectorTitle}>
-                {displayDateObj.toLocaleDateString("en-GB", {
+                {selectedDate.toLocaleDateString("en-GB", {
                   weekday: "short",
                   day: "2-digit",
                   month: "short",
@@ -248,6 +252,7 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
                       key={catKey}
                       activeOpacity={0.8}
                       onPress={() => {
+                        playUiSound("pop");
                         setCategory(catKey);
                         setShowCategoryPopup(false);
                       }}
@@ -269,7 +274,15 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
                 })}
               </View>
 
-              <WireButton label="CANCEL" variant="outline" onPress={() => setShowCategoryPopup(false)} style={{ marginTop: 12 }} />
+              <WireButton
+                label="CANCEL"
+                variant="outline"
+                onPress={() => {
+                  playUiSound("pop");
+                  setShowCategoryPopup(false);
+                }}
+                style={{ marginTop: 12 }}
+              />
             </View>
           </View>
         </Modal>
@@ -278,7 +291,10 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
         <CalendarModal
           visible={showCalendarModal}
           selectedDate={selectedDate}
-          onSelectDate={(picked) => setSelectedDate(picked)}
+          onSelectDate={(picked) => {
+            playUiSound("pop");
+            setSelectedDate(picked);
+          }}
           onClose={() => setShowCalendarModal(false)}
         />
       </ScrollView>

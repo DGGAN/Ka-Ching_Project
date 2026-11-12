@@ -1,72 +1,107 @@
 /**
  * @file frontend/src/components/shared/IngestionModal.js
- * @layer Shared Component ("+" Add Transaction Method Selection Modal)
- * @description Supports both onSelectMethod("manual" | "ocr_batch" | "ocr_single") and onSelectManual / onSelectOCR callbacks.
+ * @layer Shared Navigation / Modal Component
+ * @description Renders the "+" Add Transaction method picker modal (Manual Entry, Snap Receipt Photo, or Gallery Batch OCR) and triggers onSelectMethod.
  * @exports default IngestionModal
  */
 
 import React from "react";
-import { View, Text, Modal, TouchableOpacity, StyleSheet } from "react-native";
-import { Edit3, Camera, Layers, X, ChevronRight } from "lucide-react-native";
+import { View, Text, TouchableOpacity, Modal, StyleSheet } from "react-native";
+import { Edit3, Camera, Image as ImageIcon, X, ChevronRight } from "lucide-react-native";
 import { COLORS, SHAPES, FONTS } from "../../theme/colors";
 import { playUiSound } from "../../utils/soundEffects";
+import WireButton from "./WireButton";
 
-export default function IngestionModal({ visible = false, onClose, onSelectMethod, onSelectManual, onSelectOCR }) {
+export default function IngestionModal({ visible = false, onClose, onSelectMethod, onSelectOption, onSelectMode, onSelectManual, onSelectOCR }) {
   const styles = getStyles();
 
   const handleChoose = (methodId) => {
-    playUiSound("tab");
-    if (typeof onSelectMethod === "function") {
-      onSelectMethod(methodId);
-      if (typeof onClose === "function") onClose();
+    playUiSound("pop");
+    const callback = onSelectMethod || onSelectOption || onSelectMode;
+    if (typeof callback === "function") {
+      callback(methodId);
       return;
     }
     if (methodId === "manual" && typeof onSelectManual === "function") {
       onSelectManual();
-      return;
-    }
-    if (typeof onSelectOCR === "function") {
+    } else if (typeof onSelectOCR === "function") {
       onSelectOCR(methodId);
     }
   };
 
   return (
-    <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.card}>
+    <Modal
+      visible={Boolean(visible)}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={() => {
+        playUiSound("pop");
+        if (onClose) onClose();
+      }}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalCard}>
+          {/* Modal Header */}
           <View style={styles.headerRow}>
             <View>
-              <Text style={styles.title}>ADD TRANSACTION</Text>
-              <Text style={styles.subTitle}>Choose how you want to record your entry</Text>
+              <Text style={styles.modalTitle}>ADD TRANSACTION</Text>
+              <Text style={styles.modalSubtitle}>Choose how you want to record your transaction</Text>
             </View>
-            <TouchableOpacity onPress={onClose}>
+            <TouchableOpacity
+              onPress={() => {
+                playUiSound("pop");
+                if (onClose) onClose();
+              }}
+            >
               <X size={18} color={COLORS.text} strokeWidth={2.5} />
             </TouchableOpacity>
           </View>
 
           {/* Option 1: Manual Entry */}
-          <TouchableOpacity style={styles.optionBtn} activeOpacity={0.8} onPress={() => handleChoose("manual")}>
-            <View style={styles.iconCircle}>
-              <Edit3 size={18} color={COLORS.primaryText} strokeWidth={2.2} />
+          <TouchableOpacity style={styles.optionCard} activeOpacity={0.8} onPress={() => handleChoose("manual")}>
+            <View style={[styles.iconBox, { backgroundColor: COLORS.primary }]}>
+              <Edit3 size={18} color={COLORS.primaryText} strokeWidth={2.3} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.optTitle}>MANUAL ENTRY</Text>
-              <Text style={styles.optSub}>Type amount, category & notes manually</Text>
+              <Text style={styles.optionTitle}>MANUAL ENTRY</Text>
+              <Text style={styles.optionDesc}>Type in an expense or income record manually</Text>
             </View>
             <ChevronRight size={16} color={COLORS.textMuted} />
           </TouchableOpacity>
 
-          {/* Option 2: Single / Batch AI Receipt OCR */}
-          <TouchableOpacity style={styles.optionBtn} activeOpacity={0.8} onPress={() => handleChoose("ocr_batch")}>
-            <View style={[styles.iconCircle, { backgroundColor: COLORS.text }]}>
-              <Camera size={18} color={COLORS.card} strokeWidth={2.2} />
+          {/* Option 2: Snap Receipt Photo (Camera OCR) */}
+          <TouchableOpacity style={styles.optionCard} activeOpacity={0.8} onPress={() => handleChoose("camera")}>
+            <View style={[styles.iconBox, { backgroundColor: "#DCFCE7" }]}>
+              <Camera size={18} color="#15803D" strokeWidth={2.3} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.optTitle}>AI RECEIPT SCANNER (OCR)</Text>
-              <Text style={styles.optSub}>Snap or upload single/multiple receipts</Text>
+              <Text style={styles.optionTitle}>SNAP RECEIPT PHOTO (OCR)</Text>
+              <Text style={styles.optionDesc}>Use your camera to scan a physical receipt</Text>
             </View>
             <ChevronRight size={16} color={COLORS.textMuted} />
           </TouchableOpacity>
+
+          {/* Option 3: Upload Gallery Screenshots (Batch OCR) */}
+          <TouchableOpacity style={styles.optionCard} activeOpacity={0.8} onPress={() => handleChoose("ocr_batch")}>
+            <View style={[styles.iconBox, { backgroundColor: "#FEF3C7" }]}>
+              <ImageIcon size={18} color="#D97706" strokeWidth={2.3} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.optionTitle}>GALLERY BATCH UPLOAD (OCR)</Text>
+              <Text style={styles.optionDesc}>Pick 1 to 5 payment screenshots or receipts from gallery</Text>
+            </View>
+            <ChevronRight size={16} color={COLORS.textMuted} />
+          </TouchableOpacity>
+
+          <WireButton
+            label="CANCEL"
+            variant="outline"
+            onPress={() => {
+              playUiSound("pop");
+              if (onClose) onClose();
+            }}
+            style={{ marginTop: 6 }}
+          />
         </View>
       </View>
     </Modal>
@@ -75,22 +110,21 @@ export default function IngestionModal({ visible = false, onClose, onSelectMetho
 
 const getStyles = () =>
   StyleSheet.create({
-    overlay: {
+    modalOverlay: {
       flex: 1,
-      backgroundColor: "rgba(0,0,0,0.5)",
+      backgroundColor: "rgba(0,0,0,0.55)",
       justifyContent: "center",
       alignItems: "center",
       padding: 18,
     },
-    card: {
+    modalCard: {
       width: "100%",
-      maxWidth: 360,
+      maxWidth: 365,
       borderWidth: SHAPES.borderWidth,
       borderColor: COLORS.border,
       borderRadius: SHAPES.cardRadius,
       backgroundColor: COLORS.card,
       padding: 16,
-      gap: 10,
     },
     headerRow: {
       flexDirection: "row",
@@ -100,48 +134,48 @@ const getStyles = () =>
       borderColor: COLORS.borderMuted,
       borderStyle: "dashed",
       paddingBottom: 10,
-      marginBottom: 4,
+      marginBottom: 12,
     },
-    title: {
+    modalTitle: {
       fontFamily: FONTS.mono,
-      fontSize: 12,
+      fontSize: 13,
       fontWeight: "bold",
       color: COLORS.text,
       letterSpacing: 0.8,
     },
-    subTitle: {
+    modalSubtitle: {
       fontFamily: FONTS.mono,
       fontSize: 8.5,
       color: COLORS.textMuted,
       marginTop: 2,
     },
-    optionBtn: {
+    optionCard: {
       flexDirection: "row",
       alignItems: "center",
       gap: 12,
-      padding: 12,
-      borderWidth: SHAPES.borderWidth,
+      borderWidth: 1.5,
       borderColor: COLORS.border,
       borderRadius: SHAPES.inputRadius,
-      backgroundColor: COLORS.inputBg,
+      backgroundColor: COLORS.secondary,
+      padding: 12,
+      marginBottom: 10,
     },
-    iconCircle: {
+    iconBox: {
       width: 38,
       height: 38,
       borderRadius: 19,
-      backgroundColor: COLORS.primary,
       borderWidth: 1.5,
       borderColor: COLORS.border,
       alignItems: "center",
       justifyContent: "center",
     },
-    optTitle: {
+    optionTitle: {
       fontFamily: FONTS.mono,
-      fontSize: 11,
+      fontSize: 10.5,
       fontWeight: "bold",
       color: COLORS.text,
     },
-    optSub: {
+    optionDesc: {
       fontFamily: FONTS.mono,
       fontSize: 8.5,
       color: COLORS.textMuted,

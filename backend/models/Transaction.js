@@ -84,11 +84,11 @@ const transactionSchema = new mongoose.Schema(
       required: true,
       default: Date.now,
     },
-    // Entry origin (Manual vs OCR scanner)
+    // Entry origin: Manual form vs OCR receipt scanner vs Notification Auto-Capture
     source: {
       type: String,
       required: true,
-      enum: ["MANUAL", "OCR"],
+      enum: ["MANUAL", "OCR", "NOTIFICATION"],
       default: "MANUAL",
     },
     // Verification state
@@ -98,7 +98,7 @@ const transactionSchema = new mongoose.Schema(
       enum: ["VERIFIED", "PENDING_VERIFICATION"],
       default: "VERIFIED",
     },
-    // OCR confidence score (0.0 to 1.0)
+    // OCR / Auto-capture confidence score (0.0 to 1.0)
     confidenceScore: {
       type: Number,
       default: 1.0,
@@ -109,14 +109,13 @@ const transactionSchema = new mongoose.Schema(
   },
 );
 
-// 4. Automatically assign budgetType ("NEEDS" | "WANTS" | "NONE") from category key
-transactionSchema.pre("validate", function (next) {
+// 4. Synchronous pre-validate hook WITHOUT `next` parameter (100% compatible with Mongoose 8/9 & Node v24)
+transactionSchema.pre("validate", function () {
   if (this.type === "EXPENSE") {
     this.budgetType = BUDGET_TYPE_MAP[this.category] || "WANTS";
   } else {
     this.budgetType = "NONE";
   }
-  next();
 });
 
 const TransactionModel = mongoose.model("Transaction", transactionSchema);
