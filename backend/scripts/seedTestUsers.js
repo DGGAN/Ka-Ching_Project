@@ -1,6 +1,6 @@
 /**
  * @file backend/scripts/seedTestUsers.js
- * @description Seeds all 5 MongoDB collections (User, Transaction, Budget, Notification, AllInsightsPrediction) across 4 test user personas using native bcrypt hashing ("password123") so every persona works with BOTH Email/Password login and Google OAuth login.
+ * @description Seeds all 5 MongoDB collections (User, Transaction, Budget, Notification, AllInsightsPrediction) across 4 test user personas with native bcrypt passwordHash ("password123").
  *
  * Usage (run from backend directory):
  *   node scripts/seedTestUsers.js
@@ -17,8 +17,6 @@ const AllInsightsPrediction = require("../models/AllInsightsPrediction");
 
 const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/kaching";
 
-// Helper to build a specific Date relative to the current month
-// monthOffset = 0 (Current Month), -1 (Last Month), -2 (Two Months Ago)
 const makeDate = (monthOffset, dayOfMonth, hour = 13, minute = 30) => {
   const now = new Date();
   const targetYear = now.getFullYear();
@@ -28,7 +26,6 @@ const makeDate = (monthOffset, dayOfMonth, hour = 13, minute = 30) => {
   return new Date(targetYear, targetMonth, safeDay, hour, minute, 0);
 };
 
-// Helper to normalize transaction objects with exact budgetType ("NEEDS" | "WANTS" | "NONE")
 const buildTxDoc = (doc) => {
   const now = new Date();
   const txType = doc.type || "EXPENSE";
@@ -55,7 +52,6 @@ async function seedDatabase() {
     await mongoose.connect(MONGO_URI);
     console.log("[OK] Connected to MongoDB.\n");
 
-    // Step 1: Clear all 5 collections first
     await Promise.all([
       User.deleteMany({}),
       Transaction.deleteMany({}),
@@ -73,13 +69,9 @@ async function seedDatabase() {
     const prev1Year = prev1Date.getFullYear();
     const prev1MonthNum = prev1Date.getMonth() + 1;
 
-    // Encrypt "password123" using bcrypt so exports.login (bcrypt.compare) succeeds 100%
     const salt = await bcrypt.genSalt(10);
     const sharedPasswordHash = await bcrypt.hash("password123", salt);
 
-    // =========================================================================
-    // 1. COLLECTION 1: USERS (4 Personas — valid bcrypt passwordHash + oauthId)
-    // =========================================================================
     const darrenId = new mongoose.Types.ObjectId();
     const zhunyinId = new mongoose.Types.ObjectId();
     const aimanId = new mongoose.Types.ObjectId();
@@ -115,8 +107,8 @@ async function seedDatabase() {
         username: "Aiman Saver",
         email: "aiman.saver@gmail.com",
         passwordHash: sharedPasswordHash,
-        oauthProvider: "GOOGLE",
-        oauthId: "109283746554321098777",
+        oauthProvider: "NONE",
+        oauthId: null,
         isNotificationEnabled: true,
         autoCaptureEnabled: true,
         createdAt: now,
@@ -138,11 +130,7 @@ async function seedDatabase() {
 
     await User.collection.insertMany(userDocs);
 
-    // =========================================================================
-    // 2. COLLECTION 2: BUDGETS (Per-Month Setups)
-    // =========================================================================
     const budgetDocs = [
-      // Darren: Last Month (60/25/15) + Current Month (50/30/20)
       {
         userId: darrenId,
         year: prev1Year,
@@ -173,7 +161,6 @@ async function seedDatabase() {
         createdAt: now,
         updatedAt: now,
       },
-      // Gan Zhun Yin: Current Month (Student-Friendly 60/25/15, RM 1,500 Limit -> 92% Used)
       {
         userId: zhunyinId,
         year: curYear,
@@ -189,7 +176,6 @@ async function seedDatabase() {
         createdAt: now,
         updatedAt: now,
       },
-      // Aiman Saver: Current Month (Fast Saver 50/20/30, RM 3,360 Limit)
       {
         userId: aimanId,
         year: curYear,
@@ -209,11 +195,7 @@ async function seedDatabase() {
 
     await Budget.collection.insertMany(budgetDocs);
 
-    // =========================================================================
-    // 3. COLLECTION 3: TRANSACTIONS (16 Standardized Categories)
-    // =========================================================================
     const txDocs = [
-      // --- DARREN: Two Months Ago (No budget set for this month) ---
       buildTxDoc({
         userId: darrenId,
         type: "INCOME",
@@ -254,8 +236,6 @@ async function seedDatabase() {
         description: "Auto-captured from GrabPay",
         source: "NOTIFICATION",
       }),
-
-      // --- DARREN: Last Month (Student-Friendly 60/25/15 Budget) ---
       buildTxDoc({
         userId: darrenId,
         type: "INCOME",
@@ -316,8 +296,6 @@ async function seedDatabase() {
         description: "Work shirts",
         source: "OCR",
       }),
-
-      // --- DARREN: Current Month (9 active days -> Linear Regression active) ---
       buildTxDoc({
         userId: darrenId,
         type: "INCOME",
@@ -428,8 +406,6 @@ async function seedDatabase() {
         description: "Auto-captured from MAE by Maybank2u",
         source: "NOTIFICATION",
       }),
-
-      // --- GAN ZHUN YIN: Student 92% Budget Risk (RM 1,380 / RM 1,500) ---
       buildTxDoc({
         userId: zhunyinId,
         type: "INCOME",
@@ -510,8 +486,6 @@ async function seedDatabase() {
         description: "Birthday dinner split",
         source: "OCR",
       }),
-
-      // --- AIMAN SAVER: Fast Saver (50/20/30) High Surplus ---
       buildTxDoc({
         userId: aimanId,
         type: "INCOME",
@@ -586,9 +560,6 @@ async function seedDatabase() {
 
     await Transaction.collection.insertMany(txDocs);
 
-    // =========================================================================
-    // 4. COLLECTION 4: NOTIFICATIONS
-    // =========================================================================
     const notifDocs = [
       {
         userId: darrenId,
@@ -648,9 +619,6 @@ async function seedDatabase() {
 
     await Notification.collection.insertMany(notifDocs);
 
-    // =========================================================================
-    // 5. COLLECTION 5: ALLINSIGHTSPREDICTIONS (Table 4.4 Schema)
-    // =========================================================================
     const insightPredictionDocs = [
       {
         userId: darrenId,
@@ -726,41 +694,28 @@ async function seedDatabase() {
     await AllInsightsPrediction.collection.insertMany(insightPredictionDocs);
 
     console.log("--------------------------------------------------------------------------------");
-    console.log("[OK] SEEDING COMPLETE ACROSS ALL 5 COLLECTIONS:");
-    console.log(`  - Users inserted                  : ${userDocs.length}`);
-    console.log(`  - Budgets inserted                : ${budgetDocs.length}`);
-    console.log(`  - Transactions inserted           : ${txDocs.length}`);
-    console.log(`  - Notifications inserted          : ${notifDocs.length}`);
-    console.log(`  - AllInsightsPredictions inserted : ${insightPredictionDocs.length}`);
+    console.log("[OK] SEEDING COMPLETE ACROSS ALL 5 COLLECTIONS");
     console.log("--------------------------------------------------------------------------------");
     console.table([
       {
-        Persona: "1. Darren Google (Balanced + AutoCapture ON)",
+        Persona: "1. Darren Google (Google Linked + Password)",
         Email: "darren.google@gmail.com",
         Password: "password123",
-        OAuth_ID: "109283746554321098765",
-        User_ID: String(darrenId),
       },
       {
-        Persona: "2. Gan Zhun Yin (Student 92% Budget Risk)",
+        Persona: "2. Gan Zhun Yin (92% Risk + Google Linked)",
         Email: "ganzhunyin@gmail.com",
         Password: "password123",
-        OAuth_ID: "109283746554321098888",
-        User_ID: String(zhunyinId),
       },
       {
-        Persona: "3. Aiman Saver (Fast Saver 50/20/30)",
+        Persona: "3. Aiman Saver (Unbound -> Test BIND GOOGLE)",
         Email: "aiman.saver@gmail.com",
         Password: "password123",
-        OAuth_ID: "109283746554321098777",
-        User_ID: String(aimanId),
       },
       {
         Persona: "4. Chloe Fresh (Cold-Start 0 Data)",
         Email: "chloe.fresh@gmail.com",
         Password: "password123",
-        OAuth_ID: "109283746554321098666",
-        User_ID: String(chloeId),
       },
     ]);
 

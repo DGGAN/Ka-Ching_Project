@@ -1,7 +1,7 @@
 /**
  * @file backend/controllers/budgetController.js
  * @layer Backend Controller (Budget CRUD & Auto Carry-Forward)
- * @description Saves per-month budget setup and returns both current month budget and full monthly history array.
+ * @description Saves per-month budget setup using Mongoose 8/9 returnDocument: 'after' option and returns both current month budget and full monthly history array.
  * @exports setBudget, getBudget
  */
 
@@ -45,7 +45,7 @@ exports.setBudget = async (req, res) => {
         wantsPct: Number(wantsPct) || 30,
         savingsPct: Number(savingsPct) || 20,
       },
-      { new: true, upsert: true },
+      { returnDocument: "after", upsert: true },
     );
 
     await Notification.create({

@@ -1,7 +1,7 @@
 /**
  * @file frontend/App.js
  * @layer Root Application Entry & Navigation Shell
- * @description Coordinates authentication, theme persistence (works on both Web & Android Expo Go), 8 distinct UI sound effects, unread notifications, toggleable Notification/Profile screens, and bottom tab navigation.
+ * @description Coordinates authentication, theme persistence, 9 distinct UI sound effects ("tab" for Bell/Profile/BottomNav navigation, "bell" ONLY when a new notification arrives, and "theme" when switching themes), and screen routing.
  * @exports default App
  */
 
@@ -39,6 +39,9 @@ export default function App() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [themeKey, setThemeKey] = useState(ACTIVE_THEME);
   const [themeRenderTick, setThemeRenderTick] = useState(0);
+
+  // Track previous unread notification count so "bell" sound ONLY plays when a NEW notification arrives
+  const prevUnreadCountRef = useRef(null);
 
   // 2. Animated values for smooth screen fade and vertical slide transitions
   const fadeAnim = useRef(new Animated.Value(1)).current;
@@ -86,13 +89,18 @@ export default function App() {
     ]).start();
   }, [activeTab]);
 
-  // 5. Poll unread notifications count when user logs in or switches tabs
+  // 5. Poll unread notifications count and play "bell" sound ONLY when a new unread notification arrives
   const fetchUnreadNotifications = async (userId) => {
     if (!userId) return;
     try {
       const res = await apiClient.get(`/notifications/${userId}`);
       if (res.data && Array.isArray(res.data.data)) {
         const count = res.data.data.filter((item) => !item.isRead).length;
+
+        if (prevUnreadCountRef.current !== null && count > prevUnreadCountRef.current) {
+          playUiSound("bell");
+        }
+        prevUnreadCountRef.current = count;
         setUnreadCount(count);
       }
     } catch (error) {
@@ -103,6 +111,8 @@ export default function App() {
   useEffect(() => {
     if (currentUser?.id) {
       fetchUnreadNotifications(currentUser.id);
+    } else {
+      prevUnreadCountRef.current = null;
     }
   }, [currentUser, activeTab]);
 
@@ -112,9 +122,9 @@ export default function App() {
     setActiveTab(nextTab);
   };
 
-  // 7. Toggle Notification Screen: Play #5 "bell" Glass Chime sound!
+  // 7. Toggle Notification Screen: Uses same "tab" sound as BottomNav!
   const handleToggleNotifications = () => {
-    playUiSound("bell");
+    playUiSound("tab");
     if (activeTab === "notifications") {
       setActiveTab(previousTab || "home");
     } else {
@@ -125,9 +135,9 @@ export default function App() {
     }
   };
 
-  // 8. Toggle Profile Screen: Play #6 "profile" Neon Charge sound!
+  // 8. Toggle Profile Screen: Uses same "tab" sound as BottomNav!
   const handleToggleProfile = () => {
-    playUiSound("profile");
+    playUiSound("tab");
     if (activeTab === "profile") {
       setActiveTab(previousTab || "home");
     } else {
@@ -138,7 +148,7 @@ export default function App() {
     }
   };
 
-  // 9. Handle runtime theme switching, play #6 "theme" Neon Charge sound, and force full re-render on Android & Web
+  // 9. Handle runtime theme switching: Plays "theme" sound ONLY when user changes theme!
   const handleThemeChange = async (newThemeKey) => {
     applyTheme(newThemeKey);
     playUiSound("theme");
@@ -205,7 +215,6 @@ export default function App() {
           key={`add_${themeKey}_${themeRenderTick}`}
           user={currentUser}
           onTransactionSaved={(savedType) => {
-            // Play #1 "income" (1-UP Gem) for INCOME, or #2 "expense" (Pipe Drain) for EXPENSE
             playUiSound(savedType === "INCOME" ? "income" : "expense");
             fetchUnreadNotifications(currentUser.id);
             handleSelectMainTab("home");
@@ -224,7 +233,6 @@ export default function App() {
           user={currentUser}
           initialMode={ocrMode}
           onTransactionsSaved={() => {
-            // Verified OCR receipts are expenses -> play #2 "expense" sound
             playUiSound("expense");
             fetchUnreadNotifications(currentUser.id);
             handleSelectMainTab("home");
@@ -262,7 +270,10 @@ export default function App() {
         <NotificationsScreen
           key={`notif_${themeKey}_${themeRenderTick}`}
           user={currentUser}
-          onUnreadChange={(newCount) => setUnreadCount(newCount)}
+          onUnreadChange={(newCount) => {
+            prevUnreadCountRef.current = newCount;
+            setUnreadCount(newCount);
+          }}
         />
       );
     }
@@ -273,6 +284,7 @@ export default function App() {
           user={currentUser}
           activeThemeKey={themeKey}
           onChangeTheme={handleThemeChange}
+          onUserUpdated={(updatedUser) => setCurrentUser(updatedUser)}
           onLogout={async () => {
             playUiSound("pop");
             await AsyncStorage.multiRemove(["userToken", "userData"]);
@@ -323,7 +335,7 @@ export default function App() {
           activeTab={activeTab}
           showBack={isSubScreen}
           onBackPress={() => {
-            playUiSound("pop");
+            playUiSound("tab");
             setActiveTab(previousTab || "home");
           }}
           onBellPress={handleToggleNotifications}

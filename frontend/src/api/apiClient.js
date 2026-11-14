@@ -1,8 +1,7 @@
 /**
  * @file frontend/src/api/apiClient.js
- * @layer API Client (Axios Instance with Automatic LAN IP Resolution for Android/iOS Expo Go)
- * @description Automatically replaces "localhost" with the PC's LAN IP when running on a physical Android/iOS device via Expo Go.
- * @exports default apiClient, getResolvedApiBaseUrl
+ * @layer API Client (Auto LAN IP Resolution & JWT Bearer Token Interceptor)
+ * @description Automatically resolves LAN IP on physical Android/iOS devices and attaches the stored JWT token to Authorization headers for protected routes.
  */
 
 import axios from "axios";
@@ -10,8 +9,7 @@ import { Platform } from "react-native";
 import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// Dynamically resolve the correct backend URL for both Web (localhost) and Physical Phone (LAN IP)
-export const getResolvedApiBaseUrl = () => {
+const resolveBaseApiUrl = () => {
   const envUrl = process.env.EXPO_PUBLIC_API_URL || "http://localhost:5000/api";
 
   if (Platform.OS === "web") {
@@ -24,7 +22,7 @@ export const getResolvedApiBaseUrl = () => {
     if (debuggerHost) {
       const lanIp = debuggerHost.split(":")[0];
       if (lanIp) {
-        return envUrl.replace("localhost", lanIp).replace("127.0.0.1", lanIp);
+        return `http://${lanIp}:5000/api`;
       }
     }
   }
@@ -33,13 +31,14 @@ export const getResolvedApiBaseUrl = () => {
 };
 
 const apiClient = axios.create({
-  baseURL: getResolvedApiBaseUrl(),
-  timeout: 12000,
+  baseURL: resolveBaseApiUrl(),
+  timeout: 15000,
   headers: {
     "Content-Type": "application/json",
   },
 });
 
+// Automatically attach JWT Bearer token from AsyncStorage to every outgoing request
 apiClient.interceptors.request.use(
   async (config) => {
     try {

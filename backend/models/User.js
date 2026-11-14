@@ -1,6 +1,7 @@
 /**
  * @file backend/models/User.js
- * @description User schema with autoCaptureEnabled master switch (defaults to false until user explicitly enables it in ProfileScreen).
+ * @layer Backend Mongoose Schema (Users Collection)
+ * @description Defines User schema supporting both standard Email/Password authentication and Google OAuth binding, plus notification and Smart Auto-Capture preferences.
  */
 
 const mongoose = require("mongoose");
@@ -10,7 +11,9 @@ const userSchema = new mongoose.Schema(
     username: {
       type: String,
       required: true,
+      unique: true,
       trim: true,
+      minlength: 3,
     },
     email: {
       type: String,
@@ -19,25 +22,31 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
-    password: {
+    passwordHash: {
       type: String,
       default: null,
     },
     oauthProvider: {
       type: String,
-      default: null,
+      enum: ["NONE", "GOOGLE"],
+      default: "NONE",
     },
     oauthId: {
       type: String,
       default: null,
     },
-    // Master toggle controlled exclusively in ProfileScreen (Default FALSE for PDPA privacy compliance)
+    isNotificationEnabled: {
+      type: Boolean,
+      default: true,
+    },
     autoCaptureEnabled: {
       type: Boolean,
       default: false,
     },
   },
-  { timestamps: true },
+  {
+    timestamps: true,
+  },
 );
 
 module.exports = mongoose.model("User", userSchema);

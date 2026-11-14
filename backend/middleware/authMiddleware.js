@@ -1,10 +1,14 @@
-// Import jsonwebtoken library to verify tokens
+/**
+ * @file backend/middleware/authMiddleware.js
+ * @layer Backend Security Middleware
+ * @description Verifies JWT Bearer tokens on protected routes and attaches req.user.
+ * @exports protect
+ */
+
 const jwt = require("jsonwebtoken");
 
-// Security middleware to verify if user carries a valid JWT Token (complies with NFR4 spec)
 exports.protect = (req, res, next) => {
   try {
-    // Get token from Authorization header (format: "Bearer <token>")
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -13,17 +17,13 @@ exports.protect = (req, res, next) => {
       });
     }
 
-    // Extract the actual token string after the space
     const token = authHeader.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "kaching_secret_key");
 
-    // Verify if the token is valid and not expired using secret key in .env
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    // Attach decoded user ID to req.user and proceed to next controller
     req.user = { id: decoded.id };
     next();
   } catch (error) {
-    res.status(401).json({
+    return res.status(401).json({
       message: "Not authorized, token failed or expired.",
     });
   }

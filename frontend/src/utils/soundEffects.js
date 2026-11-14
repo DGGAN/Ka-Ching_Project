@@ -1,102 +1,105 @@
 /**
  * @file frontend/src/utils/soundEffects.js
- * @layer Utility (8 Finalized Retro-Modern Sound Profiles for Web & Android/iOS)
- * @description Synthesizes ONLY the 8 finalized SOUND_PROFILES ("income"/"kaching", "expense", "tab", "pop", "bell", "profile"/"theme", "edit", "delete") using Web Audio API on Web and cached WAV file playback via expo-av + expo-file-system on Android/iOS.
+ * @layer Utility (9 Sound Profiles for Web, Expo Go & Native APK/IPA)
+ * @description Plays the 9 sound profiles ("income"/"kaching", "expense", "tab", "pop", "bell", "profile"/"theme", "edit", "delete", "error") using statically bundled WAV files on Android/iOS and Web Audio API on Web.
  * @exports playUiSound
  */
 
 import { Platform, Vibration } from "react-native";
 
-let webAudioCtx = null;
-const cachedWavUris = {};
-const cachedFilePaths = {};
+// Statically require the 9 bundled WAV files so Metro Bundler & APK/IPA builds package them natively
+const SOUND_ASSETS = {
+  income: require("../../assets/sounds/income.wav"),
+  kaching: require("../../assets/sounds/income.wav"),
+  expense: require("../../assets/sounds/expense.wav"),
+  tab: require("../../assets/sounds/tab.wav"),
+  pop: require("../../assets/sounds/pop.wav"),
+  bell: require("../../assets/sounds/bell.wav"),
+  profile: require("../../assets/sounds/profile.wav"),
+  theme: require("../../assets/sounds/profile.wav"),
+  edit: require("../../assets/sounds/edit.wav"),
+  delete: require("../../assets/sounds/delete.wav"),
+  error: require("../../assets/sounds/error.wav"),
+};
 
-// 8 Finalized Sound Profiles (All legacy sounds removed)
+// 9 Sound Profiles
 const SOUND_PROFILES = {
-  // 1. Income (+Income saved): #1 Gem 1-UP (3-note ascending arpeggio E6 -> G6 -> C7 with 2x harmonic)
   income: {
-    durationMs: 360,
+    durationMs: 300,
     notes: [
-      { fStart: 1318.5, fEnd: 1318.5, start: 0.0, dur: 0.055, wave: "square", vol: 0.15 },
-      { fStart: 1567.98, fEnd: 1567.98, start: 0.055, dur: 0.055, wave: "square", vol: 0.16 },
-      { fStart: 2093.0, fEnd: 2093.0, start: 0.11, dur: 0.25, wave: "sine", vol: 0.34, harmonic: 2.0 },
+      { fStart: 440, fEnd: 220, start: 0, dur: 0.018, wave: "triangle", vol: 0.15 },
+      { fStart: 739.99, fEnd: 739.99, start: 0.02, dur: 0.07, wave: "sine", vol: 0.2, harmonic: 2 },
+      { fStart: 1108.73, fEnd: 1108.73, start: 0.08, dur: 0.21, wave: "sine", vol: 0.23, harmonic: 1.5 },
     ],
   },
   kaching: {
-    durationMs: 360,
+    durationMs: 300,
     notes: [
-      { fStart: 1318.5, fEnd: 1318.5, start: 0.0, dur: 0.055, wave: "square", vol: 0.15 },
-      { fStart: 1567.98, fEnd: 1567.98, start: 0.055, dur: 0.055, wave: "square", vol: 0.16 },
-      { fStart: 2093.0, fEnd: 2093.0, start: 0.11, dur: 0.25, wave: "sine", vol: 0.34, harmonic: 2.0 },
+      { fStart: 440, fEnd: 220, start: 0, dur: 0.018, wave: "triangle", vol: 0.15 },
+      { fStart: 739.99, fEnd: 739.99, start: 0.02, dur: 0.07, wave: "sine", vol: 0.2, harmonic: 2 },
+      { fStart: 1108.73, fEnd: 1108.73, start: 0.08, dur: 0.21, wave: "sine", vol: 0.23, harmonic: 1.5 },
     ],
   },
-
-  // 2. Expense (-Expense saved): #1 Retro Pipe / Coin Drain (3-step descending pitch slide)
   expense: {
-    durationMs: 255,
+    durationMs: 185,
     notes: [
-      { fStart: 780.0, fEnd: 480.0, start: 0.0, dur: 0.06, wave: "square", vol: 0.14 },
-      { fStart: 520.0, fEnd: 300.0, start: 0.065, dur: 0.06, wave: "square", vol: 0.14 },
-      { fStart: 340.0, fEnd: 150.0, start: 0.13, dur: 0.12, wave: "triangle", vol: 0.3 },
+      { fStart: 680, fEnd: 340, start: 0, dur: 0.045, wave: "triangle", vol: 0.18 },
+      { fStart: 440, fEnd: 220, start: 0.05, dur: 0.13, wave: "sine", vol: 0.23, harmonic: 1.5 },
     ],
   },
-
-  // 3. BottomNav Tab Switch: #1 RPG Menu Cursor Blip (300Hz -> 620Hz triangle wave)
   tab: {
-    durationMs: 50,
-    notes: [{ fStart: 300, fEnd: 620, start: 0.0, dur: 0.045, wave: "triangle", vol: 0.25, harmonic: 2.0 }],
+    durationMs: 26,
+    notes: [{ fStart: 480, fEnd: 210, start: 0, dur: 0.022, wave: "triangle", vol: 0.17 }],
   },
-
-  // 4. Normal Button / Modal Action: #3 Bubble Pop (380Hz -> 780Hz sine wave)
   pop: {
-    durationMs: 45,
-    notes: [{ fStart: 380, fEnd: 780, start: 0.0, dur: 0.04, wave: "sine", vol: 0.26 }],
+    durationMs: 26,
+    notes: [{ fStart: 520, fEnd: 740, start: 0, dur: 0.022, wave: "sine", vol: 0.15 }],
   },
-
-  // 5. Notification Bell: #3 Japanese Glass Wind Chime (Double chime 1174.66Hz -> 1567.98Hz)
   bell: {
-    durationMs: 310,
+    durationMs: 215,
     notes: [
-      { fStart: 1174.66, fEnd: 1174.66, start: 0.0, dur: 0.1, wave: "sine", vol: 0.26, harmonic: 2.0 },
-      { fStart: 1567.98, fEnd: 1567.98, start: 0.08, dur: 0.22, wave: "sine", vol: 0.3, harmonic: 2.0 },
+      { fStart: 587.33, fEnd: 587.33, start: 0, dur: 0.04, wave: "sine", vol: 0.15 },
+      { fStart: 880, fEnd: 880, start: 0.042, dur: 0.04, wave: "sine", vol: 0.17 },
+      { fStart: 1174.66, fEnd: 1174.66, start: 0.085, dur: 0.12, wave: "sine", vol: 0.19, harmonic: 1.5 },
     ],
   },
-
-  // 6. Profile / Theme Switch: #5 Cyber Neon Charge (Rising sawtooth + sine harmonic sweep)
   profile: {
-    durationMs: 240,
+    durationMs: 160,
     notes: [
-      { fStart: 260, fEnd: 1040, start: 0.0, dur: 0.1, wave: "sawtooth", vol: 0.12 },
-      { fStart: 1040, fEnd: 1560, start: 0.09, dur: 0.14, wave: "sine", vol: 0.28, harmonic: 1.5 },
+      { fStart: 220, fEnd: 440, start: 0, dur: 0.065, wave: "triangle", vol: 0.16 },
+      { fStart: 659.25, fEnd: 659.25, start: 0.06, dur: 0.09, wave: "sine", vol: 0.18 },
     ],
   },
   theme: {
-    durationMs: 240,
+    durationMs: 160,
     notes: [
-      { fStart: 260, fEnd: 1040, start: 0.0, dur: 0.1, wave: "sawtooth", vol: 0.12 },
-      { fStart: 1040, fEnd: 1560, start: 0.09, dur: 0.14, wave: "sine", vol: 0.28, harmonic: 1.5 },
+      { fStart: 220, fEnd: 440, start: 0, dur: 0.065, wave: "triangle", vol: 0.16 },
+      { fStart: 659.25, fEnd: 659.25, start: 0.06, dur: 0.09, wave: "sine", vol: 0.18 },
     ],
   },
-
-  // 7. Edit Record / Budget Update: #2 Arcade Triple Reload (600Hz -> 900Hz -> 1200Hz)
   edit: {
-    durationMs: 125,
+    durationMs: 85,
     notes: [
-      { fStart: 600, fEnd: 600, start: 0.0, dur: 0.03, wave: "square", vol: 0.13 },
-      { fStart: 900, fEnd: 900, start: 0.035, dur: 0.03, wave: "square", vol: 0.14 },
-      { fStart: 1200, fEnd: 1200, start: 0.07, dur: 0.05, wave: "triangle", vol: 0.25 },
+      { fStart: 420, fEnd: 580, start: 0, dur: 0.026, wave: "triangle", vol: 0.18 },
+      { fStart: 739.99, fEnd: 739.99, start: 0.035, dur: 0.045, wave: "sine", vol: 0.2 },
     ],
   },
-
-  // 8. Delete Record: #3 Blackhole Deep Suck (680Hz -> 180Hz & 220Hz -> 45Hz)
   delete: {
-    durationMs: 220,
+    durationMs: 105,
+    notes: [{ fStart: 460, fEnd: 110, start: 0, dur: 0.095, wave: "sine", vol: 0.21 }],
+  },
+  error: {
+    durationMs: 175,
     notes: [
-      { fStart: 680, fEnd: 180, start: 0.0, dur: 0.08, wave: "sine", vol: 0.26 },
-      { fStart: 220, fEnd: 45, start: 0.07, dur: 0.14, wave: "triangle", vol: 0.34 },
+      { fStart: 311.13, fEnd: 311.13, start: 0, dur: 0.055, wave: "triangle", vol: 0.21 },
+      { fStart: 233.08, fEnd: 220, start: 0.07, dur: 0.095, wave: "triangle", vol: 0.24 },
     ],
   },
 };
+
+let webAudioCtx = null;
+let audioModeReady = false;
+const activePlayers = {};
 
 // Initialize or resume browser Web Audio API context
 const getWebAudioContext = () => {
@@ -112,163 +115,45 @@ const getWebAudioContext = () => {
   return webAudioCtx;
 };
 
-// Evaluate oscillator waveform sample at normalized phase [0, 1)
-const sampleWaveform = (waveType, phase) => {
-  const p = phase - Math.floor(phase);
-  if (waveType === "square") {
-    return p < 0.5 ? 1.0 : -1.0;
-  }
-  if (waveType === "sawtooth") {
-    return 2.0 * p - 1.0;
-  }
-  if (waveType === "triangle") {
-    return 1.0 - 4.0 * Math.abs(Math.round(p - 0.25) - (p - 0.25));
-  }
-  return Math.sin(2.0 * Math.PI * p);
-};
-
-// Pure JavaScript Base64 encoder for React Native Hermes engine
-const encodeBase64 = (uint8Array) => {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  let output = "";
-  const len = uint8Array.length;
-  for (let i = 0; i < len; i += 3) {
-    const b1 = uint8Array[i];
-    const b2 = i + 1 < len ? uint8Array[i + 1] : 0;
-    const b3 = i + 2 < len ? uint8Array[i + 2] : 0;
-    const triplet = (b1 << 16) | (b2 << 8) | b3;
-    output += chars[(triplet >> 18) & 0x3f];
-    output += chars[(triplet >> 12) & 0x3f];
-    output += i + 1 < len ? chars[(triplet >> 6) & 0x3f] : "=";
-    output += i + 2 < len ? chars[triplet & 0x3f] : "=";
-  }
-  return output;
-};
-
-// Generate and cache 16-bit PCM WAV Base64 payload for Android and iOS playback
-const getOrCreateWavBase64 = (profileKey) => {
-  if (cachedWavUris[profileKey]) return cachedWavUris[profileKey];
-
-  const profile = SOUND_PROFILES[profileKey] || SOUND_PROFILES.pop;
+// Play bundled static WAV asset on Android & iOS (Expo Go + Standalone APK/IPA)
+const playBundledNativeAsset = async (profileKey) => {
   try {
-    const sampleRate = 22050;
-    const totalDurationSec = Math.max(profile.durationMs / 1000, 0.06);
-    const totalSamples = Math.floor(sampleRate * totalDurationSec);
-    const floatSamples = new Float32Array(totalSamples);
+    const ExpoAudio = require("expo-audio");
+    if (!ExpoAudio || typeof ExpoAudio.createAudioPlayer !== "function") return;
 
-    profile.notes.forEach((n) => {
-      const startSample = Math.floor(n.start * sampleRate);
-      const durSamples = Math.max(1, Math.floor(n.dur * sampleRate));
-      let phase = 0;
-      let harmPhase = 0;
-
-      for (let i = 0; i < durSamples; i++) {
-        const idx = startSample + i;
-        if (idx >= totalSamples) break;
-
-        const progress = i / durSamples;
-        const freq = n.fStart + (n.fEnd - n.fStart) * progress;
-        phase += freq / sampleRate;
-
-        const attack = Math.min(1.0, i / Math.max(1, sampleRate * 0.003));
-        const release = Math.pow(1.0 - progress, 1.15);
-        const env = attack * release * (n.vol || 0.25);
-
-        let val = sampleWaveform(n.wave || "sine", phase) * env;
-
-        if (n.harmonic) {
-          harmPhase += (freq * n.harmonic) / sampleRate;
-          val += Math.sin(2.0 * Math.PI * harmPhase) * env * 0.35;
-        }
-
-        floatSamples[idx] += val;
-      }
-    });
-
-    const buffer = new ArrayBuffer(44 + totalSamples * 2);
-    const view = new DataView(buffer);
-    const writeString = (offset, str) => {
-      for (let i = 0; i < str.length; i++) {
-        view.setUint8(offset + i, str.charCodeAt(i));
-      }
-    };
-
-    writeString(0, "RIFF");
-    view.setUint32(4, 36 + totalSamples * 2, true);
-    writeString(8, "WAVE");
-    writeString(12, "fmt ");
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    writeString(36, "data");
-    view.setUint32(40, totalSamples * 2, true);
-
-    for (let i = 0; i < totalSamples; i++) {
-      const clamped = Math.max(-1.0, Math.min(1.0, floatSamples[i] * 1.75));
-      view.setInt16(44 + i * 2, clamped * 32767, true);
+    if (!audioModeReady && typeof ExpoAudio.setAudioModeAsync === "function") {
+      audioModeReady = true;
+      await ExpoAudio.setAudioModeAsync({
+        playsInSilentMode: true,
+        shouldPlayInBackground: false,
+        interruptionModeAndroid: "duckOthers",
+        interruptionMode: "mixWithOthers",
+      }).catch(() => {});
     }
 
-    const b64 = encodeBase64(new Uint8Array(buffer));
-    cachedWavUris[profileKey] = b64;
-    return b64;
-  } catch (err) {
-    return null;
-  }
-};
+    const assetModule = SOUND_ASSETS[profileKey] || SOUND_ASSETS.pop;
 
-// Write synthesized WAV to local cache and play via expo-av on Android and iOS
-const playNativeWavSound = async (profileKey) => {
-  try {
-    const { Audio } = require("expo-av");
-    if (!Audio?.Sound) return;
-
-    await Audio.setAudioModeAsync({
-      playsInSilentModeIOS: true,
-      shouldDuckAndroid: true,
-      playThroughEarpieceAndroid: false,
-    }).catch(() => {});
-
-    const b64 = getOrCreateWavBase64(profileKey);
-    if (!b64) return;
-
-    let playableUri = `data:audio/wav;base64,${b64}`;
-
-    // Write WAV file to device cache directory so Android MediaPlayer plays it reliably
-    try {
-      let FileSystem;
+    let player = activePlayers[profileKey];
+    if (!player) {
+      player = ExpoAudio.createAudioPlayer(assetModule);
+      player.volume = 1.0;
+      activePlayers[profileKey] = player;
+    } else {
       try {
-        FileSystem = require("expo-file-system/legacy");
-      } catch (legacyErr) {
-        FileSystem = require("expo-file-system");
+        await player.seekTo(0);
+      } catch (seekErr) {
+        try {
+          if (typeof player.remove === "function") player.remove();
+        } catch (e) {}
+        player = ExpoAudio.createAudioPlayer(assetModule);
+        player.volume = 1.0;
+        activePlayers[profileKey] = player;
       }
-
-      const cacheDir = FileSystem?.cacheDirectory || FileSystem?.documentDirectory;
-      if (cacheDir && typeof FileSystem.writeAsStringAsync === "function") {
-        if (!cachedFilePaths[profileKey]) {
-          const fileUri = `${cacheDir}kaching_sfx_${profileKey}_v3.wav`;
-          await FileSystem.writeAsStringAsync(fileUri, b64, {
-            encoding: FileSystem.EncodingType?.Base64 || "base64",
-          });
-          cachedFilePaths[profileKey] = fileUri;
-        }
-        playableUri = cachedFilePaths[profileKey];
-      }
-    } catch (fsErr) {
-      // Fallback to data URI if file system write is unavailable
     }
 
-    const profile = SOUND_PROFILES[profileKey] || SOUND_PROFILES.pop;
-    const { sound } = await Audio.Sound.createAsync({ uri: playableUri }, { shouldPlay: true, volume: 1.0 });
-
-    setTimeout(() => {
-      sound.unloadAsync().catch(() => {});
-    }, profile.durationMs + 350);
+    player.play();
   } catch (err) {
-    // Non-blocking fallback
+    console.log("[SoundEffects] Native audio notice:", err.message);
   }
 };
 
@@ -319,18 +204,20 @@ export const playUiSound = (type = "pop") => {
       return;
     }
 
-    // 2. Android / iOS Native: Haptic Vibration + Synthesized WAV File Playback
+    // 2. Android & iOS (Expo Go + Standalone APK/IPA): Haptic Vibration + Bundled Static .WAV Asset
     if (profileKey === "income" || profileKey === "kaching") {
-      Vibration.vibrate([0, 25, 40, 45]);
+      Vibration.vibrate([0, 18, 30, 30]);
+    } else if (profileKey === "error") {
+      Vibration.vibrate([0, 35, 35, 35]);
     } else if (profileKey === "expense" || profileKey === "delete") {
-      Vibration.vibrate([0, 30, 30, 25]);
+      Vibration.vibrate([0, 22, 25, 18]);
     } else if (profileKey === "profile" || profileKey === "theme" || profileKey === "edit" || profileKey === "bell") {
-      Vibration.vibrate(20);
+      Vibration.vibrate(14);
     } else {
-      Vibration.vibrate(10);
+      Vibration.vibrate(8);
     }
 
-    playNativeWavSound(profileKey);
+    playBundledNativeAsset(profileKey);
   } catch (e) {
     // Non-blocking fallback
   }

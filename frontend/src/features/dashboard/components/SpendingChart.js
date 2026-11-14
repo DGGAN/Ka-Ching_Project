@@ -16,6 +16,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import Svg, { Line, Polygon, Polyline, Circle } from "react-native-svg";
 import { TrendingDown, TrendingUp } from "lucide-react-native";
 import { COLORS, SHAPES, FONTS } from "../../../theme/colors";
+import { playUiSound } from "../../../utils/soundEffects";
 import WireBox from "../../../components/shared/WireBox";
 
 export default function SpendingChart({ activeMonth, momDiffPct, chartBoxWidth, onLayoutPlotBox, chartGeometry, onSelectMonthKey }) {
@@ -58,11 +59,9 @@ export default function SpendingChart({ activeMonth, momDiffPct, chartBoxWidth, 
         </View>
       </View>
 
-      {/* Interactive Stacked Bar + Trend Line Plot Box */}
       <View style={[styles.plotBox, { height: CHART_HEIGHT }]} onLayout={(e) => onLayoutPlotBox(e.nativeEvent.layout.width)}>
         {chartBoxWidth > 0 && (
           <>
-            {/* Layer 1: Background Dashed Grid Lines & Baseline */}
             <Svg width={chartBoxWidth} height={CHART_HEIGHT} style={StyleSheet.absoluteFill}>
               <Line x1="12" y1={TOP_PAD} x2={chartBoxWidth - 12} y2={TOP_PAD} stroke={COLORS.borderMuted} strokeWidth="1" strokeDasharray="4,4" />
               <Line
@@ -86,7 +85,6 @@ export default function SpendingChart({ activeMonth, momDiffPct, chartBoxWidth, 
               {chartNodes.length > 1 && <Polygon points={areaPolygonPoints} fill={COLORS.text} fillOpacity="0.10" />}
             </Svg>
 
-            {/* Layer 2: Interactive Stacked Category Bars per Month */}
             <View style={[styles.barsOverlayRow, { height: CHART_HEIGHT }]}>
               {chartNodes.map((node) => {
                 const isSelected = node.key === activeMonth.key;
@@ -95,7 +93,10 @@ export default function SpendingChart({ activeMonth, momDiffPct, chartBoxWidth, 
                     key={node.key}
                     style={[styles.barColumnTouch, { width: colWidth }]}
                     activeOpacity={0.8}
-                    onPress={() => onSelectMonthKey(node.key)}
+                    onPress={() => {
+                      playUiSound("pop");
+                      if (onSelectMonthKey) onSelectMonthKey(node.key);
+                    }}
                   >
                     <Text style={[styles.barTopAmountText, isSelected && styles.barTopAmountTextSelected, { top: Math.max(4, node.topY - 18) }]}>
                       RM {Math.round(node.expense)}
@@ -128,7 +129,6 @@ export default function SpendingChart({ activeMonth, momDiffPct, chartBoxWidth, 
                       </View>
                     )}
 
-                    {/* Month Pill Label under Baseline: Shows "Nov (Current)" for current month */}
                     <View style={[styles.xAxisMonthPill, isSelected && styles.xAxisMonthPillSelected]}>
                       <Text style={[styles.xAxisMonthText, isSelected && styles.xAxisMonthTextSelected]}>
                         {node.isCurrentMonth ? `${node.shortMonth} (Current)` : node.shortMonth}
@@ -139,7 +139,6 @@ export default function SpendingChart({ activeMonth, momDiffPct, chartBoxWidth, 
               })}
             </View>
 
-            {/* Layer 3: Foreground Connecting Trend Line & Node Circles */}
             <Svg width={chartBoxWidth} height={CHART_HEIGHT} style={StyleSheet.absoluteFill} pointerEvents="none">
               {chartNodes.length > 1 && <Polyline points={polylinePoints} fill="none" stroke="#121212" strokeWidth="2.2" />}
               {chartNodes.map((node) => {
@@ -161,7 +160,6 @@ export default function SpendingChart({ activeMonth, momDiffPct, chartBoxWidth, 
         )}
       </View>
 
-      {/* 2-Column Category Breakdown Grid for Selected Month */}
       {activeMonth.categories.length === 0 ? (
         <Text style={styles.emptyChartText}>No expenses recorded in {activeMonth.label}.</Text>
       ) : (

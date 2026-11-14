@@ -1,63 +1,80 @@
-// Import User model, encryption tool, and JWT token tool
+/**
+ * @file backend/controllers/authController.js
+ * @layer Backend Controller (Authentication & Account Security Management)
+ * @description Handles registration, dual-mode login (Email/Password + Google OAuth), profile updates (username & email), password setup/change, and Google account binding/unbinding.
+ * @exports register, login, googleAuth, getUserProfile, updateUserProfile
+ */
+
 const User = require("../models/User");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 
-// Helper function: Generate a JWT token valid for 30 days
+// Generate a JWT token valid for 30 days
 const generateToken = (userId) => {
   return jwt.sign({ id: userId }, process.env.JWT_SECRET || "kaching_secret_key", {
     expiresIn: "30d",
   });
 };
 
-// Helper function: Validate email format using Regular Expression (Regex)
+// Validate email format using Regular Expression
 const isValidEmail = (email) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
 };
 
+// Validate password strength (at least 8 chars, containing letters and numbers)
+const isValidPassword = (password) => {
+  const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
+  return passwordRegex.test(password);
+};
+
+// Format standardized user payload for frontend consumption
+const formatUserPayload = (userDoc) => ({
+  id: userDoc._id,
+  username: userDoc.username,
+  email: userDoc.email,
+  oauthProvider: userDoc.oauthProvider || "NONE",
+  oauthId: userDoc.oauthId || null,
+  hasPassword: Boolean(userDoc.passwordHash),
+  isGoogleLinked: Boolean(userDoc.oauthProvider === "GOOGLE" && userDoc.oauthId),
+  isNotificationEnabled: typeof userDoc.isNotificationEnabled === "boolean" ? userDoc.isNotificationEnabled : true,
+  autoCaptureEnabled: Boolean(userDoc.autoCaptureEnabled),
+});
+
 // ==========================================
-// 1. Standard User Registration (with strict validation)
+// 1. Standard User Registration
 // ==========================================
 exports.register = async (req, res) => {
   try {
-    // Extract registration info from frontend request
     let { username, email, password } = req.body;
 
-    // Validation 1: Check if required fields are empty
     if (!username || !email || !password) {
       return res.status(400).json({
         message: "All fields (username, email, password) are required.",
       });
     }
 
-    // Trim whitespace and convert email to lowercase to prevent case-sensitive duplicates
     username = username.trim();
     email = email.trim().toLowerCase();
 
-    // Validation 2: Check username length (at least 5 characters)
-    if (username.length < 5) {
+    if (username.length < 3) {
       return res.status(400).json({
-        message: "Username must be at least 5 characters long.",
+        message: "Username must be at least 3 characters long.",
       });
     }
 
-    // Validation 3: Check if email format is valid
     if (!isValidEmail(email)) {
       return res.status(400).json({
         message: "Please provide a valid email address.",
       });
     }
 
-    // Validation 4: Check password strength (min 8 chars, must contain letters and numbers)
-    const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d!@#$%^&*]{8,}$/;
-    if (!passwordRegex.test(password)) {
+    if (!isValidPassword(password)) {
       return res.status(400).json({
         message: "Password must be at least 8 characters long and contain both letters and numbers.",
       });
     }
 
-    // Validation 5: Check if email is already registered in database
     const existingEmail = await User.findOne({ email });
     if (existingEmail) {
       return res.status(400).json({
@@ -65,7 +82,6 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Validation 6: Check if username is already taken (complies with Table 4.1 Unique spec)
     const existingUsername = await User.findOne({ username });
     if (existingUsername) {
       return res.status(400).json({
@@ -73,11 +89,9 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Encrypt password using bcrypt hashing (complies with NFR4 security spec)
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    // Create and save the new user document
     const newUser = new User({
       username,
       email,
@@ -91,33 +105,26 @@ exports.register = async (req, res) => {
     const savedUser = await newUser.save();
     const token = generateToken(savedUser._id);
 
-    // Return success status, JWT token, and user profile info
-    res.status(201).json({
+    return res.status(201).json({
       message: "User registered successfully.",
       token,
-      user: {
-        id: savedUser._id,
-        username: savedUser.username,
-        email: savedUser.email,
-        oauthProvider: savedUser.oauthProvider,
-        isNotificationEnabled: savedUser.isNotificationEnabled,
-        autoCaptureEnabled: Boolean(savedUser.autoCaptureEnabled),
-      },
+      user: formatUserPayload(savedUser),
     });
   } catch (error) {
-    res.status(500).json({ message: "Registration failed.", error: error.message });
+    return res.status(500).json({
+      message: "Registration failed.",
+      error: error.message,
+    });
   }
 };
 
 // ==========================================
-// 2. Standard Email & Password Login
+// 2. Standard Email & Password Login (Dual-Mode Ready)
 // ==========================================
 exports.login = async (req, res) => {
   try {
-    // Extract email and password from request body
     let { email, password } = req.body;
 
-    // Validate that required fields are not empty
     if (!email || !password) {
       return res.status(400).json({
         message: "Please provide both email and password.",
@@ -126,7 +133,7 @@ exports.login = async (req, res) => {
 
     email = email.trim().toLowerCase();
 
-    // Explicitly select +passwordHash in case the schema sets select: false
+    // Explicitly include passwordHash even if User model sets select: false
     const user = await User.findOne({ email }).select("+passwordHash");
     if (!user) {
       return res.status(404).json({
@@ -134,14 +141,13 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Prevent Google OAuth accounts (that truly have no passwordHash) from logging in via password
+    // Only block password login if the account truly has NO passwordHash set yet
     if (!user.passwordHash) {
       return res.status(400).json({
-        message: 'This account was created using Google. Please click "Continue with Google" to login.',
+        message: "This Google account has no password set yet. Please login with Google first, then set a password in Profile.",
       });
     }
 
-    // Compare input password with the encrypted passwordHash in database
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
       return res.status(400).json({
@@ -149,23 +155,18 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Login successful, issue JWT token
     const token = generateToken(user._id);
 
-    res.status(200).json({
+    return res.status(200).json({
       message: "Login successful.",
       token,
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        oauthProvider: user.oauthProvider,
-        isNotificationEnabled: user.isNotificationEnabled,
-        autoCaptureEnabled: Boolean(user.autoCaptureEnabled),
-      },
+      user: formatUserPayload(user),
     });
   } catch (error) {
-    res.status(500).json({ message: "Login failed.", error: error.message });
+    return res.status(500).json({
+      message: "Login failed.",
+      error: error.message,
+    });
   }
 };
 
@@ -174,10 +175,8 @@ exports.login = async (req, res) => {
 // ==========================================
 exports.googleAuth = async (req, res) => {
   try {
-    // Receive user details obtained by the frontend from Google OAuth
     let { email, username, oauthId } = req.body;
 
-    // Validate that core Google OAuth data is complete
     if (!email || !oauthId) {
       return res.status(400).json({
         message: "Missing Google authentication data.",
@@ -186,31 +185,24 @@ exports.googleAuth = async (req, res) => {
 
     email = email.trim().toLowerCase();
 
-    // Check if a user with this email already exists in the database
     let user = await User.findOne({ email }).select("+passwordHash");
 
     if (!user) {
-      // Case A: Brand new Google user, automatically create a new account
-      let baseUsername = username ? username.trim().replace(/\s+/g, "_").toLowerCase() : email.split("@")[0];
+      let baseUsername = username ? username.trim() : email.split("@")[0];
 
-      if (baseUsername.length < 5) {
+      if (baseUsername.length < 3) {
         baseUsername = `${baseUsername}_user`;
       }
 
-      // Check if generated username conflicts with existing users; append random digits if needed
       const existingUsername = await User.findOne({ username: baseUsername });
       if (existingUsername) {
         baseUsername = `${baseUsername}_${Math.floor(1000 + Math.random() * 9000)}`;
       }
 
-      // Assign default hashed password ("password123") so the account can also log in via standard password if needed
-      const salt = await bcrypt.genSalt(10);
-      const defaultPasswordHash = await bcrypt.hash("password123", salt);
-
       user = new User({
         username: baseUsername,
         email,
-        passwordHash: defaultPasswordHash,
+        passwordHash: null,
         oauthProvider: "GOOGLE",
         oauthId: String(oauthId),
         isNotificationEnabled: true,
@@ -219,40 +211,23 @@ exports.googleAuth = async (req, res) => {
 
       await user.save();
     } else {
-      // Case B: Existing user, link Google ID if not already linked, and ensure passwordHash is populated
-      let needsSave = false;
-      if (!user.oauthId) {
+      // Link Google OAuth ID if not linked yet while preserving any existing passwordHash
+      if (!user.oauthId || user.oauthProvider !== "GOOGLE") {
         user.oauthId = String(oauthId);
         user.oauthProvider = "GOOGLE";
-        needsSave = true;
-      }
-      if (!user.passwordHash) {
-        const salt = await bcrypt.genSalt(10);
-        user.passwordHash = await bcrypt.hash("password123", salt);
-        needsSave = true;
-      }
-      if (needsSave) {
         await user.save();
       }
     }
 
-    // Generate system JWT token and return to frontend
     const token = generateToken(user._id);
 
-    res.status(200).json({
+    return res.status(200).json({
       message: "Google authentication successful.",
       token,
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        oauthProvider: user.oauthProvider,
-        isNotificationEnabled: user.isNotificationEnabled,
-        autoCaptureEnabled: Boolean(user.autoCaptureEnabled),
-      },
+      user: formatUserPayload(user),
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       message: "Google authentication failed.",
       error: error.message,
     });
@@ -260,59 +235,159 @@ exports.googleAuth = async (req, res) => {
 };
 
 // ==========================================
-// 4. Get & Update User Profile and Notification Settings
+// 4. Get Latest User Profile Details
+// ==========================================
+exports.getUserProfile = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const user = await User.findById(userId).select("+passwordHash");
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+    return res.status(200).json({
+      user: formatUserPayload(user),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to fetch user profile.",
+      error: error.message,
+    });
+  }
+};
+
+// ==========================================
+// 5. Update Profile, Email, Password & Google Bind/Unbind
 // ==========================================
 exports.updateUserProfile = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { username, isNotificationEnabled, autoCaptureEnabled } = req.body;
+    const { username, email, currentPassword, newPassword, bindGoogle, unbindGoogle, isNotificationEnabled, autoCaptureEnabled } = req.body;
 
-    const user = await User.findById(userId);
+    const user = await User.findById(userId).select("+passwordHash");
     if (!user) {
       return res.status(404).json({ message: "User not found." });
     }
 
-    // If user wants to change username, check if the new username is already taken by others
-    if (username && username.trim() !== user.username) {
+    // A. Update Username
+    if (typeof username === "string" && username.trim() !== user.username) {
       const cleanUsername = username.trim();
-      if (cleanUsername.length < 5) {
+      if (cleanUsername.length < 3) {
         return res.status(400).json({
-          message: "Username must be at least 5 characters.",
+          message: "Username must be at least 3 characters.",
         });
       }
-      const taken = await User.findOne({ username: cleanUsername });
-      if (taken) {
-        return res.status(400).json({ message: "Username is already taken." });
+      const takenUser = await User.findOne({
+        username: cleanUsername,
+        _id: { $ne: user._id },
+      });
+      if (takenUser) {
+        return res.status(400).json({
+          message: "Username is already taken by another user.",
+        });
       }
       user.username = cleanUsername;
     }
 
-    // If notification toggle boolean is provided, update the setting
+    // B. Update Email Address
+    if (typeof email === "string" && email.trim().toLowerCase() !== user.email.toLowerCase()) {
+      const cleanEmail = email.trim().toLowerCase();
+      if (!isValidEmail(cleanEmail)) {
+        return res.status(400).json({
+          message: "Please enter a valid email address.",
+        });
+      }
+      const takenEmail = await User.findOne({
+        email: cleanEmail,
+        _id: { $ne: user._id },
+      });
+      if (takenEmail) {
+        return res.status(400).json({
+          message: "This email address is already in use by another account.",
+        });
+      }
+      user.email = cleanEmail;
+    }
+
+    // C. Set or Change Password
+    if (typeof newPassword === "string" && newPassword.length > 0) {
+      if (user.passwordHash) {
+        if (!currentPassword) {
+          return res.status(400).json({
+            message: "Please enter your current password to set a new password.",
+          });
+        }
+        const isCurrentMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+        if (!isCurrentMatch) {
+          return res.status(400).json({
+            message: "Current password is incorrect.",
+          });
+        }
+      }
+
+      if (!isValidPassword(newPassword)) {
+        return res.status(400).json({
+          message: "New password must be at least 8 characters and contain both letters and numbers.",
+        });
+      }
+
+      const salt = await bcrypt.genSalt(10);
+      user.passwordHash = await bcrypt.hash(newPassword, salt);
+    }
+
+    // D. Bind Google Account
+    if (bindGoogle && typeof bindGoogle === "object") {
+      const targetGoogleEmail = (bindGoogle.email || user.email).trim().toLowerCase();
+      const targetOauthId = bindGoogle.oauthId || `google_${targetGoogleEmail}`;
+
+      if (!isValidEmail(targetGoogleEmail)) {
+        return res.status(400).json({
+          message: "Please provide a valid Google email to bind.",
+        });
+      }
+
+      const emailConflict = await User.findOne({
+        email: targetGoogleEmail,
+        _id: { $ne: user._id },
+      });
+      if (emailConflict) {
+        return res.status(400).json({
+          message: "That Google email is already linked to another user.",
+        });
+      }
+
+      user.email = targetGoogleEmail;
+      user.oauthProvider = "GOOGLE";
+      user.oauthId = String(targetOauthId);
+    }
+
+    // E. Unbind Google Account (Safety Lock: Requires password to be set first)
+    if (unbindGoogle === true) {
+      if (!user.passwordHash) {
+        return res.status(400).json({
+          message: "Safety Lock: Please set a login password first before unbinding Google, so you do not lose access to your account.",
+        });
+      }
+      user.oauthProvider = "NONE";
+      user.oauthId = null;
+    }
+
+    // F. Update Notification & Auto-Capture Preferences
     if (typeof isNotificationEnabled === "boolean") {
       user.isNotificationEnabled = isNotificationEnabled;
     }
-
-    // If autoCaptureEnabled toggle boolean is provided, update the setting
     if (typeof autoCaptureEnabled === "boolean") {
       user.autoCaptureEnabled = autoCaptureEnabled;
     }
 
     const updatedUser = await user.save();
 
-    res.status(200).json({
-      message: "Profile updated successfully.",
-      user: {
-        id: updatedUser._id,
-        username: updatedUser.username,
-        email: updatedUser.email,
-        oauthProvider: updatedUser.oauthProvider,
-        isNotificationEnabled: updatedUser.isNotificationEnabled,
-        autoCaptureEnabled: Boolean(updatedUser.autoCaptureEnabled),
-      },
+    return res.status(200).json({
+      message: "Account settings updated successfully.",
+      user: formatUserPayload(updatedUser),
     });
   } catch (error) {
-    res.status(500).json({
-      message: "Failed to update profile.",
+    return res.status(500).json({
+      message: "Failed to update profile settings.",
       error: error.message,
     });
   }

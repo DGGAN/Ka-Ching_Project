@@ -52,13 +52,26 @@ export default function EditTransactionModal({
   return (
     <>
       {/* Modal 2: Transaction Detail Inspection Modal */}
-      <Modal visible={!!detailTx} transparent={true} animationType="fade" onRequestClose={onCloseDetail}>
+      <Modal
+        visible={!!detailTx}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          playUiSound("pop");
+          if (onCloseDetail) onCloseDetail();
+        }}
+      >
         <View style={styles.modalOverlay}>
           {detailTx && (
             <View style={styles.modalCard}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>TRANSACTION DETAILS</Text>
-                <TouchableOpacity onPress={onCloseDetail}>
+                <TouchableOpacity
+                  onPress={() => {
+                    playUiSound("pop");
+                    if (onCloseDetail) onCloseDetail();
+                  }}
+                >
                   <X size={18} color={COLORS.text} strokeWidth={2.5} />
                 </TouchableOpacity>
               </View>
@@ -114,12 +127,24 @@ export default function EditTransactionModal({
               </View>
 
               <View style={styles.modalActionsRow}>
-                <TouchableOpacity style={styles.detailDeleteBtn} onPress={() => onRequestDelete(detailTx)}>
+                <TouchableOpacity
+                  style={styles.detailDeleteBtn}
+                  onPress={() => {
+                    playUiSound("pop");
+                    if (onRequestDelete) onRequestDelete(detailTx);
+                  }}
+                >
                   <Trash2 size={14} color={COLORS.danger} strokeWidth={2.2} />
                   <Text style={styles.detailDeleteBtnText}>DELETE</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.detailEditBtn} onPress={() => onOpenEditModal(detailTx)}>
+                <TouchableOpacity
+                  style={styles.detailEditBtn}
+                  onPress={() => {
+                    playUiSound("pop");
+                    if (onOpenEditModal) onOpenEditModal(detailTx);
+                  }}
+                >
                   <Edit3 size={14} color={COLORS.primaryText} strokeWidth={2.2} />
                   <Text style={styles.detailEditBtnText}>EDIT RECORD</Text>
                 </TouchableOpacity>
@@ -130,12 +155,25 @@ export default function EditTransactionModal({
       </Modal>
 
       {/* Modal 3: Edit Transaction Modal */}
-      <Modal visible={!!editingTx} transparent={true} animationType="fade" onRequestClose={onCloseEdit}>
+      <Modal
+        visible={!!editingTx}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          playUiSound("pop");
+          if (onCloseEdit) onCloseEdit();
+        }}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>EDIT TRANSACTION</Text>
-              <TouchableOpacity onPress={onCloseEdit}>
+              <TouchableOpacity
+                onPress={() => {
+                  playUiSound("pop");
+                  if (onCloseEdit) onCloseEdit();
+                }}
+              >
                 <X size={18} color={COLORS.text} strokeWidth={2.5} />
               </TouchableOpacity>
             </View>
@@ -166,7 +204,7 @@ export default function EditTransactionModal({
                 style={styles.modalCategoryBtn}
                 onPress={() => {
                   playUiSound("pop");
-                  onToggleEditCalendar(true);
+                  if (onToggleEditCalendar) onToggleEditCalendar(true);
                 }}
               >
                 <Calendar size={16} color={COLORS.primary} strokeWidth={2.2} />
@@ -175,7 +213,13 @@ export default function EditTransactionModal({
               </TouchableOpacity>
 
               <Text style={styles.modalLabel}>CATEGORY</Text>
-              <TouchableOpacity style={styles.modalCategoryBtn} onPress={() => onToggleEditCategoryModal(true)}>
+              <TouchableOpacity
+                style={styles.modalCategoryBtn}
+                onPress={() => {
+                  playUiSound("pop");
+                  if (onToggleEditCategoryModal) onToggleEditCategoryModal(true);
+                }}
+              >
                 <CategoryBadge category={editCategory} size={28} iconSize={14} />
                 <Text style={[styles.modalCategoryBtnText, { flex: 1 }]}>{activeEditCatConfig.name || activeEditCatConfig.label}</Text>
                 <ChevronDown size={16} color={COLORS.textMuted} />
@@ -192,7 +236,15 @@ export default function EditTransactionModal({
             </ScrollView>
 
             <View style={[styles.modalActionsRow, { marginTop: 10 }]}>
-              <WireButton label="CANCEL" variant="outline" onPress={onCloseEdit} style={{ flex: 1 }} />
+              <WireButton
+                label="CANCEL"
+                variant="outline"
+                onPress={() => {
+                  playUiSound("pop");
+                  if (onCloseEdit) onCloseEdit();
+                }}
+                style={{ flex: 1 }}
+              />
               {isUpdating ? (
                 <View style={{ flex: 1, alignItems: "center" }}>
                   <ActivityIndicator size="small" color={COLORS.primary} />
@@ -209,17 +261,36 @@ export default function EditTransactionModal({
       <CalendarModal
         visible={showEditCalendar}
         selectedDate={editDate}
-        onSelectDate={(pickedDate) => onChangeEditDate(pickedDate)}
-        onClose={() => onToggleEditCalendar(false)}
+        onSelectDate={(pickedDate) => {
+          playUiSound("pop");
+          if (onChangeEditDate) onChangeEditDate(pickedDate);
+        }}
+        onClose={() => {
+          playUiSound("pop");
+          if (onToggleEditCalendar) onToggleEditCalendar(false);
+        }}
       />
 
       {/* Modal 5: 2-Column Category Selection Modal inside Edit Mode */}
-      <Modal visible={showEditCategoryModal} transparent={true} animationType="fade" onRequestClose={() => onToggleEditCategoryModal(false)}>
+      <Modal
+        visible={showEditCategoryModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          playUiSound("pop");
+          if (onToggleEditCategoryModal) onToggleEditCategoryModal(false);
+        }}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>SELECT NEW CATEGORY</Text>
-              <TouchableOpacity onPress={() => onToggleEditCategoryModal(false)}>
+              <TouchableOpacity
+                onPress={() => {
+                  playUiSound("pop");
+                  if (onToggleEditCategoryModal) onToggleEditCategoryModal(false);
+                }}
+              >
                 <X size={18} color={COLORS.text} strokeWidth={2.5} />
               </TouchableOpacity>
             </View>
@@ -233,8 +304,9 @@ export default function EditTransactionModal({
                       key={catKey}
                       style={[styles.catGridCell, isSelected && styles.catOptionItemActive]}
                       onPress={() => {
-                        onChangeEditCategory(catKey);
-                        onToggleEditCategoryModal(false);
+                        playUiSound("pop");
+                        if (onChangeEditCategory) onChangeEditCategory(catKey);
+                        if (onToggleEditCategoryModal) onToggleEditCategoryModal(false);
                       }}
                     >
                       <CategoryBadge category={catKey} size={24} iconSize={12} />
@@ -252,7 +324,15 @@ export default function EditTransactionModal({
       </Modal>
 
       {/* Modal 6: Delete Confirmation Modal */}
-      <Modal visible={!!deleteTarget} transparent={true} animationType="fade" onRequestClose={onCloseDeleteConfirm}>
+      <Modal
+        visible={!!deleteTarget}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          playUiSound("pop");
+          if (onCloseDeleteConfirm) onCloseDeleteConfirm();
+        }}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.deleteIconHeader}>
@@ -268,7 +348,15 @@ export default function EditTransactionModal({
             </View>
 
             <View style={styles.modalActionsRow}>
-              <WireButton label="CANCEL" variant="outline" onPress={onCloseDeleteConfirm} style={{ flex: 1 }} />
+              <WireButton
+                label="CANCEL"
+                variant="outline"
+                onPress={() => {
+                  playUiSound("pop");
+                  if (onCloseDeleteConfirm) onCloseDeleteConfirm();
+                }}
+                style={{ flex: 1 }}
+              />
               {isDeleting ? (
                 <View style={{ flex: 1, alignItems: "center" }}>
                   <ActivityIndicator size="small" color={COLORS.danger} />

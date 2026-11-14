@@ -9,51 +9,67 @@
 
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { ScanLine, Zap } from "lucide-react-native";
 import { COLORS, SHAPES, FONTS } from "../../../theme/colors";
 import { getCategoryMeta } from "../../../utils/categoryConfig";
+import { playUiSound } from "../../../utils/soundEffects";
 import CategoryBadge from "../../../components/shared/CategoryBadge";
 
-export default function TransactionItem({ tx, onPressItem }) {
+export default function TransactionItem({ tx, item, onPressItem, onPress }) {
   const styles = getStyles();
-  if (!tx) return null;
+  const record = tx || item;
+  if (!record) return null;
 
-  const isIncome = tx.type === "INCOME";
-  const cfg = getCategoryMeta(tx.category);
+  const isIncome = record.type === "INCOME";
+  const cfg = getCategoryMeta(record.category);
 
-  const isOcrSource = tx.source === "OCR";
-  const isNotificationSource = tx.source === "NOTIFICATION";
+  const isOcrSource = record.source === "OCR";
+  const isNotificationSource = record.source === "NOTIFICATION" || record.source === "AUTO";
+
+  const handleRowPress = () => {
+    playUiSound("pop");
+    if (typeof onPressItem === "function") {
+      onPressItem(record);
+    } else if (typeof onPress === "function") {
+      onPress(record);
+    }
+  };
 
   return (
-    <TouchableOpacity style={styles.txItemCard} activeOpacity={0.78} onPress={() => onPressItem && onPressItem(tx)}>
-      <CategoryBadge category={tx.category} size={36} iconSize={17} />
+    <TouchableOpacity style={styles.rowContainer} activeOpacity={0.78} onPress={handleRowPress}>
+      <CategoryBadge category={record.category} size={36} iconSize={17} />
 
-      <View style={styles.txInfoCol}>
+      <View style={{ flex: 1 }}>
         <View style={styles.merchantRow}>
-          <Text style={styles.txMerchant} numberOfLines={1}>
-            {tx.merchantName || tx.merchant || "General"}
+          <Text style={styles.merchantText} numberOfLines={1}>
+            {record.merchantName || record.merchant || "General"}
           </Text>
 
+          {/* OCR Badge for Camera / Gallery Scanned Receipts */}
           {isOcrSource && (
-            <View style={styles.ocrTagPill}>
-              <Text style={styles.ocrTagText}>OCR</Text>
+            <View style={styles.ocrPill}>
+              <ScanLine size={9} color="#D97706" strokeWidth={2.5} />
+              <Text style={styles.ocrPillText}>OCR</Text>
             </View>
           )}
 
+          {/* AUTO Badge for Android Listener / iOS 27 Shortcuts Auto-Captured Notifications */}
           {isNotificationSource && (
-            <View style={styles.autoTagPill}>
-              <Text style={styles.autoTagText}>AUTO</Text>
+            <View style={styles.autoPill}>
+              <Zap size={9} color="#15803D" strokeWidth={2.5} />
+              <Text style={styles.autoPillText}>AUTO</Text>
             </View>
           )}
         </View>
 
-        <Text style={styles.txCategory} numberOfLines={1}>
+        <Text style={styles.categorySubText} numberOfLines={1}>
           {cfg.name || cfg.label}
-          {tx.description ? ` • ${tx.description}` : ""}
+          {record.description ? ` • ${record.description}` : ""}
         </Text>
       </View>
 
-      <Text style={[styles.txAmount, { color: isIncome ? "#16A34A" : "#E11D48" }]}>
-        {isIncome ? "+" : "-"}RM {Number(tx.amount || 0).toFixed(2)}
+      <Text style={[styles.amountText, { color: isIncome ? "#16A34A" : "#E11D48" }]}>
+        {isIncome ? "+" : "-"}RM {Number(record.amount || 0).toFixed(2)}
       </Text>
     </TouchableOpacity>
   );
@@ -61,68 +77,71 @@ export default function TransactionItem({ tx, onPressItem }) {
 
 const getStyles = () =>
   StyleSheet.create({
-    txItemCard: {
+    rowContainer: {
       flexDirection: "row",
       alignItems: "center",
-      borderWidth: SHAPES.borderWidth,
-      borderColor: COLORS.border,
-      borderRadius: SHAPES.cardRadius,
-      backgroundColor: COLORS.card,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      marginBottom: 8,
       gap: 11,
-    },
-    txInfoCol: {
-      flex: 1,
+      borderWidth: 1.5,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.inputRadius,
+      backgroundColor: COLORS.card,
+      paddingHorizontal: 11,
+      paddingVertical: 10,
+      marginBottom: 7,
     },
     merchantRow: {
       flexDirection: "row",
       alignItems: "center",
       gap: 6,
     },
-    txMerchant: {
+    merchantText: {
       fontFamily: FONTS.mono,
       fontSize: 11.5,
       fontWeight: "bold",
       color: COLORS.text,
       flexShrink: 1,
     },
-    ocrTagPill: {
-      backgroundColor: "#FEF08A",
+    ocrPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 3,
       borderWidth: 1,
-      borderColor: "#121212",
+      borderColor: "#D97706",
       borderRadius: 4,
-      paddingHorizontal: 4,
-      paddingVertical: 1,
-    },
-    ocrTagText: {
-      fontFamily: FONTS.mono,
-      fontSize: 6.5,
-      fontWeight: "bold",
-      color: "#121212",
-    },
-    autoTagPill: {
-      backgroundColor: "#DCFCE7",
-      borderWidth: 1,
-      borderColor: "#15803D",
-      borderRadius: 4,
+      backgroundColor: "#FEF3C7",
       paddingHorizontal: 5,
       paddingVertical: 1,
     },
-    autoTagText: {
+    ocrPillText: {
       fontFamily: FONTS.mono,
-      fontSize: 6.5,
+      fontSize: 7,
+      fontWeight: "bold",
+      color: "#D97706",
+    },
+    autoPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 3,
+      borderWidth: 1,
+      borderColor: "#15803D",
+      borderRadius: 4,
+      backgroundColor: "#DCFCE7",
+      paddingHorizontal: 5,
+      paddingVertical: 1,
+    },
+    autoPillText: {
+      fontFamily: FONTS.mono,
+      fontSize: 7,
       fontWeight: "bold",
       color: "#15803D",
     },
-    txCategory: {
+    categorySubText: {
       fontFamily: FONTS.mono,
       fontSize: 8.5,
       color: COLORS.textMuted,
       marginTop: 2,
     },
-    txAmount: {
+    amountText: {
       fontFamily: FONTS.mono,
       fontSize: 11.5,
       fontWeight: "bold",
