@@ -7,6 +7,7 @@
 
 const axios = require("axios");
 const { classifyTransactionCategory } = require("../utils/merchantCategorizer");
+const logger = require("../utils/logger");
 
 // Helper 1: Extract true merchant name while skipping Bank / Card Terminal / Acquirer headers (e.g. Boost, CIMB Bank, Maybank)
 function extractMerchantFromText(lines = []) {
@@ -178,7 +179,7 @@ exports.scanReceipts = async (req, res) => {
       });
     }
 
-    const visionApiKey = process.env.GOOGLE_VISION_API_KEY || process.env.GOOGLE_CLOUD_VISION_KEY;
+    const visionApiKey = process.env.GOOGLE_VISION_API_KEY;
 
     const extractedResults = [];
 
@@ -211,7 +212,7 @@ exports.scanReceipts = async (req, res) => {
             confidenceScore = 0.94;
           }
         } catch (visionErr) {
-          console.log("Google Vision API notice:", visionErr.message);
+          logger.warn("OCR_VISION_API", "Google Vision API request notice", visionErr.message);
         }
       }
 
@@ -219,6 +220,9 @@ exports.scanReceipts = async (req, res) => {
         .split(/\r?\n/)
         .map((l) => l.trim())
         .filter(Boolean);
+
+      // Verbose raw OCR lines only printed in development mode or when DEBUG_LOGS=true
+      logger.debug("OCR_RAW_LINES", `Receipt #${i + 1} extracted lines:`, lines);
 
       let merchantName = extractMerchantFromText(lines);
       let amount = extractTotalAmountFromText(rawText, lines);
@@ -244,6 +248,12 @@ exports.scanReceipts = async (req, res) => {
         amount = classification.aiEnhancedAmount;
       }
 
+      // Concise summary log printed in both development and production
+      logger.info(
+        "OCR_SCAN",
+        `Receipt #${i + 1} parsed -> Merchant: "${merchantName}", Amount: RM ${Number(amount || 0).toFixed(2)}, Date: ${dateIso.slice(0, 10)}, Category: ${classification.category} (${classification.matchedTier})`,
+      );
+
       extractedResults.push({
         merchantName,
         amount,
@@ -261,6 +271,7 @@ exports.scanReceipts = async (req, res) => {
       data: Array.isArray(images) ? extractedResults : extractedResults[0],
     });
   } catch (error) {
+    logger.error("OCR_SCAN", "Failed to process receipt via OCR", error);
     return res.status(500).json({
       success: false,
       message: "Failed to process receipt via OCR.",

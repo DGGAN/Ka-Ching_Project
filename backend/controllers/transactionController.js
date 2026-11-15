@@ -1,7 +1,15 @@
-// Import the Transaction model, AI analytics engine, and notification trigger helper
+/**
+ * @file backend/controllers/transactionController.js
+ * @layer Backend Controller (Transaction CRUD + Smart Notification Auto-Capture & 4-Tier Categorizer)
+ * @description Manages manual and OCR transaction creation, multi-filter paginated retrieval, updates, deletions, PDPA opt-in auto-capture toggles, and background payment notification ingestion via the shared 4-Tier merchantCategorizer engine.
+ * @exports createTransaction, getTransactions, updateTransaction, deleteTransaction, getAutoCaptureStatus, toggleAutoCaptureSetting, autoCaptureNotification
+ */
+
+// Import the Transaction model, AI analytics engine, notification trigger helper, and clean logger
 const Transaction = require("../models/Transaction");
 const { runAnalyticsEngine } = require("./analyticsController");
 const { triggerTransactionNotifications } = require("./notificationController");
+const logger = require("../utils/logger");
 
 // 1. Create a new manual or OCR transaction (POST /api/transactions)
 exports.createTransaction = async (req, res) => {
@@ -57,18 +65,23 @@ exports.createTransaction = async (req, res) => {
 
     const savedTransaction = await newTransaction.save();
 
+    logger.info(
+      "TX_CREATE",
+      `Created ${savedTransaction.type} (${savedTransaction.source}) -> Merchant: "${savedTransaction.merchantName}", Amount: RM ${savedTransaction.amount.toFixed(2)}, Category: ${savedTransaction.category}`,
+    );
+
     // Step 4: Trigger AI analytics engine to recalculate linear regression forecast
     try {
       await runAnalyticsEngine(userId);
     } catch (analyticsErr) {
-      console.log("Background analytics update warning:", analyticsErr.message);
+      logger.warn("TX_CREATE", "Background analytics update warning", analyticsErr.message);
     }
 
     // Step 5: Trigger automatic TXN, OCR, or Budget Overrun (80% / 100%) notifications
     try {
       await triggerTransactionNotifications(savedTransaction, false);
     } catch (notifyErr) {
-      console.log("Background notification trigger warning:", notifyErr.message);
+      logger.warn("TX_CREATE", "Background notification trigger warning", notifyErr.message);
     }
 
     // Step 6: Return HTTP 201 Created response with saved transaction
@@ -77,6 +90,7 @@ exports.createTransaction = async (req, res) => {
       data: savedTransaction,
     });
   } catch (error) {
+    logger.error("TX_CREATE", "Failed to create transaction", error);
     res.status(500).json({
       message: "Failed to create transaction.",
       error: error.message,
@@ -153,6 +167,8 @@ exports.getTransactions = async (req, res) => {
         Transaction.countDocuments(query),
       ]);
 
+      logger.debug("TX_FETCH", `Fetched page ${pageNum} (${items.length}/${totalCount} records) for userId=${userId}`);
+
       return res.status(200).json({
         message: "Paginated transactions fetched successfully.",
         data: items,
@@ -169,6 +185,8 @@ exports.getTransactions = async (req, res) => {
       createdAt: -1,
     });
 
+    logger.debug("TX_FETCH", `Fetched ${transactions.length} transactions for userId=${userId}`);
+
     res.status(200).json({
       message: "Transactions fetched successfully.",
       data: transactions,
@@ -176,6 +194,7 @@ exports.getTransactions = async (req, res) => {
       hasMore: false,
     });
   } catch (error) {
+    logger.error("TX_FETCH", "Failed to fetch transactions", error);
     res.status(500).json({
       message: "Failed to fetch transactions.",
       error: error.message,
@@ -218,7 +237,10 @@ exports.updateTransaction = async (req, res) => {
     if (status !== undefined) updateFields.status = status;
 
     // Step 3: Execute findByIdAndUpdate in MongoDB using returnDocument: 'after'
-    const updatedTransaction = await Transaction.findByIdAndUpdate(id, updateFields, { returnDocument: "after", runValidators: true });
+    const updatedTransaction = await Transaction.findByIdAndUpdate(id, updateFields, {
+      returnDocument: "after",
+      runValidators: true,
+    });
 
     // Validation 3: Check if the transaction document existed
     if (!updatedTransaction) {
@@ -227,12 +249,17 @@ exports.updateTransaction = async (req, res) => {
       });
     }
 
+    logger.info(
+      "TX_UPDATE",
+      `Updated transaction ${id} -> Merchant: "${updatedTransaction.merchantName}", Amount: RM ${updatedTransaction.amount.toFixed(2)}, Category: ${updatedTransaction.category}`,
+    );
+
     // Step 4: Re-run AI analytics engine and sync budget alert notifications
     try {
       await runAnalyticsEngine(updatedTransaction.userId);
       await triggerTransactionNotifications(updatedTransaction, true);
     } catch (bgErr) {
-      console.log("Background update sync warning:", bgErr.message);
+      logger.warn("TX_UPDATE", "Background update sync warning", bgErr.message);
     }
 
     // Step 5: Return updated transaction document
@@ -241,6 +268,7 @@ exports.updateTransaction = async (req, res) => {
       data: updatedTransaction,
     });
   } catch (error) {
+    logger.error("TX_UPDATE", `Failed to update transaction ${req.params.id}`, error);
     res.status(500).json({
       message: "Failed to update transaction.",
       error: error.message,
@@ -271,12 +299,14 @@ exports.deleteTransaction = async (req, res) => {
       });
     }
 
+    logger.info("TX_DELETE", `Deleted transaction ${id} ("${deletedTransaction.merchantName}", RM ${Number(deletedTransaction.amount).toFixed(2)})`);
+
     // Step 3: Re-run AI analytics engine and sync budget alert notifications after deletion
     try {
       await runAnalyticsEngine(deletedTransaction.userId);
       await triggerTransactionNotifications(deletedTransaction, true);
     } catch (bgErr) {
-      console.log("Background delete sync warning:", bgErr.message);
+      logger.warn("TX_DELETE", "Background delete sync warning", bgErr.message);
     }
 
     // Step 4: Return deletion confirmation
@@ -284,6 +314,7 @@ exports.deleteTransaction = async (req, res) => {
       message: "Transaction deleted successfully.",
     });
   } catch (error) {
+    logger.error("TX_DELETE", `Failed to delete transaction ${req.params.id}`, error);
     res.status(500).json({
       message: "Failed to delete transaction.",
       error: error.message,
@@ -311,6 +342,7 @@ exports.getAutoCaptureStatus = async (req, res) => {
       autoCaptureEnabled: Boolean(user.autoCaptureEnabled),
     });
   } catch (error) {
+    logger.error("AUTO_CAPTURE", "Failed to fetch auto-capture status", error);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch auto-capture status.",
@@ -329,12 +361,15 @@ exports.toggleAutoCaptureSetting = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
+    logger.info("AUTO_CAPTURE", `User ${user.email} toggled Smart Auto-Capture -> ${user.autoCaptureEnabled ? "ENABLED" : "DISABLED"}`);
+
     return res.status(200).json({
       success: true,
       autoCaptureEnabled: Boolean(user.autoCaptureEnabled),
       message: user.autoCaptureEnabled ? "Smart Auto-Capture is now ENABLED." : "Smart Auto-Capture is now DISABLED.",
     });
   } catch (error) {
+    logger.error("AUTO_CAPTURE", "Failed to toggle auto-capture setting", error);
     return res.status(500).json({
       success: false,
       message: "Failed to toggle auto-capture setting.",
@@ -346,6 +381,15 @@ exports.toggleAutoCaptureSetting = async (req, res) => {
 exports.autoCaptureNotification = async (req, res) => {
   try {
     const { userId, title = "", text = "", packageName = "", platform = "ANDROID_LISTENER" } = req.body;
+
+    // Verbose raw notification payload only printed in development mode or when DEBUG_LOGS=true
+    logger.debug("AUTO_CAPTURE_PAYLOAD", "Incoming notification payload:", {
+      userId,
+      title,
+      text,
+      packageName,
+      platform,
+    });
 
     if (!userId || !text) {
       return res.status(400).json({
@@ -360,6 +404,7 @@ exports.autoCaptureNotification = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found." });
     }
     if (!user.autoCaptureEnabled) {
+      logger.debug("AUTO_CAPTURE", `Blocked notification for ${user.email}: autoCaptureEnabled is FALSE`);
       return res.status(403).json({
         success: false,
         autoCaptureEnabled: false,
@@ -375,6 +420,7 @@ exports.autoCaptureNotification = async (req, res) => {
       packageName,
     });
     if (!parsed) {
+      logger.debug("AUTO_CAPTURE", "No valid RM amount detected in notification text", text);
       return res.status(422).json({
         success: false,
         message: "No valid RM payment amount detected in notification text.",
@@ -391,6 +437,7 @@ exports.autoCaptureNotification = async (req, res) => {
     });
 
     if (duplicate) {
+      logger.debug("AUTO_CAPTURE", `Skipped duplicate notification within 60s: ${parsed.merchantName} (RM ${parsed.amount})`);
       return res.status(200).json({
         success: true,
         duplicateSkipped: true,
@@ -414,6 +461,11 @@ exports.autoCaptureNotification = async (req, res) => {
       status: "VERIFIED",
       confidenceScore: 0.98,
     });
+
+    logger.info(
+      "AUTO_CAPTURE",
+      `Auto-captured ${parsed.type} -> Merchant: "${parsed.merchantName}", Amount: RM ${parsed.amount.toFixed(2)}, Category: ${parsed.category} (${parsed.matchedTier})`,
+    );
 
     // STEP 5: Non-blocking in-app notification & budget threshold check
     try {
@@ -463,7 +515,7 @@ exports.autoCaptureNotification = async (req, res) => {
         }
       }
     } catch (nonCriticalErr) {
-      console.log("Auto-capture notification notice:", nonCriticalErr.message);
+      logger.warn("AUTO_CAPTURE", "Auto-capture notification notice", nonCriticalErr.message);
     }
 
     return res.status(201).json({
@@ -473,6 +525,7 @@ exports.autoCaptureNotification = async (req, res) => {
       message: `Auto-captured RM ${parsed.amount.toFixed(2)} at ${parsed.merchantName} (${parsed.category.replace(/_/g, " ")})!`,
     });
   } catch (error) {
+    logger.error("AUTO_CAPTURE", "Failed to process auto-captured notification", error);
     return res.status(500).json({
       success: false,
       message: "Failed to process auto-captured notification.",

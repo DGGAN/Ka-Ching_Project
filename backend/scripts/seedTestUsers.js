@@ -15,7 +15,7 @@ const Budget = require("../models/Budget");
 const Notification = require("../models/Notification");
 const AllInsightsPrediction = require("../models/AllInsightsPrediction");
 
-const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/kaching";
+const MONGO_URI = process.env.MONGO_URI;
 
 const makeDate = (monthOffset, dayOfMonth, hour = 13, minute = 30) => {
   const now = new Date();

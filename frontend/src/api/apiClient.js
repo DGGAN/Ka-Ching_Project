@@ -10,7 +10,7 @@ import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const resolveBaseApiUrl = () => {
-  const envUrl = process.env.EXPO_PUBLIC_API_URL || "http://localhost:5000/api";
+  const envUrl = process.env.EXPO_PUBLIC_API_URL;
 
   if (Platform.OS === "web") {
     return envUrl;

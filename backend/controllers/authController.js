@@ -1,17 +1,20 @@
 /**
  * @file backend/controllers/authController.js
  * @layer Backend Controller (Authentication & Account Security Management)
- * @description Handles registration, dual-mode login (Email/Password + Google OAuth), profile updates (username & email), password setup/change, and Google account binding/unbinding.
- * @exports register, login, googleAuth, getUserProfile, updateUserProfile
+ * @description Handles registration, dual-mode login (Email/Password + Google OAuth), profile updates (username & email), password setup/change, Google account binding/unbinding, and 2-step OTP password recovery.
+ * @exports register, login, googleAuth, getUserProfile, updateUserProfile, forgotPasswordRequest, resetPasswordWithOtp
  */
 
 const User = require("../models/User");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
+const { isEmailServiceConfigured, sendPasswordResetEmail } = require("../utils/emailSender");
+const logger = require("../utils/logger");
 
 // Generate a JWT token valid for 30 days
 const generateToken = (userId) => {
-  return jwt.sign({ id: userId }, process.env.JWT_SECRET || "kaching_secret_key", {
+  return jwt.sign({ id: userId }, process.env.JWT_SECRET, {
     expiresIn: "30d",
   });
 };
@@ -105,12 +108,15 @@ exports.register = async (req, res) => {
     const savedUser = await newUser.save();
     const token = generateToken(savedUser._id);
 
+    logger.info("AUTH_REGISTER", `New user registered: ${savedUser.email} (${savedUser.username})`);
+
     return res.status(201).json({
       message: "User registered successfully.",
       token,
       user: formatUserPayload(savedUser),
     });
   } catch (error) {
+    logger.error("AUTH_REGISTER", "Registration failed", error);
     return res.status(500).json({
       message: "Registration failed.",
       error: error.message,
@@ -136,6 +142,7 @@ exports.login = async (req, res) => {
     // Explicitly include passwordHash even if User model sets select: false
     const user = await User.findOne({ email }).select("+passwordHash");
     if (!user) {
+      logger.debug("AUTH_LOGIN", `Login failed: email not found (${email})`);
       return res.status(404).json({
         message: "Invalid email or password.",
       });
@@ -150,12 +157,14 @@ exports.login = async (req, res) => {
 
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
+      logger.debug("AUTH_LOGIN", `Login failed: invalid password for ${email}`);
       return res.status(400).json({
         message: "Invalid email or password.",
       });
     }
 
     const token = generateToken(user._id);
+    logger.info("AUTH_LOGIN", `User logged in via password: ${user.email}`);
 
     return res.status(200).json({
       message: "Login successful.",
@@ -163,6 +172,7 @@ exports.login = async (req, res) => {
       user: formatUserPayload(user),
     });
   } catch (error) {
+    logger.error("AUTH_LOGIN", "Password login error", error);
     return res.status(500).json({
       message: "Login failed.",
       error: error.message,
@@ -210,6 +220,7 @@ exports.googleAuth = async (req, res) => {
       });
 
       await user.save();
+      logger.info("AUTH_GOOGLE", `New Google OAuth account created: ${user.email}`);
     } else {
       // Link Google OAuth ID if not linked yet while preserving any existing passwordHash
       if (!user.oauthId || user.oauthProvider !== "GOOGLE") {
@@ -217,6 +228,7 @@ exports.googleAuth = async (req, res) => {
         user.oauthProvider = "GOOGLE";
         await user.save();
       }
+      logger.info("AUTH_GOOGLE", `User logged in via Google OAuth: ${user.email}`);
     }
 
     const token = generateToken(user._id);
@@ -227,6 +239,7 @@ exports.googleAuth = async (req, res) => {
       user: formatUserPayload(user),
     });
   } catch (error) {
+    logger.error("AUTH_GOOGLE", "Google authentication failed", error);
     return res.status(500).json({
       message: "Google authentication failed.",
       error: error.message,
@@ -248,6 +261,7 @@ exports.getUserProfile = async (req, res) => {
       user: formatUserPayload(user),
     });
   } catch (error) {
+    logger.error("AUTH_PROFILE", `Failed to fetch profile for userId=${req.params.userId}`, error);
     return res.status(500).json({
       message: "Failed to fetch user profile.",
       error: error.message,
@@ -380,12 +394,14 @@ exports.updateUserProfile = async (req, res) => {
     }
 
     const updatedUser = await user.save();
+    logger.info("AUTH_PROFILE", `Account settings updated for user: ${updatedUser.email}`);
 
     return res.status(200).json({
       message: "Account settings updated successfully.",
       user: formatUserPayload(updatedUser),
     });
   } catch (error) {
+    logger.error("AUTH_PROFILE", "Failed to update profile settings", error);
     return res.status(500).json({
       message: "Failed to update profile settings.",
       error: error.message,
@@ -394,15 +410,13 @@ exports.updateUserProfile = async (req, res) => {
 };
 
 // ==========================================
-// 5. Request Password Reset OTP (Strict SMTP Check + DB Account Check + 60s Cooldown)
+// 6. Request Password Reset OTP (Strict SMTP Check + DB Account Check + 60s Cooldown)
 // ==========================================
 exports.forgotPasswordRequest = async (req, res) => {
   try {
-    const crypto = require("crypto");
-    const { isEmailServiceConfigured, sendPasswordResetEmail } = require("../utils/emailSender");
-
     // 1. Check if SMTP email credentials are configured in backend/.env
     if (!isEmailServiceConfigured()) {
+      logger.warn("AUTH_OTP", "Password reset requested while SMTP is unconfigured");
       return res.status(503).json({
         message: "Password recovery email service is currently unavailable. Please try again later.",
       });
@@ -420,6 +434,7 @@ exports.forgotPasswordRequest = async (req, res) => {
     // 2. Verify account exists in MongoDB before sending any email
     const user = await User.findOne({ email: cleanEmail });
     if (!user) {
+      logger.debug("AUTH_OTP", `Password reset blocked: unregistered email (${cleanEmail})`);
       return res.status(404).json({
         message: "No account was found with this email address.",
       });
@@ -450,22 +465,22 @@ exports.forgotPasswordRequest = async (req, res) => {
     user.resetPasswordRequestedAt = new Date(now);
     await user.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       message: `A 6-digit verification code has been sent to ${user.email}.`,
     });
   } catch (error) {
-    res.status(503).json({
+    logger.error("AUTH_OTP", "Failed to process forgot-password request", error);
+    return res.status(503).json({
       message: "Password recovery email service is currently unavailable. Please try again later.",
     });
   }
 };
 
 // ==========================================
-// 6. Verify 6-Digit OTP & Reset Password
+// 7. Verify 6-Digit OTP & Reset Password
 // ==========================================
 exports.resetPasswordWithOtp = async (req, res) => {
   try {
-    const crypto = require("crypto");
     let { email, otpCode, newPassword } = req.body;
 
     if (!email || !otpCode || !newPassword) {
@@ -477,9 +492,7 @@ exports.resetPasswordWithOtp = async (req, res) => {
     const cleanEmail = email.trim().toLowerCase();
     const cleanOtp = String(otpCode).trim();
 
-    // Validate new password strength (min 8 chars, letters + numbers)
-    const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
-    if (!passwordRegex.test(newPassword)) {
+    if (!isValidPassword(newPassword)) {
       return res.status(400).json({
         message: "New password must be at least 8 characters and include both letters and numbers.",
       });
@@ -503,6 +516,7 @@ exports.resetPasswordWithOtp = async (req, res) => {
 
     const incomingHash = crypto.createHash("sha256").update(cleanOtp).digest("hex");
     if (incomingHash !== user.resetPasswordOtpHash) {
+      logger.debug("AUTH_OTP", `Invalid OTP attempt for ${cleanEmail}`);
       return res.status(400).json({
         message: "Invalid 6-digit verification code. Please check and try again.",
       });
@@ -516,11 +530,14 @@ exports.resetPasswordWithOtp = async (req, res) => {
     user.resetPasswordRequestedAt = null;
     await user.save();
 
-    res.status(200).json({
+    logger.info("AUTH_OTP", `Password successfully reset via OTP for ${user.email}`);
+
+    return res.status(200).json({
       message: "Password reset successful! You can now login with your new password.",
     });
   } catch (error) {
-    res.status(500).json({
+    logger.error("AUTH_OTP", "Failed to reset password with OTP", error);
+    return res.status(500).json({
       message: "Failed to reset password.",
       error: error.message,
     });

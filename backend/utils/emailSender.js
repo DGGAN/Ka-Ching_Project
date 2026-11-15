@@ -1,11 +1,13 @@
 /**
  * @file backend/utils/emailSender.js
- * @description Sends branded pure-HTML password-reset OTP emails via Nodemailer (Gmail SMTP) with zero file/image attachments. Throws a service-unavailable error if SMTP credentials are not configured.
+ * @description Sends branded pure-HTML password-reset OTP emails via Nodemailer (Gmail SMTP) with zero file/image attachments and structured logger support.
  */
 
 const nodemailer = require("nodemailer");
+const logger = require("./logger");
 
 /**
+ * Generates the Retro-Modern Khaki pure-HTML Email Template for Ka-Ching! (Zero image attachments)
  * @param {string} username - Recipient's display name
  * @param {string} otpCode - 6-digit verification code
  */
@@ -80,6 +82,7 @@ exports.sendPasswordResetEmail = async ({ toEmail, username, otpCode }) => {
   const smtpPass = process.env.SMTP_PASS?.trim();
 
   if (!smtpUser || !smtpPass) {
+    logger.warn("EMAIL_OTP", "SMTP credentials missing in backend/.env");
     const configErr = new Error("Password recovery email service is currently unavailable.");
     configErr.code = "EMAIL_SERVICE_UNAVAILABLE";
     throw configErr;
@@ -93,14 +96,22 @@ exports.sendPasswordResetEmail = async ({ toEmail, username, otpCode }) => {
     },
   });
 
-  await transporter.sendMail({
-    from: `"Ka-Ching!" <${smtpUser}>`,
-    to: toEmail,
-    subject: `[Ka-Ching!] ${otpCode} is your password reset code`,
-    html: buildResetOtpEmailHtml(username, otpCode),
-  });
+  try {
+    await transporter.sendMail({
+      from: `"Ka-Ching!" <${smtpUser}>`,
+      to: toEmail,
+      subject: `[Ka-Ching!] ${otpCode} is your password reset code`,
+      html: buildResetOtpEmailHtml(username, otpCode),
+    });
 
-  return {
-    deliveredVia: "SMTP_EMAIL",
-  };
+    // Log delivery success without exposing the plaintext OTP code in production logs
+    logger.info("EMAIL_OTP", `Password reset verification email sent to ${toEmail}`);
+
+    return {
+      deliveredVia: "SMTP_EMAIL",
+    };
+  } catch (smtpErr) {
+    logger.error("EMAIL_OTP", `Failed to send OTP email to ${toEmail}`, smtpErr);
+    throw smtpErr;
+  }
 };

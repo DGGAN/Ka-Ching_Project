@@ -1,7 +1,15 @@
-// Import Transaction, Budget, and AllInsightsPrediction models
+/**
+ * @file backend/controllers/analyticsController.js
+ * @layer Backend Controller (Anchored Linear Regression Forecasting & 90-Day Habit Mining Engine)
+ * @description Computes month-end spending predictions using Least Squares Linear Regression, mines 90-day spending habits (top merchant, category, and weekend ratio), generates actionable checklists, and upserts snapshots into the AllInsightsPrediction collection.
+ * @exports getAnalytics, runAnalyticsEngine
+ */
+
+// Import Transaction, Budget, AllInsightsPrediction models, and clean logger
 const Transaction = require("../models/Transaction");
 const Budget = require("../models/Budget");
 const AllInsightsPrediction = require("../models/AllInsightsPrediction");
+const logger = require("../utils/logger");
 
 // Minimum thresholds required before switching from starter estimation to full trend line
 const MIN_TX_FOR_REGRESSION = 5;
@@ -299,8 +307,13 @@ const runAnalyticsEngine = async (userId) => {
       { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
     );
   } catch (dbSyncErr) {
-    console.log("Prediction snapshot sync note:", dbSyncErr.message);
+    logger.warn("ANALYTICS_SYNC", "Prediction snapshot sync warning", dbSyncErr.message);
   }
+
+  logger.debug(
+    "ANALYTICS_ENGINE",
+    `Computed forecast for userId=${userId} -> Spent: RM ${thisMonthExpense.toFixed(2)}, Predicted Month-End: RM ${predictedMonthEnd.toFixed(2)}, Slope: ${effectiveSlope}, ColdStart: ${isColdStart}`,
+  );
 
   // Step 9: Return complete analytics payload
   return {
@@ -346,6 +359,7 @@ exports.getAnalytics = async (req, res) => {
       data: analyticsData,
     });
   } catch (error) {
+    logger.error("ANALYTICS_GET", `Failed to compute AI analytics for userId=${req.params.userId}`, error);
     res.status(500).json({
       message: "Failed to compute AI analytics.",
       error: error.message,

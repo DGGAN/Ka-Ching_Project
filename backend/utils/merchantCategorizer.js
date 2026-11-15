@@ -7,6 +7,7 @@
 
 const axios = require("axios");
 const Transaction = require("../models/Transaction");
+const logger = require("./logger");
 
 // ============================================================================
 // TIER 2: MALAYSIAN BRAND & ROOT-WORD DICTIONARY (Instant 0ms Match)
@@ -59,6 +60,7 @@ const MERCHANT_BRAND_RULES = [
   {
     category: "FOOD_AND_BEVERAGE",
     keywords: [
+      "western food",
       "oh yeah kopitiam",
       "kopitiam",
       "oriental kopi",
@@ -555,8 +557,10 @@ const RECEIPT_CONTEXT_SIGNALS = [
       "bungkus",
       "table no",
       "pax:",
+      "cover:",
       "waiter",
       "service charge",
+      "service tax",
       "srv chg",
       "nasi lemak",
       "nasi goreng",
@@ -564,12 +568,15 @@ const RECEIPT_CONTEXT_SIGNALS = [
       "bihun",
       "kuey teow",
       "ayam",
+      "chicken chop",
+      "carbonara",
       "roti bakar",
       "roti canai",
       "tomyam",
       "sambal",
       "teh tarik",
       "teh ais",
+      "lemon tea",
       "kopi o",
       "milo",
       "latte",
@@ -679,6 +686,7 @@ function classifyByLocalDictionaryAndContext(merchantName = "", rawText = "", tx
   for (const rule of MERCHANT_BRAND_RULES) {
     for (const kw of rule.keywords) {
       if (merchantLower.includes(kw)) {
+        logger.debug("CATEGORIZER", `Tier 2A (Merchant Brand Dict) matched keyword "${kw}" -> ${rule.category}`);
         return { category: rule.category, matchedTier: "TIER_2_DICTIONARY" };
       }
     }
@@ -688,6 +696,7 @@ function classifyByLocalDictionaryAndContext(merchantName = "", rawText = "", tx
   for (const rule of MERCHANT_BRAND_RULES) {
     for (const kw of rule.keywords) {
       if (combinedLower.includes(kw)) {
+        logger.debug("CATEGORIZER", `Tier 2B (Full-Text Brand Dict) matched keyword "${kw}" -> ${rule.category}`);
         return { category: rule.category, matchedTier: "TIER_2_DICTIONARY" };
       }
     }
@@ -711,6 +720,7 @@ function classifyByLocalDictionaryAndContext(merchantName = "", rawText = "", tx
   }
 
   if (bestCategory && bestScore >= 1) {
+    logger.debug("CATEGORIZER", `Tier 3 (Context Scoring) matched with score=${bestScore} -> ${bestCategory}`);
     return { category: bestCategory, matchedTier: "TIER_3_CONTEXT_SCORING" };
   }
 
@@ -739,10 +749,11 @@ async function lookupUserHistoricalCategory(userId, merchantName, txType = "EXPE
       .lean();
 
     if (pastTx && pastTx.category) {
+      logger.debug("CATEGORIZER", `Tier 1 (User History Memory) matched "${cleanName}" -> ${pastTx.category}`);
       return pastTx.category;
     }
   } catch (err) {
-    // Non-blocking fallback if DB query fails
+    logger.warn("CATEGORIZER", "Tier 1 history lookup skipped", err.message);
   }
   return null;
 }
@@ -764,7 +775,7 @@ Given the following text from a receipt or card payment slip, extract:
 2. "amount": Numeric total amount paid (number only, or null if not found).
 3. "category": Must be EXACTLY ONE of these enum keys: ${JSON.stringify(allowedCategories)}.
 
-Return ONLY valid JSON: {"merchantName": "...", "amount": 49.30, "category": "..."}
+Return ONLY valid JSON: {"merchantName": "...", "amount": 91.15, "category": "..."}
 
 Receipt/Notification Text:
 """
@@ -789,6 +800,7 @@ ${String(rawText).slice(0, 1800)}
     const parsed = JSON.parse(textOut);
 
     if (parsed && allowedCategories.includes(parsed.category)) {
+      logger.debug("CATEGORIZER", `Tier 4 (Gemini AI) classified "${parsed.merchantName}" -> ${parsed.category}`);
       return {
         merchantName: parsed.merchantName || fallbackMerchant || "Scanned Receipt",
         amount: typeof parsed.amount === "number" && parsed.amount > 0 ? Number(parsed.amount.toFixed(2)) : null,
@@ -797,7 +809,7 @@ ${String(rawText).slice(0, 1800)}
       };
     }
   } catch (aiErr) {
-    // Gracefully fall back to local dictionary/context result if API key is missing or rate-limited
+    logger.warn("CATEGORIZER", "Tier 4 Gemini AI fallback skipped or failed", aiErr.message);
   }
   return null;
 }
@@ -921,6 +933,11 @@ async function parsePaymentNotificationText({ userId = null, title = "", text = 
   }
 
   const budgetType = txType === "EXPENSE" ? Transaction.BUDGET_TYPE_MAP?.[classification.category] || "WANTS" : "NONE";
+
+  logger.debug(
+    "NOTIFICATION_PARSER",
+    `Parsed notification -> Merchant: "${merchantName}", Amount: RM ${Number(parsedAmount).toFixed(2)}, Type: ${txType}, Category: ${classification.category} (${classification.matchedTier})`,
+  );
 
   return {
     amount: Number(parsedAmount.toFixed(2)),

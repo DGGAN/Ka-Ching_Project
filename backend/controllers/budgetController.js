@@ -7,6 +7,7 @@
 
 const Budget = require("../models/Budget");
 const Notification = require("../models/Notification");
+const logger = require("../utils/logger");
 
 exports.setBudget = async (req, res) => {
   try {
@@ -48,6 +49,11 @@ exports.setBudget = async (req, res) => {
       { returnDocument: "after", upsert: true },
     );
 
+    logger.info(
+      "BUDGET_SET",
+      `Saved ${budget.presetName} (${budget.needsPct}/${budget.wantsPct}/${budget.savingsPct}) for userId=${userId} (${targetYear}-${String(targetMonth).padStart(2, "0")}) -> Limit: RM ${numericLimit.toFixed(2)}, Savings Goal: RM ${Number(savingsTarget || 0).toFixed(2)}`,
+    );
+
     await Notification.create({
       userId,
       tag: "GOAL",
@@ -68,6 +74,7 @@ exports.setBudget = async (req, res) => {
       history,
     });
   } catch (error) {
+    logger.error("BUDGET_SET", "Failed to save budget", error);
     return res.status(500).json({
       success: false,
       message: "Failed to save budget",
@@ -116,6 +123,12 @@ exports.getBudget = async (req, res) => {
           wantsPct: latestPrior.wantsPct || 30,
           savingsPct: latestPrior.savingsPct || 20,
         });
+
+        logger.info(
+          "BUDGET_CARRY_FORWARD",
+          `Auto carried forward ${currentBudget.presetName} budget (RM ${currentBudget.monthlyLimit.toFixed(2)}) to ${currentYear}-${String(currentMonth).padStart(2, "0")} for userId=${userId}`,
+        );
+
         history = await Budget.find({ userId }).sort({
           year: -1,
           month: -1,
@@ -123,12 +136,15 @@ exports.getBudget = async (req, res) => {
       }
     }
 
+    logger.debug("BUDGET_FETCH", `Fetched budget for userId=${userId} (${history.length} monthly records)`);
+
     return res.status(200).json({
       success: true,
       data: currentBudget || null,
       history,
     });
   } catch (error) {
+    logger.error("BUDGET_FETCH", `Failed to fetch budget for userId=${req.params.userId}`, error);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch budget",

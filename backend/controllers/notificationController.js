@@ -1,7 +1,15 @@
-// Import Notification, Transaction, and Budget models
+/**
+ * @file backend/controllers/notificationController.js
+ * @layer Backend Controller (In-App Notifications & Real-Time Budget Alert Synchronization)
+ * @description Manages fetching, marking as read, bulk clearing, and deleting user notifications, while automatically triggering OCR, large-expense TXN, GOAL, and 80%/100% budget overrun ALERT notifications.
+ * @exports getNotifications, markAsRead, markAllAsRead, deleteNotification, triggerTransactionNotifications, triggerBudgetGoalNotification
+ */
+
+// Import Notification, Transaction, Budget models, and clean logger
 const Notification = require("../models/Notification");
 const Transaction = require("../models/Transaction");
 const Budget = require("../models/Budget");
+const logger = require("../utils/logger");
 
 // 1. Fetch the latest 50 notifications for a user (GET /api/notifications/:userId)
 exports.getNotifications = async (req, res) => {
@@ -19,12 +27,15 @@ exports.getNotifications = async (req, res) => {
     // Step 2: Query latest 50 notifications sorted newest-first
     const notifications = await Notification.find({ userId }).sort({ createdAt: -1 }).limit(50);
 
+    logger.debug("NOTIF_FETCH", `Fetched ${notifications.length} notifications for userId=${userId}`);
+
     // Step 3: Return notifications list
     res.status(200).json({
       message: "Notifications fetched successfully.",
       data: notifications,
     });
   } catch (error) {
+    logger.error("NOTIF_FETCH", `Failed to fetch notifications for userId=${req.params.userId}`, error);
     res.status(500).json({
       message: "Failed to fetch notifications.",
       error: error.message,
@@ -55,12 +66,15 @@ exports.markAsRead = async (req, res) => {
       });
     }
 
+    logger.debug("NOTIF_READ", `Marked notification ${id} as read`);
+
     // Step 3: Return updated notification document
     res.status(200).json({
       message: "Notification marked as read.",
       data: notification,
     });
   } catch (error) {
+    logger.error("NOTIF_READ", `Failed to mark notification ${req.params.id} as read`, error);
     res.status(500).json({
       message: "Failed to update notification status.",
       error: error.message,
@@ -84,11 +98,14 @@ exports.markAllAsRead = async (req, res) => {
     // Step 2: Update all unread notifications for this user in bulk
     await Notification.updateMany({ userId, isRead: false }, { isRead: true });
 
+    logger.info("NOTIF_READ_ALL", `Marked all unread notifications as read for userId=${userId}`);
+
     // Step 3: Return confirmation response
     res.status(200).json({
       message: "All notifications marked as read.",
     });
   } catch (error) {
+    logger.error("NOTIF_READ_ALL", "Failed to clear unread notifications", error);
     res.status(500).json({
       message: "Failed to clear unread notifications.",
       error: error.message,
@@ -119,11 +136,14 @@ exports.deleteNotification = async (req, res) => {
       });
     }
 
+    logger.debug("NOTIF_DELETE", `Deleted notification ${id} ("${deleted.title}")`);
+
     // Step 3: Return success response
     res.status(200).json({
       message: "Notification deleted successfully.",
     });
   } catch (error) {
+    logger.error("NOTIF_DELETE", `Failed to delete notification ${req.params.id}`, error);
     res.status(500).json({
       message: "Failed to delete notification.",
       error: error.message,
@@ -164,6 +184,7 @@ const evaluateAndSyncBudgetAlert = async (userId) => {
       },
       { upsert: true, returnDocument: "after", sort: { createdAt: -1 } },
     );
+    logger.info("NOTIF_ALERT", `Triggered 100%+ Budget Exceeded alert for userId=${userId} (RM ${totalSpent.toFixed(2)} / RM ${limit.toFixed(2)})`);
   } else if (ratio >= 80) {
     await Notification.findOneAndUpdate(
       { userId, tag: "ALERT", isRead: false },
@@ -176,6 +197,7 @@ const evaluateAndSyncBudgetAlert = async (userId) => {
       },
       { upsert: true, returnDocument: "after", sort: { createdAt: -1 } },
     );
+    logger.info("NOTIF_ALERT", `Triggered ${ratio.toFixed(0)}% Budget Approaching alert for userId=${userId}`);
   } else {
     await Notification.deleteMany({ userId, tag: "ALERT", isRead: false });
   }
@@ -213,7 +235,7 @@ exports.triggerTransactionNotifications = async (savedTx, isUpdate = false) => {
     // Step 2: Re-evaluate and update the monthly budget ALERT status
     await evaluateAndSyncBudgetAlert(savedTx.userId);
   } catch (error) {
-    console.log("Auto-notification trigger error:", error.message);
+    logger.warn("NOTIF_TRIGGER", "Auto-notification trigger warning", error.message);
   }
 };
 
@@ -239,6 +261,6 @@ exports.triggerBudgetGoalNotification = async (userId, monthlyLimit, savingsTarg
     // Step 2: Immediately re-check whether the new budget limit triggers or clears an 80%/100% ALERT
     await evaluateAndSyncBudgetAlert(userId);
   } catch (error) {
-    console.log("Budget notification trigger error:", error.message);
+    logger.warn("NOTIF_TRIGGER", "Budget notification trigger warning", error.message);
   }
 };
