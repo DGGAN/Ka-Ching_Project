@@ -1,8 +1,7 @@
 /**
  * @file backend/models/User.js
  * @layer Backend Mongoose Schema (Users Collection)
- * @description Defines User schema supporting both standard Email/Password authentication and Google OAuth binding, plus notification and Smart Auto-Capture preferences.
- */
+ * @description User schema with support for dual-mode authentication (Password + Google OAuth), PDPA auto-capture toggle, and secure Forgot Password OTP fields.  */
 
 const mongoose = require("mongoose");
 
@@ -13,7 +12,7 @@ const userSchema = new mongoose.Schema(
       required: true,
       unique: true,
       trim: true,
-      minlength: 3,
+      minlength: 5,
     },
     email: {
       type: String,
@@ -43,10 +42,21 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Forgot Password OTP & Anti-Spam Rate Limiting Fields
+    resetPasswordOtpHash: {
+      type: String,
+      default: null,
+    },
+    resetPasswordExpires: {
+      type: Date,
+      default: null,
+    },
+    resetPasswordRequestedAt: {
+      type: Date,
+      default: null,
+    },
   },
-  {
-    timestamps: true,
-  },
+  { timestamps: true },
 );
 
 module.exports = mongoose.model("User", userSchema);

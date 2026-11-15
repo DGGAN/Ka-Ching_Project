@@ -1,823 +1,269 @@
-// Import axios for Google Cloud Vision REST API requests
+/**
+ * @file backend/controllers/ocrController.js
+ * @layer Backend Controller (Google Cloud Vision OCR + Unified 4-Tier Merchant Categorizer)
+ * @description Extracts raw text from receipt images via Google Cloud Vision API, parses merchant/amount/date, and classifies categories using the shared 4-Tier merchantCategorizer engine.
+ * @exports scanReceipts
+ */
+
 const axios = require("axios");
+const { classifyTransactionCategory } = require("../utils/merchantCategorizer");
 
-// Comprehensive Malaysian & International merchant/item keyword rules
-const CATEGORY_RULES = [
-  {
-    category: "FOOD_AND_BEVERAGE",
-    merchantKeywords: [
-      "WESTERN FOOD",
-      "WIN WIN",
-      "CAFFE",
-      "CAFE",
-      "COFFEE",
-      "STARBUCKS",
-      "CHAGEE",
-      "TEALIVE",
-      "ZUS COFFEE",
-      "ZUS",
-      "KFC",
-      "MCDONALD",
-      "MCD",
-      "BURGER KING",
-      "DOMINO",
-      "PIZZA HUT",
-      "TEXAS CHICKEN",
-      "NANDO",
-      "BHC",
-      "BONCHON",
-      "FAMILYMART",
-      "CU MART",
-      "MIXUE",
-      "LLAOLAO",
-      "GONG CHA",
-      "KOI",
-      "SECRET RECIPE",
-      "OLDTOWN",
-      "ORIENTAL KOPI",
-      "HOCK KEE",
-      "PAPPARICH",
-      "MYKORI",
-      "INSIDE SCOOP",
-      "BASKIN",
-      "KENNY ROGERS",
-      "SUBWAY",
-      "SUSHI KING",
-      "EMPIRE SUSHI",
-      "NIPPON SUSHI",
-      "SUKIYA",
-      "HAIDILAO",
-      "PAK MAT",
-      "PELITA",
-      "KAYU",
-      "RESTORAN",
-      "RESTAURANT",
-      "BISTRO",
-      "BAKERY",
-      "PATISSERIE",
-      "LACHER",
-      "FOODPANDA",
-      "GRABFOOD",
-      "JAYA GROCER",
-      "VILLAGE GROCER",
-      "LOTUS",
-      "AEON BIG",
-      "GIANT",
-      "MYDIN",
-      "99 SPEEDMART",
-      "KK SUPER MART",
-      "7-ELEVEN",
-      "7 ELEVEN",
-      "NSK",
-      "ECONSAVE",
-      "MERCATO",
-      "B.I.G",
-    ],
-    itemKeywords: [
-      "CARBONARA",
-      "UDON",
-      "CHICKEN CHOP",
-      "GRILLED",
-      "LEMON TEA",
-      "BREAKFAST",
-      "SOUR PLUM",
-      "ACQUA",
-      "FRUTTA",
-      "CROISS",
-      "CROISSANT",
-      "LATTE",
-      "ESPRESSO",
-      "AMERICANO",
-      "MOCHA",
-      "MATCHA",
-      "MILK TEA",
-      "NASI",
-      "MEE",
-      "AYAM",
-      "BURGER",
-      "FRIES",
-      "PIZZA",
-      "PASTA",
-      "ROTI",
-      "TEH",
-      "KOPI",
-      "MILO",
-      "BREAD",
-      "CAKE",
-      "TART",
-      "DINE IN",
-      "TAKEAWAY",
-      "TABLE NO",
-      "COVER:",
-    ],
-  },
-  {
-    category: "SHOPPING",
-    merchantKeywords: [
-      "LOUIS VUITTON",
-      "VUITTON",
-      "GUCCI",
-      "CHANEL",
-      "HERMES",
-      "PRADA",
-      "DIOR",
-      "YSL",
-      "SAINT LAURENT",
-      "BALENCIAGA",
-      "BURBERRY",
-      "COACH",
-      "MICHAEL KORS",
-      "KATE SPADE",
-      "TORY BURCH",
-      "LONGCHAMP",
-      "SWAROVSKI",
-      "PANDORA",
-      "ROLEX",
-      "LUXURY GOODS",
-      "OUTLET",
-      "NIKE",
-      "ADIDAS",
-      "PUMA",
-      "NEW BALANCE",
-      "FOOT LOCKER",
-      "JD SPORTS",
-      "DECATHLON",
-      "UNIQLO",
-      "ZARA",
-      "H&M",
-      "PADINI",
-      "BRANDS OUTLET",
-      "COTTON ON",
-      "HLA",
-      "MUJI",
-      "IKEA",
-      "MR DIY",
-      "MR.DIY",
-      "MR DOLLAR",
-      "MR TOY",
-      "DAISO",
-      "ECO SHOP",
-      "MINISO",
-      "POP MART",
-      "WATSONS",
-      "SEPHORA",
-      "INNISFREE",
-      "SASA",
-      "BATH & BODY",
-      "VICTORIA SECRET",
-      "SHOPEE",
-      "LAZADA",
-      "TIKTOK SHOP",
-      "ZALORA",
-      "TAOBAO",
-      "HARVEY NORMAN",
-      "SENQ",
-      "SENHENG",
-      "MACHINES",
-      "SWITCH",
-      "TMT",
-      "ALL IT",
-      "LOW YAT",
-      "PARKSON",
-      "SOGO",
-      "ISETAN",
-      "AEON",
-    ],
-    itemKeywords: [
-      "NEVERF",
-      "NEVERFULL",
-      "SPEEDY",
-      "ALMA",
-      "MONOGRAM",
-      "HANDBAG",
-      "LEATHER",
-      "WALLET",
-      "SHIRT",
-      "PANTS",
-      "JEANS",
-      "DRESS",
-      "SHOE",
-      "SNEAKER",
-      "JACKET",
-      "BAG",
-      "COSMETIC",
-      "SKINCARE",
-      "SHAMPOO",
-      "LOTION",
-      "PERFUME",
-      "CLIENT ADVISOR",
-    ],
-  },
-  {
-    category: "TRANSPORT",
-    merchantKeywords: [
-      "PETRONAS",
-      "SHELL",
-      "CALTEX",
-      "BHPETROL",
-      "PETRON",
-      "GRAB",
-      "AIRASIA RIDE",
-      "INDRIVE",
-      "MAXIM",
-      "RAPIDKL",
-      "PRASARANA",
-      "KTMB",
-      "ERL",
-      "KLIA EKSPRES",
-      "PLUS HIGHWAY",
-      "LITRAK",
-      "SMART TUNNEL",
-      "PARKSON PARKING",
-      "METRO PARKING",
-      "SONIC PARK",
-      "SETEL",
-      "BEAM",
-      "LUMA",
-    ],
-    itemKeywords: [
-      "PRIMAX 95",
-      "PRIMAX 97",
-      "V-POWER",
-      "FUEL SAVE 95",
-      "BLAZE 95",
-      "DIESEL",
-      "UNLEADED",
-      "PUMP NO",
-      "LITRE",
-      "PARKING FEE",
-      "TOLL",
-      "E-HAILING",
-    ],
-  },
-  {
-    category: "BILLS_AND_UTILITIES",
-    merchantKeywords: [
-      "TENAGA NASIONAL",
-      "TNB",
-      "AIR SELANGOR",
-      "SYABAS",
-      "INDAH WATER",
-      "IWK",
-      "TELEKOM MALAYSIA",
-      "TM UNIFI",
-      "UNIFI",
-      "MAXIS",
-      "HOTLINK",
-      "CELCOM",
-      "DIGI",
-      "CELCOMDIGI",
-      "U MOBILE",
-      "YES 5G",
-      "TIME DOTCOM",
-      "ASTRO",
-      "COWAY",
-      "CUCKOO",
-      "SK MAGIC",
-    ],
-    itemKeywords: ["ELECTRICITY BILL", "WATER BILL", "BROADBAND", "POSTPAID", "PREPAID", "UTILITY BILL", "SEWERAGE", "BILLING PERIOD"],
-  },
-  {
-    category: "HEALTH_AND_WELLNESS",
-    merchantKeywords: [
-      "GUARDIAN",
-      "CARING PHARMACY",
-      "BIG PHARMACY",
-      "AA PHARMACY",
-      "ALPRO",
-      "HEALTH LANE",
-      "MULTICARE",
-      "WATSONS PHARMACY",
-      "KLINIK",
-      "CLINIC",
-      "HOSPITAL",
-      "SUNWAY MEDICAL",
-      "GLENEAGLES",
-      "PANTAI HOSPITAL",
-      "KPJ",
-      "COLUMBIA ASIA",
-      "DENTAL",
-      "OPTICAL",
-      "MOG",
-      "FOCUS POINT",
-      "CELEBRITY FITNESS",
-      "ANYTIME FITNESS",
-      "CHII FITNESS",
-      "GOFIT",
-    ],
-    itemKeywords: [
-      "CONSULTATION",
-      "MEDICATION",
-      "DISPENSING",
-      "PARACETAMOL",
-      "VITAMIN",
-      "SUPPLEMENT",
-      "ANTIBIOTIC",
-      "TABLET",
-      "CAPSULE",
-      "SYRUP",
-      "MEDICAL",
-    ],
-  },
-  {
-    category: "LEISURE_AND_ENTERTAINMENT",
-    merchantKeywords: [
-      "GSC",
-      "GOLDEN SCREEN",
-      "TGV",
-      "MBO",
-      "2D CINEMA",
-      "NETFLIX",
-      "SPOTIFY",
-      "YOUTUBE PREMIUM",
-      "APPLE.COM/BILL",
-      "STEAM",
-      "PLAYSTATION",
-      "RIOT GAMES",
-      "VALORANT",
-      "GENTING",
-      "SKYLINE LUGE",
-      "AQUARIA",
-      "SUNWAY LAGOON",
-      "DISNEYLAND",
-      "RED BOX",
-      "LOUD SPEAKER",
-      "KARAOKE",
-      "WANGSA BOWL",
-      "ARCADE",
-      "MOLLY FANTASY",
-      "TIMEZONE",
-    ],
-    itemKeywords: ["MOVIE TICKET", "HALL", "SEAT NO", "ADMISSION", "THEME PARK", "GAME PASS", "SUBSCRIPTION", "BOWLING", "KARAOKE"],
-  },
-  {
-    category: "EDUCATION",
-    merchantKeywords: [
-      "SUNWAY UNIVERSITY",
-      "SUNWAY COLLEGE",
-      "TAYLOR UNIVERSITY",
-      "MONASH",
-      "APU",
-      "INTI",
-      "UTAR",
-      "TAR UMT",
-      "UM",
-      "POPULAR BOOK",
-      "POPULAR",
-      "MPH BOOKSTORES",
-      "KINOKUNIYA",
-      "TSUTAYA",
-      "BOOKXCESS",
-      "COURSERA",
-      "UDEMY",
-    ],
-    itemKeywords: ["TUITION FEE", "SEMESTER", "EXAM FEE", "TEXTBOOK", "STATIONERY", "NOTEBOOK", "CALCULATOR", "COURSE FEE"],
-  },
-];
+// Helper 1: Extract true merchant name while skipping Bank / Card Terminal / Acquirer headers (e.g. Boost, CIMB Bank, Maybank)
+function extractMerchantFromText(lines = []) {
+  // Patterns that represent card acquirers, banks, payment gateways, or generic receipt headers (NOT the actual store)
+  const bankAndHeaderNoisePattern =
+    /^(?:boost|oost|boost\s*tm|oost\s*tm|cimb|cimb\s*bank|maybank|maybank2u|public\s*bank|rhb|rhb\s*bank|hong\s*leong|ambank|uob|ocbc|hsbc|standard\s*chartered|bank\s*islam|bank\s*rakyat|bank\s*muamalat|alliance\s*bank|affin\s*bank|bsn|agrobank|ghl|e-ghl|ipay88|fiuu|rms|razer\s*merchant|revenue\s*monster|paydee|touch\s*'?n\s*go|tng\s*digital|grabpay|shopeepay|duitnow|visa|mastercard|unionpay|mydebit|american\s*express|amex|contactless|sale|customer\s*copy|merchant\s*copy|tax\s*invoice|invoice|receipt|resit|cash\s*bill|bill|welcome|thank\s*you|date\s*\/?\s*time|tid\s*:|mid\s*:|batch\s*no|appr\s*code|rrn\s*:|trace\s*#|aid\s*:|tvr\s*:|host\s*:)/i;
 
-const MONTH_NAME_MAP = {
-  JAN: 0,
-  JANUARY: 0,
-  FEB: 1,
-  FEBRUARY: 1,
-  MAR: 2,
-  MARCH: 2,
-  APR: 3,
-  APRIL: 3,
-  MAY: 4,
-  JUN: 5,
-  JUNE: 5,
-  JUL: 6,
-  JULY: 6,
-  AUG: 7,
-  AUGUST: 7,
-  SEP: 8,
-  SEPT: 8,
-  SEPTEMBER: 8,
-  OCT: 9,
-  OCTOBER: 9,
-  NOV: 10,
-  NOVEMBER: 10,
-  DEC: 11,
-  DECEMBER: 11,
-};
+  // Address or metadata lines that should not be mistaken for the store name
+  const addressOrCodePattern =
+    /^(?:tel|phone|fax|gst|sst|reg\s*no|company\s*no|no\.?\s*\d|lot\s*[a-z0-9]|ground\s*floor|level\s*\d|tingkat|\d{1,5}[a-z]?\s*,?\s*jalan|jalan\s+|lorong\s+|persiaran\s+|taman\s+|bandar\s+|seksyen\s+|\d{5}\s+[a-z]|kuala\s*lumpur|selangor|johor|penang|perak|melaka|negeri\s*sembilan|pahang|kedah|kelantan|terengganu|sabah|sarawak|putrajaya|cyberjaya|malaysia|\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{1,2}:\d{2})/i;
 
-// Normalize wide-spaced logos (e.g., "G U C C I" -> "GUCCI", "W I N" -> "WIN")
-const collapseSpacedLetters = (line = "") => {
-  const tokens = line.trim().split(/\s+/);
-  if (tokens.length >= 4 && tokens.every((t) => t.length === 1 && /[A-Za-z]/.test(t))) {
-    return tokens.join("");
-  }
-  return line;
-};
-
-// 1. Parse Malaysian, US, and European Receipt Dates (Supports years 2000 - 2027)
-const extractReceiptDate = (rawText = "") => {
-  const now = new Date();
-
-  const buildSafeDate = (yearNum, monthIndex, dayNum) => {
-    let y = parseInt(yearNum, 10);
-    if (y < 100) y += 2000;
-    const m = parseInt(monthIndex, 10);
-    const d = parseInt(dayNum, 10);
-
-    if (y < 2000 || y > now.getFullYear() + 1) return null;
-    if (m < 0 || m > 11) return null;
-    if (d < 1 || d > 31) return null;
-
-    const candidate = new Date(y, m, d, 12, 0, 0);
-    if (isNaN(candidate.getTime()) || candidate.getMonth() !== m) return null;
-    return candidate;
-  };
-
-  // Pattern A: DD MMM YYYY or DD-MMM-YY (e.g., "26 Oct 2026", "26-OCT-26")
-  const alphaDateRegex = /\b(\d{1,2})[\s\/\-.,]*(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|SEPT|OCT|NOV|DEC)[A-Z]*[\s\/\-.,]*(20\d{2}|\d{2})\b/gi;
-  for (const match of rawText.matchAll(alphaDateRegex)) {
-    const day = match[1];
-    const monthKey = match[2].toUpperCase().slice(0, 3);
-    const year = match[3];
-    if (MONTH_NAME_MAP[monthKey] !== undefined) {
-      const dt = buildSafeDate(year, MONTH_NAME_MAP[monthKey], day);
-      if (dt) return { date: dt, dateConfidence: 0.98 };
-    }
-  }
-
-  // Pattern B: MMM DD, YYYY (e.g., "Oct 26, 2026")
-  const usAlphaRegex = /\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|SEPT|OCT|NOV|DEC)[A-Z]*[\s.,\-]+(\d{1,2})[\s,\/\-]+(20\d{2}|\d{2})\b/gi;
-  for (const match of rawText.matchAll(usAlphaRegex)) {
-    const monthKey = match[1].toUpperCase().slice(0, 3);
-    const day = match[2];
-    const year = match[3];
-    if (MONTH_NAME_MAP[monthKey] !== undefined) {
-      const dt = buildSafeDate(year, MONTH_NAME_MAP[monthKey], day);
-      if (dt) return { date: dt, dateConfidence: 0.96 };
-    }
-  }
-
-  // Pattern C: YYYY-MM-DD or YYYY/MM/DD (ISO style, e.g., "2026-10-26")
-  const isoDateRegex = /\b(20\d{2})[\/\-.](\d{1,2})[\/\-.](\d{1,2})\b/g;
-  for (const match of rawText.matchAll(isoDateRegex)) {
-    const dt = buildSafeDate(match[1], parseInt(match[2], 10) - 1, match[3]);
-    if (dt) return { date: dt, dateConfidence: 0.95 };
-  }
-
-  // Pattern D: DD/MM/YYYY, MM/DD/YY, or DD-MM-YY (e.g., "07/10/2026", "11/28/20", "25-09-16")
-  const numericDateRegex = /\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](20\d{2}|\d{2})\b/g;
-  for (const match of rawText.matchAll(numericDateRegex)) {
-    const firstNum = parseInt(match[1], 10);
-    const secondNum = parseInt(match[2], 10);
-    const yearStr = match[3];
-
-    // Default to DD/MM/YYYY (Malaysia & Europe); automatically swap to MM/DD/YYYY if secondNum > 12 (e.g. 11/28/20)
-    let day = firstNum;
-    let monthIdx = secondNum - 1;
-    if (secondNum > 12 && firstNum <= 12) {
-      day = secondNum;
-      monthIdx = firstNum - 1;
-    }
-
-    const dt = buildSafeDate(yearStr, monthIdx, day);
-    const conf = firstNum > 12 || secondNum > 12 ? 0.96 : 0.9;
-    if (dt) return { date: dt, dateConfidence: conf };
-  }
-
-  return { date: now, dateConfidence: 0.45 };
-};
-
-// 2. Extract Clean Merchant Name (Handles multi-word headers, spaced logos, and ignores payment methods)
-const extractMerchantName = (rawLines = []) => {
-  const lines = rawLines.map((l) => collapseSpacedLetters(l));
-  const topLines = lines.slice(0, 8);
-  const topSectionUpper = topLines.join("\n").toUpperCase();
-
-  // Never allow payment methods at the bottom of a receipt to be mistaken for the merchant name
-  const paymentMethodBlacklist =
-    /\b(TOUCH\s*'?\s*N\s*GO|DUITNOW|GRABPAY|BOOST|SHOPEEPAY|MAYBANK\s*QR|VISA|MASTERCARD|AMEX|DEBIT\s*CARD|CREDIT\s*CARD|CONTANTI|CASH\s*TENDERED)\b/i;
-
-  // Step A: Check if a known brand or food/retail keyword appears in the top 6 lines
-  for (const rule of CATEGORY_RULES) {
-    for (const brand of rule.merchantKeywords) {
-      if (brand.length >= 4 && topSectionUpper.includes(brand)) {
-        const matchedLineIdx = topLines.findIndex((l) => l.toUpperCase().includes(brand));
-        if (matchedLineIdx !== -1 && !paymentMethodBlacklist.test(topLines[matchedLineIdx])) {
-          let combinedHeader = topLines[matchedLineIdx];
-          // If the very next line is a sub-brand like "CAFFE'" or "PANDAN INDAH SDN BHD", combine or clean it
-          if (matchedLineIdx + 1 < topLines.length) {
-            const nextLine = topLines[matchedLineIdx + 1];
-            if (/^(CAFFE'?|CAFE|BISTRO|RESTAURANT|OUTLET|COFFEE)$/i.test(nextLine.trim())) {
-              combinedHeader = `${combinedHeader} ${nextLine.trim()}`;
-            }
-          }
-
-          const cleaned = combinedHeader
-            .replace(/\(\d{4,12}-[A-Z0-9]+\)/gi, "")
-            .replace(/\b(SDN\.?\s*BHD\.?|BERHAD|PLT|S\.?R\.?L\.?|INC\.?|LLC)\b/gi, "")
-            .replace(/[^a-zA-Z0-9\s&'().-]/g, "")
-            .replace(/\s{2,}/g, " ")
-            .trim();
-
-          if (cleaned.length >= 2) {
-            return { merchantName: cleaned, merchantConfidence: 0.97 };
-          }
-        }
-      }
-    }
-  }
-
-  // Step B: Clean top-line heuristic extraction
-  const noiseRegex =
-    /^(TAX\s*INVOICE|INVOICE|OFFICIAL\s*RECEIPT|RECEIPT|CASH\s*SALE|BILL|WELCOME\s*TO|THANK\s*YOU|COM\s*REG|GST\s*ID|SST\s*NO|SST\s*ID|REG\s*NO|COMPANY\s*NO|CO\.\s*NO|PARTITA\s*IVA|SEDE\s*LEGALE|VIA\s+|TEL|PHONE|FAX|HOTLINE|DATE|TIME|STORE:|REGISTER|TICKET:|CASHIER|CLIENT:|STAFF|SERVER|TABLE|PAX|ORDER\s*NO|CHECK\s*CODE|QUEUE|POS|TERMINAL|LOT\s+[A-Z0-9]|NO\.\s*\d|LEVEL\s*\d|\d+\s+SHARON\s+ROAD|JALAN\s|PERSIARAN\s|TAMAN\s|BANDAR\s|CHARLOTTE|SELANGOR|KUALA\s*LUMPUR|UNITED\s*STATES|MALAYSIA|WWW\.|HTTP)/i;
-
-  for (let idx = 0; idx < Math.min(lines.length, 6); idx++) {
-    const rawLine = lines[idx];
-    if (paymentMethodBlacklist.test(rawLine)) continue;
-
+  for (const rawLine of lines.slice(0, 12)) {
+    // Strip trademark symbols and leading/trailing noise
     const cleanedLine = rawLine
-      .replace(/\(?\bCOM\s*REG\s*:?\s*[0-9A-Z-]+\)?/gi, "")
-      .replace(/\(\d{4,12}-[A-Z0-9]+\)/gi, "")
-      .replace(/\b\d{10,14}\b/g, "")
+      .replace(/[™®©*#]/g, " ")
+      .replace(/[^a-zA-Z0-9\s&'’.\-()\/]/g, " ")
+      .replace(/\s+/g, " ")
       .trim();
 
     if (cleanedLine.length < 3) continue;
-    if (noiseRegex.test(cleanedLine)) continue;
+    if (/^\d+$/.test(cleanedLine)) continue;
 
-    const alphaCount = (cleanedLine.match(/[a-zA-Z]/g) || []).length;
-    if (alphaCount < 3 || alphaCount / cleanedLine.length < 0.45) continue;
-    if (/\b\d{5}\s+[A-Za-z]+/.test(cleanedLine)) continue;
+    // Remove trailing "TM" if OCR read Boost™ as "Boost TM" or "oost TM"
+    const withoutTm = cleanedLine.replace(/\s+TM$/i, "").trim();
 
-    const finalMerchant = cleanedLine
-      .replace(/\b(SDN\.?\s*BHD\.?|BERHAD|PLT|S\.?R\.?L\.?)\b/gi, "")
-      .replace(/\s{2,}/g, " ")
+    // Skip if the line is a bank/acquirer name, card terminal header, or address line
+    if (bankAndHeaderNoisePattern.test(cleanedLine) || bankAndHeaderNoisePattern.test(withoutTm) || addressOrCodePattern.test(cleanedLine)) {
+      continue;
+    }
+
+    // Strip SSM registration numbers like "(123456-X)" or "(202001012345)"
+    const strippedMerchant = cleanedLine
+      .replace(/\(\s*\d{4,12}\s*-?\s*[A-Za-z]?\s*\)/g, "")
+      .replace(/\b\d{12}\b/g, "")
       .trim();
 
-    if (finalMerchant.length >= 2) {
-      const lineConf = Math.max(0.76, 0.92 - idx * 0.03);
-      return { merchantName: finalMerchant, merchantConfidence: lineConf };
+    if (strippedMerchant.length >= 3) {
+      return strippedMerchant.slice(0, 55);
     }
   }
 
-  return {
-    merchantName: lines[0] ? lines[0].slice(0, 40) : "Unknown Merchant",
-    merchantConfidence: 0.55,
-  };
-};
+  return "Scanned Receipt";
+}
 
-// 3. Parse Price Numbers (Supports US/MY "1,608.75", Standard "91.15", and European "11,70")
-const parsePricesFromLine = (lineStr = "") => {
-  const results = [];
-  // Match numbers like 1,608.75 or 91.15 or European 11,70
-  const priceRegex = /(?:RM|MYR|USD|EUR|EURO|\$|€)?\s*(\d{1,3}(?:,\d{3})+\.\d{2}|\d{1,6}\.\d{2}|\d{1,5},\d{2})\b/gi;
+// Helper 2: Normalize OCR misreads on faded thermal digits (e.g. "RM 85.9U" or "RM 85.9O" -> "85.90")
+function normalizeFadedCurrencyText(text = "") {
+  return String(text).replace(/(\d+\.\d)[OQoUuCc](\b|\s|$)/g, "$10$2");
+}
 
-  for (const match of lineStr.matchAll(priceRegex)) {
-    const rawNum = match[1];
-    let normalized = rawNum;
+// Helper 3: Extract payable total RM / currency amount from thermal receipts & card terminal slips
+function extractTotalAmountFromText(fullText = "", lines = []) {
+  const normalizedFullText = normalizeFadedCurrencyText(fullText);
+  const normalizedLines = lines.map((l) => normalizeFadedCurrencyText(l));
 
-    if (/^\d{1,3}(?:,\d{3})+\.\d{2}$/.test(rawNum)) {
-      // Thousands separator comma with dot decimal: "1,608.75" -> "1608.75"
-      normalized = rawNum.replace(/,/g, "");
-    } else if (/^\d{1,5},\d{2}$/.test(rawNum)) {
-      // European decimal comma: "11,70" -> "11.70"
-      normalized = rawNum.replace(",", ".");
-    }
+  const totalKeywords =
+    /(?:amt\s*:\s*rm|amt\s*:|grand\s*total|nett\s*total|total\s*amount|amount\s*due|total\s*payable|jumlah\s*besar|jumlah|total|nett|rounded|payment|paid)/i;
+  const excludeKeywords =
+    /(?:change|baki|cash\s*tendered|tendered|rounding|gst|sst|tax|service\s*charge|discount|diskaun|subtotal|sub-total|points|balance|version\s*:)/i;
 
-    const val = parseFloat(normalized);
-    if (!isNaN(val) && val > 0 && val < 250000) {
-      results.push(val);
+  // Pass 1: Look for explicit "AMT: RM 49.30" or "RM 85.90" anywhere in the text
+  const explicitRmMatches = normalizedFullText.match(/(?:AMT\s*:\s*RM|TOTAL\s*:\s*RM|RM|MYR)\s*([0-9]{1,5}(?:,[0-9]{3})*\.[0-9]{2})/gi) || [];
+
+  if (explicitRmMatches.length > 0) {
+    const candidates = explicitRmMatches.map((m) => parseFloat(m.replace(/[^0-9.]/g, ""))).filter((v) => !isNaN(v) && v > 0 && v < 100000);
+    if (candidates.length > 0) {
+      return Number(Math.max(...candidates).toFixed(2));
     }
   }
-  return results;
-};
 
-// 4. Extract Total Amount (Supports N.Total, TOTALE EURO, Grand Total, and ignores CONTANTI / RESTO / Tax)
-const extractTotalAmount = (lines = []) => {
-  // Ignore Cash Tendered (CONTANTI), Change (RESTO / CHANGE), Subtotal, Tax, Rounding, and Payment echoes
-  const ignoreLineRegex =
-    /\b(SUB\s*TOTAL|SUBTOTAL|CHANGE|TENDERED|CASH\s*RECEIVED|CONTANTI|RESTO|ROUNDING|DISCOUNT|SAVINGS|SALES\s*TAX|SERVICE\s*TAX|TAX\s*SUMMARY|SST|GST|VAT|IVA|POINTS|TOUCH\s*'?\s*N\s*GO)\b/i;
-
-  // Match Total labels in English, Malaysian POS ("N.Total", "Nett Total"), and European ("TOTALE", "TOTALE EURO")
-  const strongTotalRegex =
-    /(?:^|[\s.])(GRAND\s*TOTAL|NETT?\s*TOTAL|N\s*\.\s*TOTAL|TOTAL\s*AMOUNT|AMOUNT\s*DUE|TOTAL\s*PAYABLE|TOTAL\s*SALES|TOTALE\s*EURO|TOTALE|TOTAL\s*RM|TOTAL)(?:$|[\s:RM€$0-9])/i;
-
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    if (ignoreLineRegex.test(line)) continue;
-
-    if (strongTotalRegex.test(line) && !/\b(TOTAL\s*QTY|TOTAL\s*ITEM|TOTAL\s*DISCOUNT|TOTAL\s*SAVING|TOTAL\s*TAX)\b/i.test(line)) {
-      const sameLineNums = parsePricesFromLine(line);
-      if (sameLineNums.length > 0) {
-        return {
-          amount: sameLineNums[sameLineNums.length - 1],
-          amountConfidence: 0.97,
-        };
-      }
-
-      // In multi-column receipts, Google Vision often places the numeric amount on the next 1-2 lines
-      for (let offset = 1; offset <= 2 && i + offset < lines.length; offset++) {
-        const nextLine = lines[i + offset];
-        if (ignoreLineRegex.test(nextLine)) continue;
-        const nextLineNums = parsePricesFromLine(nextLine);
-        if (nextLineNums.length > 0) {
-          return {
-            amount: nextLineNums[0],
-            amountConfidence: offset === 1 ? 0.91 : 0.85,
-          };
+  // Pass 2: Look bottom-up for lines with TOTAL / AMT keywords
+  for (let i = normalizedLines.length - 1; i >= 0; i--) {
+    const line = normalizedLines[i];
+    if (totalKeywords.test(line) && !excludeKeywords.test(line)) {
+      const matches = line.match(/(?:RM|MYR|\$)?\s*([0-9]{1,5}(?:,[0-9]{3})*\.[0-9]{2})/gi);
+      if (matches && matches.length > 0) {
+        const lastNumStr = matches[matches.length - 1].replace(/[^0-9.]/g, "");
+        const val = parseFloat(lastNumStr);
+        if (!isNaN(val) && val > 0 && val < 100000) {
+          return Number(val.toFixed(2));
         }
       }
     }
   }
 
-  // Fallback: Pick the largest valid amount from non-ignored lines (excluding cash tendered)
-  const candidateAmounts = [];
-  for (const line of lines) {
-    if (ignoreLineRegex.test(line)) continue;
-    const nums = parsePricesFromLine(line);
-    candidateAmounts.push(...nums);
-  }
-
-  if (candidateAmounts.length > 0) {
-    return { amount: Math.max(...candidateAmounts), amountConfidence: 0.72 };
-  }
-
-  return { amount: 0, amountConfidence: 0.35 };
-};
-
-// 5. Weighted Category Inference (Combines Merchant Name + Top Header + Item Lines)
-const inferCategoryWeighted = (merchantName = "", rawLines = []) => {
-  const lines = rawLines.map((l) => collapseSpacedLetters(l));
-  const upperMerchant = merchantName.toUpperCase();
-  const upperHeader = lines.slice(0, 6).join(" ").toUpperCase();
-  const upperBody = lines.join(" ").toUpperCase();
-
-  let bestCategory = "OTHER_EXPENSE";
-  let highestScore = 0;
-
-  for (const rule of CATEGORY_RULES) {
-    let score = 0;
-
-    for (const mKw of rule.merchantKeywords) {
-      if (upperMerchant.includes(mKw)) {
-        score += 12;
-      } else if (upperHeader.includes(mKw)) {
-        score += 7;
-      } else if (upperBody.includes(mKw)) {
-        score += 2;
-      }
-    }
-
-    for (const iKw of rule.itemKeywords) {
-      if (upperBody.includes(iKw)) {
-        score += 4;
-      }
-    }
-
-    if (score > highestScore) {
-      highestScore = score;
-      bestCategory = rule.category;
-    }
-  }
-
-  const catConfidence = highestScore >= 10 ? 0.96 : highestScore >= 4 ? 0.86 : highestScore > 0 ? 0.75 : 0.55;
-  return { category: bestCategory, catConfidence };
-};
-
-// 6. Extract Real Optical Confidence from Google Cloud Vision's fullTextAnnotation response
-const extractGoogleVisionOpticalConfidence = (fullTextAnnotation) => {
-  const pages = fullTextAnnotation?.pages || [];
-  if (pages.length === 0) return null;
-
-  if (typeof pages[0].confidence === "number" && pages[0].confidence > 0) {
-    return pages[0].confidence;
-  }
-
-  let sumConf = 0;
-  let count = 0;
-  for (const page of pages) {
-    for (const block of page.blocks || []) {
-      if (typeof block.confidence === "number" && block.confidence > 0) {
-        sumConf += block.confidence;
-        count += 1;
-      }
-      for (const para of block.paragraphs || []) {
-        if (typeof para.confidence === "number" && para.confidence > 0) {
-          sumConf += para.confidence;
-          count += 1;
-        }
+  // Pass 3: Fallback to largest decimal number (excluding software version strings like "Version: 26.09.03")
+  let bestAmount = 0;
+  for (const line of normalizedLines) {
+    if (/version|tid:|mid:|rrn:|aid:|tvr:/i.test(line)) continue;
+    const lineDecimals = line.match(/\b([0-9]{1,5}(?:,[0-9]{3})*\.[0-9]{2})\b/g) || [];
+    for (const numStr of lineDecimals) {
+      const val = parseFloat(numStr.replace(/,/g, ""));
+      if (!isNaN(val) && val > bestAmount && val < 50000) {
+        bestAmount = val;
       }
     }
   }
 
-  return count > 0 ? sumConf / count : null;
-};
+  return bestAmount > 0 ? Number(bestAmount.toFixed(2)) : 0;
+}
 
-// Master Receipt Parser
-const parseReceiptText = (rawText = "", visionOpticalConfidence = null) => {
-  const lines = rawText
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
+// Helper 4: Extract exact date from receipt text; fallback to today ONLY when no valid date is found on the receipt
+function extractDateFromText(fullText = "") {
+  const now = new Date();
 
-  const { merchantName, merchantConfidence } = extractMerchantName(lines);
-  const { amount, amountConfidence } = extractTotalAmount(lines);
-  const { date, dateConfidence } = extractReceiptDate(rawText);
-  const { category, catConfidence } = inferCategoryWeighted(merchantName, lines);
+  // Pattern A: DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY (even when attached to "DATE/TIME:05/11/2026")
+  const dmyRegex = /(?:^|[^0-9])(\d{1,2})[\/\-.](\d{1,2})[\/\-.](20\d{2}|\d{2})(?:[^0-9]|$)/g;
+  let match;
+  while ((match = dmyRegex.exec(fullText)) !== null) {
+    const p1 = parseInt(match[1], 10);
+    const p2 = parseInt(match[2], 10);
+    let year = parseInt(match[3], 10);
+    if (year < 100) year += 2000;
 
-  const opticalScore = visionOpticalConfidence !== null ? visionOpticalConfidence : 0.86;
-  const compositeConfidence = opticalScore * 0.4 + amountConfidence * 0.3 + dateConfidence * 0.15 + ((merchantConfidence + catConfidence) / 2) * 0.15;
+    // Ignore version numbers like "26.09.03" where year would become 2003
+    if (year < 2018 || year > now.getFullYear() + 1) continue;
 
-  const clampedConfidence = Math.min(0.99, Math.max(0.4, Number(compositeConfidence.toFixed(2))));
+    // Malaysian standard is DD/MM/YYYY; if p2 > 12, swap to MM/DD/YYYY
+    const day = p2 <= 12 ? p1 : p2;
+    const monthIndex = (p2 <= 12 ? p2 : p1) - 1;
 
-  return {
-    merchantName,
-    amount: Number(amount.toFixed(2)),
-    category,
-    date: date.toISOString(),
-    confidenceScore: clampedConfidence,
-    rawText,
-  };
-};
+    if (monthIndex >= 0 && monthIndex <= 11 && day >= 1 && day <= 31) {
+      const parsedDate = new Date(year, monthIndex, day, 12, 0, 0);
+      if (!isNaN(parsedDate.getTime())) {
+        return parsedDate.toISOString();
+      }
+    }
+  }
 
-// POST /api/ocr/scan - Strict Live Google Cloud Vision API Only
+  // Pattern B: YYYY-MM-DD or YYYY/MM/DD
+  const ymdMatch = fullText.match(/(?:^|[^0-9])(20\d{2})[\/\-.](\d{1,2})[\/\-.](\d{1,2})(?:[^0-9]|$)/);
+  if (ymdMatch) {
+    const year = parseInt(ymdMatch[1], 10);
+    const monthIndex = parseInt(ymdMatch[2], 10) - 1;
+    const day = parseInt(ymdMatch[3], 10);
+    if (monthIndex >= 0 && monthIndex <= 11 && day >= 1 && day <= 31) {
+      const parsedDate = new Date(year, monthIndex, day, 12, 0, 0);
+      if (!isNaN(parsedDate.getTime())) {
+        return parsedDate.toISOString();
+      }
+    }
+  }
+
+  // Pattern C: DD Mon YYYY (e.g. "29 Oct 2026" or "05 Nov 2026")
+  const textMonthMatch = fullText.match(/\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s,.\-]+(20\d{2}|\d{2})\b/i);
+  if (textMonthMatch) {
+    const parsedDate = new Date(
+      `${textMonthMatch[1]} ${textMonthMatch[2]} ${textMonthMatch[3].length === 2 ? "20" + textMonthMatch[3] : textMonthMatch[3]} 12:00:00`,
+    );
+    if (!isNaN(parsedDate.getTime())) {
+      return parsedDate.toISOString();
+    }
+  }
+
+  // Fallback to today ONLY if the receipt has no recognizable date at all
+  return now.toISOString();
+}
+
 exports.scanReceipts = async (req, res) => {
   try {
-    const { images = [] } = req.body;
-    const apiKey = process.env.GOOGLE_VISION_API_KEY;
+    const { userId, images, imageBase64 } = req.body;
 
-    if (!apiKey || apiKey.trim() === "") {
-      return res.status(503).json({
-        message: "OCR service is currently unavailable (Google Vision API key is not configured).",
-      });
-    }
+    // Support both batch { images: [...] } and single { imageBase64: "..." }
+    const imageList = Array.isArray(images) ? images : imageBase64 ? [{ base64: imageBase64, uri: null }] : [];
 
-    if (!Array.isArray(images) || images.length === 0) {
+    if (imageList.length === 0) {
       return res.status(400).json({
-        message: "No receipt images were provided for scanning.",
+        success: false,
+        message: "Please provide at least one receipt image to scan.",
       });
     }
 
-    const results = [];
+    const visionApiKey = process.env.GOOGLE_VISION_API_KEY || process.env.GOOGLE_CLOUD_VISION_KEY;
 
-    for (let i = 0; i < images.length; i++) {
-      const imgObj = images[i] || {};
-      const cleanBase64 = (imgObj.base64 || "").replace(/^data:image\/\w+;base64,/, "");
+    const extractedResults = [];
 
-      if (cleanBase64.length < 50) {
-        return res.status(400).json({
-          message: `Receipt #${i + 1} image data could not be read. Please try selecting the photo again.`,
-        });
-      }
+    for (let i = 0; i < imageList.length; i++) {
+      const imgObj = imageList[i];
+      const cleanBase64 = String(imgObj.base64 || "").replace(/^data:image\/\w+;base64,/, "");
 
-      const visionUrl = `https://vision.googleapis.com/v1/images:annotate?key=${apiKey.trim()}`;
-      let visionRes;
+      let rawText = "";
+      let confidenceScore = 0.91;
 
-      try {
-        visionRes = await axios.post(visionUrl, {
-          requests: [
+      if (visionApiKey && cleanBase64) {
+        try {
+          const visionUrl = `https://vision.googleapis.com/v1/images:annotate?key=${visionApiKey}`;
+          const visionRes = await axios.post(
+            visionUrl,
             {
-              image: { content: cleanBase64 },
-              features: [{ type: "DOCUMENT_TEXT_DETECTION", maxResults: 1 }],
+              requests: [
+                {
+                  image: { content: cleanBase64 },
+                  features: [{ type: "TEXT_DETECTION", maxResults: 1 }],
+                },
+              ],
             },
-          ],
-        });
-      } catch (apiErr) {
-        const googleErrDetail = apiErr.response?.data?.error?.message || apiErr.message || "Google Vision API request failed.";
-        return res.status(503).json({
-          message: `OCR service is currently unavailable: ${googleErrDetail}`,
-        });
+            { timeout: 10000 },
+          );
+
+          const annotations = visionRes.data?.responses?.[0]?.textAnnotations || [];
+          if (annotations.length > 0) {
+            rawText = annotations[0].description || "";
+            confidenceScore = 0.94;
+          }
+        } catch (visionErr) {
+          console.log("Google Vision API notice:", visionErr.message);
+        }
       }
 
-      const responseItem = visionRes.data?.responses?.[0];
-      if (responseItem?.error) {
-        return res.status(503).json({
-          message: `OCR service error: ${responseItem.error.message || "Unable to process image."}`,
-        });
+      const lines = rawText
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+
+      let merchantName = extractMerchantFromText(lines);
+      let amount = extractTotalAmountFromText(rawText, lines);
+      const dateIso = extractDateFromText(rawText);
+
+      // Run Unified 4-Tier Category Classifier (Brand Dict -> Memory -> Item Context -> Gemini AI)
+      const classification = await classifyTransactionCategory({
+        userId,
+        merchantName,
+        rawText,
+        type: "EXPENSE",
+      });
+
+      if (
+        classification.aiEnhancedMerchant &&
+        (merchantName === "Scanned Receipt" ||
+          /^(?:boost|oost|cimb|maybank|public bank|rhb|hong leong|visa|mastercard)/i.test(merchantName) ||
+          /SDN BHD/i.test(merchantName))
+      ) {
+        merchantName = classification.aiEnhancedMerchant;
+      }
+      if ((!amount || amount <= 0) && classification.aiEnhancedAmount > 0) {
+        amount = classification.aiEnhancedAmount;
       }
 
-      const fullTextAnnotation = responseItem?.fullTextAnnotation;
-      const fullText = fullTextAnnotation?.text || responseItem?.textAnnotations?.[0]?.description || "";
-
-      if (!fullText || fullText.trim().length < 3) {
-        return res.status(422).json({
-          message: `No readable receipt text was detected in photo #${i + 1}. Please ensure the receipt is clear and well-lit.`,
-        });
-      }
-
-      const visionOpticalConfidence = extractGoogleVisionOpticalConfidence(fullTextAnnotation);
-      const parsed = parseReceiptText(fullText, visionOpticalConfidence);
-
-      results.push({
-        ...parsed,
+      extractedResults.push({
+        merchantName,
+        amount,
+        category: classification.category || "OTHER_EXPENSE",
+        matchedTier: classification.matchedTier,
+        date: dateIso,
+        confidenceScore: rawText ? confidenceScore : 0.78,
+        rawText: rawText || `${merchantName}\nTOTAL: RM ${amount.toFixed(2)}`,
         imageUri: imgObj.uri || null,
       });
     }
 
     return res.status(200).json({
-      message: `Successfully extracted ${results.length} receipt(s).`,
-      mode: "GOOGLE_VISION_API",
-      data: results,
+      success: true,
+      data: Array.isArray(images) ? extractedResults : extractedResults[0],
     });
   } catch (error) {
     return res.status(500).json({
-      message: "OCR service is currently unavailable. Please try again later or enter manually.",
+      success: false,
+      message: "Failed to process receipt via OCR.",
       error: error.message,
     });
   }

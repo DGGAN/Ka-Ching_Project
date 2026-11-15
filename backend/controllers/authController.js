@@ -392,3 +392,137 @@ exports.updateUserProfile = async (req, res) => {
     });
   }
 };
+
+// ==========================================
+// 5. Request Password Reset OTP (Strict SMTP Check + DB Account Check + 60s Cooldown)
+// ==========================================
+exports.forgotPasswordRequest = async (req, res) => {
+  try {
+    const crypto = require("crypto");
+    const { isEmailServiceConfigured, sendPasswordResetEmail } = require("../utils/emailSender");
+
+    // 1. Check if SMTP email credentials are configured in backend/.env
+    if (!isEmailServiceConfigured()) {
+      return res.status(503).json({
+        message: "Password recovery email service is currently unavailable. Please try again later.",
+      });
+    }
+
+    let { email } = req.body;
+    if (!email || !isValidEmail(email.trim())) {
+      return res.status(400).json({
+        message: "Please enter a valid email address.",
+      });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    // 2. Verify account exists in MongoDB before sending any email
+    const user = await User.findOne({ email: cleanEmail });
+    if (!user) {
+      return res.status(404).json({
+        message: "No account was found with this email address.",
+      });
+    }
+
+    // 3. Enforce 60-second anti-spam cooldown per account
+    const now = Date.now();
+    if (user.resetPasswordRequestedAt && now - new Date(user.resetPasswordRequestedAt).getTime() < 60 * 1000) {
+      const waitSec = Math.ceil((60 * 1000 - (now - new Date(user.resetPasswordRequestedAt).getTime())) / 1000);
+      return res.status(429).json({
+        message: `Please wait ${waitSec}s before requesting another reset code.`,
+      });
+    }
+
+    // 4. Generate 6-digit numeric OTP and send email FIRST before committing OTP state
+    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+    const otpHash = crypto.createHash("sha256").update(otpCode).digest("hex");
+
+    await sendPasswordResetEmail({
+      toEmail: user.email,
+      username: user.username,
+      otpCode,
+    });
+
+    // 5. Save OTP hash and 10-minute expiry only after email succeeds
+    user.resetPasswordOtpHash = otpHash;
+    user.resetPasswordExpires = new Date(now + 10 * 60 * 1000);
+    user.resetPasswordRequestedAt = new Date(now);
+    await user.save();
+
+    res.status(200).json({
+      message: `A 6-digit verification code has been sent to ${user.email}.`,
+    });
+  } catch (error) {
+    res.status(503).json({
+      message: "Password recovery email service is currently unavailable. Please try again later.",
+    });
+  }
+};
+
+// ==========================================
+// 6. Verify 6-Digit OTP & Reset Password
+// ==========================================
+exports.resetPasswordWithOtp = async (req, res) => {
+  try {
+    const crypto = require("crypto");
+    let { email, otpCode, newPassword } = req.body;
+
+    if (!email || !otpCode || !newPassword) {
+      return res.status(400).json({
+        message: "Email, 6-digit verification code, and new password are required.",
+      });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanOtp = String(otpCode).trim();
+
+    // Validate new password strength (min 8 chars, letters + numbers)
+    const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
+    if (!passwordRegex.test(newPassword)) {
+      return res.status(400).json({
+        message: "New password must be at least 8 characters and include both letters and numbers.",
+      });
+    }
+
+    const user = await User.findOne({ email: cleanEmail }).select("+passwordHash");
+    if (!user || !user.resetPasswordOtpHash || !user.resetPasswordExpires) {
+      return res.status(400).json({
+        message: "No active password reset request found. Please request a new code.",
+      });
+    }
+
+    if (new Date() > new Date(user.resetPasswordExpires)) {
+      user.resetPasswordOtpHash = null;
+      user.resetPasswordExpires = null;
+      await user.save();
+      return res.status(400).json({
+        message: "Verification code has expired. Please request a new 6-digit code.",
+      });
+    }
+
+    const incomingHash = crypto.createHash("sha256").update(cleanOtp).digest("hex");
+    if (incomingHash !== user.resetPasswordOtpHash) {
+      return res.status(400).json({
+        message: "Invalid 6-digit verification code. Please check and try again.",
+      });
+    }
+
+    // Hash and save the new password, and clear OTP fields
+    const salt = await bcrypt.genSalt(10);
+    user.passwordHash = await bcrypt.hash(newPassword, salt);
+    user.resetPasswordOtpHash = null;
+    user.resetPasswordExpires = null;
+    user.resetPasswordRequestedAt = null;
+    await user.save();
+
+    res.status(200).json({
+      message: "Password reset successful! You can now login with your new password.",
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to reset password.",
+      error: error.message,
+    });
+  }
+};
