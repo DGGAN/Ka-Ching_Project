@@ -1,7 +1,7 @@
 /**
  * @file frontend/App.js
  * @layer Root Application Entry & Navigation Shell
- * @description Coordinates authentication, theme persistence, 9 distinct UI sound effects, real-time OS push notification permission sync, and screen routing.
+ * @description Coordinates authentication, theme persistence, 9 distinct UI sound effects, real-time OS push notification permission sync, and screen routing without repeating banner alerts when toggling tabs.
  * @exports default App
  */
 
@@ -41,8 +41,10 @@ export default function App() {
   const [themeKey, setThemeKey] = useState(ACTIVE_THEME);
   const [themeRenderTick, setThemeRenderTick] = useState(0);
 
-  // Track previous unread notification count so "bell" sound & OS push banner ONLY fire when a NEW notification arrives
+  // Track previous unread count AND the exact signature of the newest unread notification
+  // so toggling the Bell icon NEVER re-fires the same notification banner or bell sound!
   const prevUnreadCountRef = useRef(null);
+  const lastNotifiedSignatureRef = useRef(null);
 
   // 2. Animated values for smooth screen fade and vertical slide transitions
   const fadeAnim = useRef(new Animated.Value(1)).current;
@@ -94,15 +96,21 @@ export default function App() {
   useEffect(() => {
     if (!currentUser?.id) return;
 
-    syncNotificationStatusWithOS(currentUser, (syncedUser) => {
-      setCurrentUser(syncedUser);
-    });
+    const handleUserSyncedIfChanged = (syncedUser) => {
+      setCurrentUser((prev) => {
+        if (!prev) return syncedUser;
+        if (prev.isNotificationEnabled === syncedUser.isNotificationEnabled) {
+          return prev; // Return exact same reference if unchanged to prevent unnecessary re-renders
+        }
+        return syncedUser;
+      });
+    };
+
+    syncNotificationStatusWithOS(currentUser, handleUserSyncedIfChanged);
 
     const subscription = AppState.addEventListener("change", (nextAppState) => {
       if (nextAppState === "active" && currentUser?.id) {
-        syncNotificationStatusWithOS(currentUser, (syncedUser) => {
-          setCurrentUser(syncedUser);
-        });
+        syncNotificationStatusWithOS(currentUser, handleUserSyncedIfChanged);
       }
     });
 
@@ -111,7 +119,7 @@ export default function App() {
     };
   }, [currentUser?.id]);
 
-  // 5. Poll unread notifications count, play "bell" sound, AND fire external OS system banner ONLY when a new unread notification arrives
+  // 5. Poll unread notifications count, play "bell" sound, AND fire external OS system banner ONLY when a genuinely NEW unread notification arrives
   const fetchUnreadNotifications = async (userId) => {
     if (!userId) return;
     try {
@@ -119,12 +127,22 @@ export default function App() {
       if (res.data && Array.isArray(res.data.data)) {
         const unreadList = res.data.data.filter((item) => !item.isRead);
         const count = unreadList.length;
+        const newestUnread = unreadList[0] || null;
+        const newestSignature = newestUnread ? `${newestUnread._id}_${newestUnread.title}_${newestUnread.message}` : null;
 
-        if (prevUnreadCountRef.current !== null && count > prevUnreadCountRef.current) {
+        // First load after login: record baseline count & signature silently without firing banner
+        if (prevUnreadCountRef.current === null) {
+          prevUnreadCountRef.current = count;
+          lastNotifiedSignatureRef.current = newestSignature;
+          setUnreadCount(count);
+          return;
+        }
+
+        // Only fire "bell" sound & OS banner if unread count increased AND the newest unread item is genuinely new!
+        if (count > prevUnreadCountRef.current && newestSignature && newestSignature !== lastNotifiedSignatureRef.current) {
+          lastNotifiedSignatureRef.current = newestSignature;
           playUiSound("bell");
 
-          // Trigger outside OS System Banner ONLY if user.isNotificationEnabled is true
-          const newestUnread = unreadList[0];
           if (newestUnread && currentUser?.isNotificationEnabled !== false) {
             sendSystemBannerNotification({
               isUserNotificationEnabled: currentUser?.isNotificationEnabled !== false,
@@ -133,7 +151,10 @@ export default function App() {
               data: { notificationId: newestUnread._id, tag: newestUnread.tag },
             });
           }
+        } else if (newestSignature) {
+          lastNotifiedSignatureRef.current = newestSignature;
         }
+
         prevUnreadCountRef.current = count;
         setUnreadCount(count);
       }
@@ -147,8 +168,9 @@ export default function App() {
       fetchUnreadNotifications(currentUser.id);
     } else {
       prevUnreadCountRef.current = null;
+      lastNotifiedSignatureRef.current = null;
     }
-  }, [currentUser, activeTab]);
+  }, [currentUser?.id, activeTab]);
 
   // 6. Helper: Navigate to main bottom tabs and remember the tab so Bell/Profile can return to it
   const handleSelectMainTab = (nextTab) => {

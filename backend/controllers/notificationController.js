@@ -177,30 +177,55 @@ const evaluateAndSyncBudgetAlert = async (userId) => {
   const ratio = (totalSpent / limit) * 100;
 
   if (totalSpent > limit) {
-    await Notification.findOneAndUpdate(
-      { userId, tag: "ALERT", isRead: false },
-      {
+    const nextTitle = "Monthly Budget Exceeded!";
+    const nextMessage = `You have spent RM ${totalSpent.toFixed(2)}, which is RM ${(totalSpent - limit).toFixed(2)} over your RM ${limit.toFixed(2)} monthly limit.`;
+
+    const existingAlert = await Notification.findOne({ userId, tag: "ALERT" }).sort({ createdAt: -1 });
+
+    if (existingAlert && existingAlert.title === nextTitle && existingAlert.message === nextMessage) {
+      return;
+    }
+
+    if (existingAlert) {
+      existingAlert.title = nextTitle;
+      existingAlert.message = nextMessage;
+      existingAlert.isRead = false;
+      await existingAlert.save();
+    } else {
+      await Notification.create({
         userId,
-        title: "Monthly Budget Exceeded!",
-        message: `You have spent RM ${totalSpent.toFixed(2)}, which is RM ${(totalSpent - limit).toFixed(2)} over your RM ${limit.toFixed(2)} monthly limit.`,
+        title: nextTitle,
+        message: nextMessage,
         tag: "ALERT",
         isRead: false,
-      },
-      { upsert: true, returnDocument: "after", sort: { createdAt: -1 } },
-    );
+      });
+    }
     logger.info("NOTIF_ALERT", `Triggered 100%+ Budget Exceeded alert for userId=${userId} (RM ${totalSpent.toFixed(2)} / RM ${limit.toFixed(2)})`);
   } else if (ratio >= 80) {
-    await Notification.findOneAndUpdate(
-      { userId, tag: "ALERT", isRead: false },
-      {
+    const nextTitle = `Approaching Budget Limit (${ratio.toFixed(0)}%)`;
+    const nextMessage = `You have used RM ${totalSpent.toFixed(2)} of your RM ${limit.toFixed(2)} monthly budget. RM ${(limit - totalSpent).toFixed(2)} remaining.`;
+
+    const existingAlert = await Notification.findOne({ userId, tag: "ALERT" }).sort({ createdAt: -1 });
+
+    // If the exact same 80%+ alert was already generated, do NOT re-trigger unread spam
+    if (existingAlert && existingAlert.title === nextTitle && existingAlert.message === nextMessage) {
+      return;
+    }
+
+    if (existingAlert) {
+      existingAlert.title = nextTitle;
+      existingAlert.message = nextMessage;
+      existingAlert.isRead = false;
+      await existingAlert.save();
+    } else {
+      await Notification.create({
         userId,
-        title: `Approaching Budget Limit (${ratio.toFixed(0)}%)`,
-        message: `You have used RM ${totalSpent.toFixed(2)} of your RM ${limit.toFixed(2)} monthly budget. RM ${(limit - totalSpent).toFixed(2)} remaining.`,
+        title: nextTitle,
+        message: nextMessage,
         tag: "ALERT",
         isRead: false,
-      },
-      { upsert: true, returnDocument: "after", sort: { createdAt: -1 } },
-    );
+      });
+    }
     logger.info("NOTIF_ALERT", `Triggered ${ratio.toFixed(0)}% Budget Approaching alert for userId=${userId}`);
   } else {
     await Notification.deleteMany({ userId, tag: "ALERT", isRead: false });
