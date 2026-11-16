@@ -42,7 +42,6 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    // Forgot Password OTP & Anti-Spam Rate Limiting Fields
     resetPasswordOtpHash: {
       type: String,
       default: null,

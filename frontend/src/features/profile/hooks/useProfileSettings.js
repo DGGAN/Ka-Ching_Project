@@ -1,13 +1,19 @@
 /**
  * @file frontend/src/features/profile/hooks/useProfileSettings.js
- * @layer Custom Hook (Profile & Account Security State Management)
- * @description Manages popup modals for editing Username/Email, setting/changing Password, binding/unbinding Google OAuth, and notification preferences.
+ * @layer Custom Hook (Profile & Account Security State Management + Real-Time OS Push Permission Sync)
+ * @description Manages popup modals for editing Username/Email, setting/changing Password, binding/unbinding Google OAuth, and real-time OS push notification preferences.
  * @exports useProfileSettings
  */
 
 import { useState, useEffect } from "react";
+import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { playUiSound } from "../../../utils/soundEffects";
+import {
+  checkActualOsNotificationPermission,
+  syncNotificationStatusWithOS,
+  handleTogglePushNotificationSwitch,
+} from "../../../utils/systemNotifications";
 import { fetchUserProfileApi, updateUserProfileApi, fetchAutoCaptureStatusApi } from "../services/profileService";
 
 export function useProfileSettings(user, onUserUpdated, showToast) {
@@ -43,35 +49,76 @@ export function useProfileSettings(user, onUserUpdated, showToast) {
     }
   }, [user?.id]);
 
+  // Keep local state in sync if parent App.js updates user.isNotificationEnabled
+  useEffect(() => {
+    if (user && typeof user.isNotificationEnabled === "boolean") {
+      setProfileUser((prev) => ({ ...prev, ...user }));
+      setNotificationsEnabled(user.isNotificationEnabled);
+    }
+  }, [user?.isNotificationEnabled]);
+
+  // Re-verify real OS notification permission whenever user returns from Phone Settings
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", async (nextAppState) => {
+      if (nextAppState === "active" && profileUser?.id) {
+        const effectiveEnabled = await syncNotificationStatusWithOS(profileUser, async (syncedUser) => {
+          await syncUserToStorageAndParent(syncedUser);
+        });
+        setNotificationsEnabled(effectiveEnabled);
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [profileUser]);
+
   const syncUserToStorageAndParent = async (updatedUserObj) => {
-    setProfileUser(updatedUserObj);
-    setUsernameInput(updatedUserObj.username || "");
-    setEmailInput(updatedUserObj.email || "");
-    setBindGoogleEmailInput(updatedUserObj.email || "");
-    setNotificationsEnabled(updatedUserObj.isNotificationEnabled !== false);
-    setAutoCaptureEnabled(Boolean(updatedUserObj.autoCaptureEnabled));
+    const osPerm = await checkActualOsNotificationPermission();
+    const effectiveNotifEnabled = updatedUserObj.isNotificationEnabled !== false && osPerm === "granted";
+
+    const normalizedUser = {
+      ...updatedUserObj,
+      isNotificationEnabled: effectiveNotifEnabled,
+    };
+
+    setProfileUser(normalizedUser);
+    setUsernameInput(normalizedUser.username || "");
+    setEmailInput(normalizedUser.email || "");
+    setBindGoogleEmailInput(normalizedUser.email || "");
+    setNotificationsEnabled(effectiveNotifEnabled);
+    setAutoCaptureEnabled(Boolean(normalizedUser.autoCaptureEnabled));
 
     try {
-      await AsyncStorage.setItem("userData", JSON.stringify(updatedUserObj));
+      await AsyncStorage.setItem("userData", JSON.stringify(normalizedUser));
     } catch (e) {
       // Ignore storage error
     }
 
     if (typeof onUserUpdated === "function") {
-      onUserUpdated(updatedUserObj);
+      onUserUpdated(normalizedUser);
     }
   };
 
   const refreshProfileFromServer = async (userId) => {
     try {
-      const [freshUser, autoCapStatus] = await Promise.all([
+      const [freshUser, autoCapStatus, osPerm] = await Promise.all([
         fetchUserProfileApi(userId).catch(() => null),
         fetchAutoCaptureStatusApi(userId).catch(() => false),
+        checkActualOsNotificationPermission(),
       ]);
 
       if (freshUser) {
+        const effectiveNotifState = freshUser.isNotificationEnabled !== false && osPerm === "granted";
+
+        // If DB had default true, but THIS device has OS permission denied, sync false back to DB
+        if (freshUser.isNotificationEnabled !== false && osPerm !== "granted") {
+          updateUserProfileApi(userId, { isNotificationEnabled: false }).catch(() => {});
+        }
+
         await syncUserToStorageAndParent({
           ...freshUser,
+          isNotificationEnabled: effectiveNotifState,
           autoCaptureEnabled: typeof freshUser.autoCaptureEnabled === "boolean" ? freshUser.autoCaptureEnabled : autoCapStatus,
         });
       } else {
@@ -232,24 +279,21 @@ export function useProfileSettings(user, onUserUpdated, showToast) {
     }
   };
 
-  // 5. Toggle In-App Notification Alerts
+  // 5. Toggle Push Notification Alerts (Verifies actual OS/Browser permission before enabling!)
   const handleToggleNotifications = async () => {
     const nextVal = !notificationsEnabled;
     playUiSound("pop");
-    setNotificationsEnabled(nextVal);
 
-    try {
-      const res = await updateUserProfileApi(user.id, {
-        isNotificationEnabled: nextVal,
-      });
-      if (res?.user) {
-        await syncUserToStorageAndParent(res.user);
-      }
-      showToast("info", nextVal ? "In-app notifications enabled." : "Notifications muted.");
-    } catch (error) {
-      setNotificationsEnabled(!nextVal);
-      showToast("error", "Failed to update notification preference.");
-    }
+    const finalEnabled = await handleTogglePushNotificationSwitch({
+      user: profileUser,
+      nextValue: nextVal,
+      onUserSynced: async (syncedUser) => {
+        await syncUserToStorageAndParent(syncedUser);
+      },
+      showToast,
+    });
+
+    setNotificationsEnabled(finalEnabled);
   };
 
   return {

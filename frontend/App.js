@@ -1,19 +1,20 @@
 /**
  * @file frontend/App.js
  * @layer Root Application Entry & Navigation Shell
- * @description Coordinates authentication, theme persistence, 9 distinct UI sound effects ("tab" for Bell/Profile/BottomNav navigation, "bell" ONLY when a new notification arrives, and "theme" when switching themes), and screen routing.
+ * @description Coordinates authentication, theme persistence, 9 distinct UI sound effects, real-time OS push notification permission sync, and screen routing.
  * @exports default App
  */
 
 import React, { useState, useEffect, useRef } from "react";
-import { View, StatusBar, Animated, Platform, StyleSheet } from "react-native";
+import { View, StatusBar, Animated, Platform, StyleSheet, AppState } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// Import refactored theme configuration, API client, sound effects, and shared navigation components
+// Import refactored theme configuration, API client, sound effects, OS push notifications, and shared navigation components
 import { COLORS, applyTheme, ACTIVE_THEME } from "./src/theme/colors";
 import apiClient from "./src/api/apiClient";
 import { playUiSound } from "./src/utils/soundEffects";
+import { syncNotificationStatusWithOS, sendSystemBannerNotification } from "./src/utils/systemNotifications";
 import TopHeader from "./src/components/shared/TopHeader";
 import BottomNav from "./src/components/shared/BottomNav";
 import IngestionModal from "./src/components/shared/IngestionModal";
@@ -40,7 +41,7 @@ export default function App() {
   const [themeKey, setThemeKey] = useState(ACTIVE_THEME);
   const [themeRenderTick, setThemeRenderTick] = useState(0);
 
-  // Track previous unread notification count so "bell" sound ONLY plays when a NEW notification arrives
+  // Track previous unread notification count so "bell" sound & OS push banner ONLY fire when a NEW notification arrives
   const prevUnreadCountRef = useRef(null);
 
   // 2. Animated values for smooth screen fade and vertical slide transitions
@@ -89,16 +90,49 @@ export default function App() {
     ]).start();
   }, [activeTab]);
 
-  // 5. Poll unread notifications count and play "bell" sound ONLY when a new unread notification arrives
+  // 4.5. Sync OS notification permission AFTER user logs in AND whenever user returns from Phone OS Settings
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    syncNotificationStatusWithOS(currentUser, (syncedUser) => {
+      setCurrentUser(syncedUser);
+    });
+
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (nextAppState === "active" && currentUser?.id) {
+        syncNotificationStatusWithOS(currentUser, (syncedUser) => {
+          setCurrentUser(syncedUser);
+        });
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [currentUser?.id]);
+
+  // 5. Poll unread notifications count, play "bell" sound, AND fire external OS system banner ONLY when a new unread notification arrives
   const fetchUnreadNotifications = async (userId) => {
     if (!userId) return;
     try {
       const res = await apiClient.get(`/notifications/${userId}`);
       if (res.data && Array.isArray(res.data.data)) {
-        const count = res.data.data.filter((item) => !item.isRead).length;
+        const unreadList = res.data.data.filter((item) => !item.isRead);
+        const count = unreadList.length;
 
         if (prevUnreadCountRef.current !== null && count > prevUnreadCountRef.current) {
           playUiSound("bell");
+
+          // Trigger outside OS System Banner ONLY if user.isNotificationEnabled is true
+          const newestUnread = unreadList[0];
+          if (newestUnread && currentUser?.isNotificationEnabled !== false) {
+            sendSystemBannerNotification({
+              isUserNotificationEnabled: currentUser?.isNotificationEnabled !== false,
+              title: newestUnread.title || "Ka-Ching! Alert",
+              body: newestUnread.message || "You have a new financial update.",
+              data: { notificationId: newestUnread._id, tag: newestUnread.tag },
+            });
+          }
         }
         prevUnreadCountRef.current = count;
         setUnreadCount(count);

@@ -1,7 +1,7 @@
 /**
  * @file frontend/src/features/profile/components/PreferencesCard.js
  * @layer Feature Component (App Preferences, Auto-Capture & Theme Switcher)
- * @description Renders Smart Auto-Capture entry, App Theme selector modal, and In-App Notification toggle.
+ * @description Renders Smart Auto-Capture entry, App Theme selector modal, and System Push Notification toggle.
  * @exports default PreferencesCard
  */
 
@@ -31,7 +31,7 @@ export default function PreferencesCard({
   return (
     <WireBox style={styles.card}>
       <Text style={styles.sectionTitle}>AUTOMATION & APP PREFERENCES</Text>
-      <Text style={styles.sectionSub}>Configure payment auto-capture, color theme, and budget notifications</Text>
+      <Text style={styles.sectionSub}>Configure payment auto-capture, color theme, and push notifications</Text>
 
       {/* 1. Smart Auto-Capture (TNG & DuitNow) */}
       <TouchableOpacity
@@ -95,15 +95,15 @@ export default function PreferencesCard({
         </View>
       </TouchableOpacity>
 
-      {/* 3. In-App Notification Alerts Toggle */}
+      {/* 3. System Push Notification Alerts Toggle */}
       <TouchableOpacity style={[styles.settingRowBtn, { marginBottom: 0 }]} activeOpacity={0.8} onPress={onToggleNotifications}>
         <View style={[styles.iconBadge, { backgroundColor: COLORS.secondary }]}>
           <Bell size={16} color={COLORS.text} strokeWidth={2.3} />
         </View>
 
         <View style={{ flex: 1 }}>
-          <Text style={styles.rowTitle}>IN-APP BUDGET & AI ALERTS</Text>
-          <Text style={styles.rowDesc}>Receive 80% / 100% budget warnings and forecast alerts</Text>
+          <Text style={styles.rowTitle}>PUSH NOTIFICATION ALERTS</Text>
+          <Text style={styles.rowDesc}>Receive budget & expense alerts outside the app</Text>
         </View>
 
         <View

@@ -1,8 +1,8 @@
 /**
  * @file backend/controllers/notificationController.js
  * @layer Backend Controller (In-App Notifications & Real-Time Budget Alert Synchronization)
- * @description Manages fetching, marking as read, bulk clearing, and deleting user notifications, while automatically triggering OCR, large-expense TXN, GOAL, and 80%/100% budget overrun ALERT notifications.
- * @exports getNotifications, markAsRead, markAllAsRead, deleteNotification, triggerTransactionNotifications, triggerBudgetGoalNotification
+ * @description Manages fetching, marking as read, bulk clearing, and deleting user notifications, while automatically triggering smart-merged OCR notifications, large-expense TXN, GOAL, and 80%/100% budget overrun ALERT notifications without spamming.
+ * @exports getNotifications, markAsRead, markAllAsRead, deleteNotification, evaluateAndSyncBudgetAlert, triggerTransactionNotifications, triggerBudgetGoalNotification
  */
 
 // Import Notification, Transaction, Budget models, and clean logger
@@ -154,11 +154,14 @@ exports.deleteNotification = async (req, res) => {
 // 5. Internal Helper: Re-evaluate monthly budget status and upsert/clean unread ALERT notification
 const evaluateAndSyncBudgetAlert = async (userId) => {
   const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const startOfMonth = new Date(currentYear, currentMonth - 1, 1);
+  const endOfMonth = new Date(currentYear, currentMonth, 0, 23, 59, 59, 999);
 
-  const [userBudget, monthExpenses] = await Promise.all([
-    Budget.findOne({ userId }).sort({ updatedAt: -1 }),
+  const [currentMonthBudget, latestBudgetFallback, monthExpenses] = await Promise.all([
+    Budget.findOne({ userId, year: currentYear, month: currentMonth }),
+    Budget.findOne({ userId }).sort({ year: -1, month: -1, updatedAt: -1 }),
     Transaction.find({
       userId,
       type: "EXPENSE",
@@ -166,6 +169,7 @@ const evaluateAndSyncBudgetAlert = async (userId) => {
     }),
   ]);
 
+  const userBudget = currentMonthBudget || latestBudgetFallback;
   if (!userBudget || userBudget.monthlyLimit <= 0) return;
 
   const totalSpent = monthExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
@@ -178,7 +182,7 @@ const evaluateAndSyncBudgetAlert = async (userId) => {
       {
         userId,
         title: "Monthly Budget Exceeded!",
-        message: `You have spent RM ${totalSpent.toFixed(2)}, which is RM ${(totalSpent - limit).toFixed(2)} over your RM ${limit.toFixed(0)} monthly limit.`,
+        message: `You have spent RM ${totalSpent.toFixed(2)}, which is RM ${(totalSpent - limit).toFixed(2)} over your RM ${limit.toFixed(2)} monthly limit.`,
         tag: "ALERT",
         isRead: false,
       },
@@ -191,7 +195,7 @@ const evaluateAndSyncBudgetAlert = async (userId) => {
       {
         userId,
         title: `Approaching Budget Limit (${ratio.toFixed(0)}%)`,
-        message: `You have used RM ${totalSpent.toFixed(2)} of your RM ${limit.toFixed(0)} monthly budget. RM ${(limit - totalSpent).toFixed(2)} remaining.`,
+        message: `You have used RM ${totalSpent.toFixed(2)} of your RM ${limit.toFixed(2)} monthly budget. RM ${(limit - totalSpent).toFixed(2)} remaining.`,
         tag: "ALERT",
         isRead: false,
       },
@@ -203,26 +207,59 @@ const evaluateAndSyncBudgetAlert = async (userId) => {
   }
 };
 
-// 6. Internal Helper: Create TXN / OCR notification and sync Budget ALERT when transaction changes
+exports.evaluateAndSyncBudgetAlert = evaluateAndSyncBudgetAlert;
+
+// 6. Internal Helper: Upsert unread OCR notification (prevents batch spam), create Large Expense TXN card, and sync Budget ALERT
 exports.triggerTransactionNotifications = async (savedTx, isUpdate = false) => {
   try {
     // Validation 1: Ensure valid transaction document with userId
     if (!savedTx || !savedTx.userId) return;
 
     const isOcr = savedTx.source === "OCR";
-    const amtFormatted = Number(savedTx.amount).toFixed(2);
+    const amtNum = Number(savedTx.amount) || 0;
+    const amtFormatted = amtNum.toFixed(2);
     const merchant = savedTx.merchantName || "Merchant";
 
-    // Step 1: Only create new OCR or Large Expense TXN card on new creation
+    // Step 1: Only trigger OCR or Large Expense TXN notification on new creation
     if (!isUpdate) {
       if (isOcr) {
-        await Notification.create({
+        // Check if there is already an unread OCR notification to merge into (prevents multi-receipt batch spam)
+        const existingUnreadOcr = await Notification.findOne({
           userId: savedTx.userId,
-          title: `Receipt Scanned: ${merchant}`,
-          message: `Verified OCR expense of RM ${amtFormatted} at ${merchant} has been added to your records.`,
           tag: "OCR",
-        });
-      } else if (savedTx.type === "EXPENSE" && Number(savedTx.amount) >= 100) {
+          isRead: false,
+        }).sort({ createdAt: -1 });
+
+        let nextTitle = `Receipt Scanned: ${merchant}`;
+        let nextMessage = `Verified OCR expense of RM ${amtFormatted} at ${merchant} has been added to your records.`;
+
+        if (existingUnreadOcr) {
+          // Extract previous count and cumulative RM total from existing unread OCR notification
+          const batchMatch = existingUnreadOcr.title.match(/^(\d+)\s+Receipts\s+Scanned\s+\(RM\s+([0-9.]+)\s+Total\)/i);
+          const singleAmtMatch = existingUnreadOcr.message.match(/RM\s+([0-9.]+)/i);
+
+          const prevCount = batchMatch ? parseInt(batchMatch[1], 10) : 1;
+          const prevTotal = batchMatch ? parseFloat(batchMatch[2]) : singleAmtMatch ? parseFloat(singleAmtMatch[1]) : 0;
+
+          const newCount = prevCount + 1;
+          const newTotal = (prevTotal + amtNum).toFixed(2);
+
+          nextTitle = `${newCount} Receipts Scanned (RM ${newTotal} Total)`;
+          nextMessage = `Latest: RM ${amtFormatted} at ${merchant}. ${newCount} verified OCR receipts (RM ${newTotal} total) have been added to your records.`;
+        }
+
+        await Notification.findOneAndUpdate(
+          { userId: savedTx.userId, tag: "OCR", isRead: false },
+          {
+            userId: savedTx.userId,
+            title: nextTitle,
+            message: nextMessage,
+            tag: "OCR",
+            isRead: false,
+          },
+          { upsert: true, returnDocument: "after", sort: { createdAt: -1 } },
+        );
+      } else if (savedTx.type === "EXPENSE" && amtNum >= 100) {
         await Notification.create({
           userId: savedTx.userId,
           title: `Large Expense Logged: RM ${amtFormatted}`,
@@ -240,7 +277,7 @@ exports.triggerTransactionNotifications = async (savedTx, isUpdate = false) => {
 };
 
 // 7. Internal Helper: Upsert GOAL notification and re-evaluate Budget ALERT when budget is changed
-exports.triggerBudgetGoalNotification = async (userId, monthlyLimit, savingsTarget) => {
+exports.triggerBudgetGoalNotification = async (userId, monthlyLimit, savingsTarget, presetName = "Balanced") => {
   try {
     // Validation 1: Ensure userId and monthlyLimit are valid
     if (!userId || monthlyLimit === undefined) return;
@@ -250,8 +287,8 @@ exports.triggerBudgetGoalNotification = async (userId, monthlyLimit, savingsTarg
       { userId, tag: "GOAL", isRead: false },
       {
         userId,
-        title: "Monthly Budget Goal Updated",
-        message: `Your monthly spending limit is set to RM ${Number(monthlyLimit).toFixed(0)} with a savings target of RM ${Number(savingsTarget || 0).toFixed(0)}.`,
+        title: "Monthly Budget Updated",
+        message: `Your ${presetName} budget limit is set to RM ${Number(monthlyLimit).toFixed(2)} with a savings goal of RM ${Number(savingsTarget || 0).toFixed(2)}.`,
         tag: "GOAL",
         isRead: false,
       },

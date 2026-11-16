@@ -1,12 +1,14 @@
 /**
  * @file frontend/src/features/ocr/hooks/useReceiptScanner.js
- * @layer Hook (State, Auto-Trigger Camera/Gallery & Verification Queue — 100% Original Logic)
- * @description Uses scanReceiptImagesApi and saveVerifiedReceiptApi from ocrService.js, and replaces deprecated ImagePicker.MediaTypeOptions with mediaTypes: ["images"].
+ * @layer Hook (State, Auto-Trigger Camera/Gallery, OS Permission Sync & Verification Queue — 100% Original Logic)
+ * @description Uses scanReceiptImagesApi and saveVerifiedReceiptApi from ocrService.js, requests Android/iOS Camera & Photo Library permissions with Settings redirect support, and auto-resumes capture if the user enables permission in OS Settings.
  * @exports useReceiptScanner
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { AppState, Platform } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import { requestOcrCameraOrLibraryPermission } from "../../../utils/systemNotifications";
 import { scanReceiptImagesApi, saveVerifiedReceiptApi } from "../services/ocrService";
 
 export function useReceiptScanner(user, initialMode = "ocr_batch", showToast, onTransactionsSaved) {
@@ -18,6 +20,9 @@ export function useReceiptScanner(user, initialMode = "ocr_batch", showToast, on
   const [activeItemIndexForCat, setActiveItemIndexForCat] = useState(null);
   const [activeItemIndexForDate, setActiveItemIndexForDate] = useState(null);
 
+  // Track if user went to Phone OS Settings to grant "camera" or "library" permission
+  const pendingPermissionModeRef = useRef(null);
+
   // Automatically trigger camera or gallery picker when entering Screen 5
   useEffect(() => {
     if (initialMode === "camera" || initialMode === "ocr_single") {
@@ -27,11 +32,51 @@ export function useReceiptScanner(user, initialMode = "ocr_batch", showToast, on
     }
   }, [initialMode]);
 
+  // Re-check Camera / Photo Library permission when user returns from Phone OS Settings
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+
+    const subscription = AppState.addEventListener("change", async (nextAppState) => {
+      if (nextAppState === "active" && pendingPermissionModeRef.current) {
+        const modeToRetry = pendingPermissionModeRef.current;
+        pendingPermissionModeRef.current = null;
+
+        try {
+          const check =
+            modeToRetry === "camera" ? await ImagePicker.getCameraPermissionsAsync() : await ImagePicker.getMediaLibraryPermissionsAsync();
+
+          if (check.granted || check.status === "granted") {
+            if (modeToRetry === "camera") {
+              handleTakePhoto();
+            } else {
+              handlePickFromGallery();
+            }
+          } else {
+            showToast(
+              "error",
+              modeToRetry === "camera"
+                ? "Camera permission is still disabled in device settings."
+                : "Photo library permission is still disabled in device settings.",
+            );
+          }
+        } catch (e) {
+          // Non-blocking
+        }
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
   // 1. Capture a single receipt photo using the device camera (mediaTypes: ["images"])
   const handleTakePhoto = async () => {
     try {
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permission.granted) {
+      const hasPerm = await requestOcrCameraOrLibraryPermission("camera", (mode) => {
+        pendingPermissionModeRef.current = mode;
+      });
+      if (!hasPerm) {
         showToast("error", "Camera permission is required to snap receipt photos.");
         return;
       }
@@ -53,8 +98,10 @@ export function useReceiptScanner(user, initialMode = "ocr_batch", showToast, on
   // 2. Pick one or multiple receipt screenshots from the photo gallery (mediaTypes: ["images"])
   const handlePickFromGallery = async () => {
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
+      const hasPerm = await requestOcrCameraOrLibraryPermission("library", (mode) => {
+        pendingPermissionModeRef.current = mode;
+      });
+      if (!hasPerm) {
         showToast("error", "Gallery permission is required to upload receipts.");
         return;
       }
@@ -84,7 +131,7 @@ export function useReceiptScanner(user, initialMode = "ocr_batch", showToast, on
         base64: asset.base64 || "",
       }));
 
-      const rawList = await scanReceiptImagesApi(payloadImages);
+      const rawList = await scanReceiptImagesApi(payloadImages, user?.id);
 
       const extractedList = rawList.map((item, idx) => ({
         id: `${Date.now()}_${idx}`,

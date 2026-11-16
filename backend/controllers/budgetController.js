@@ -1,12 +1,12 @@
 /**
  * @file backend/controllers/budgetController.js
  * @layer Backend Controller (Budget CRUD & Auto Carry-Forward)
- * @description Saves per-month budget setup using Mongoose 8/9 returnDocument: 'after' option and returns both current month budget and full monthly history array.
+ * @description Saves per-month budget setup using Mongoose 8/9 returnDocument: 'after' option, upserts GOAL notification without spamming, immediately re-evaluates 80%/100% ALERT status, and returns both current month budget and full monthly history array.
  * @exports setBudget, getBudget
  */
 
 const Budget = require("../models/Budget");
-const Notification = require("../models/Notification");
+const { triggerBudgetGoalNotification } = require("./notificationController");
 const logger = require("../utils/logger");
 
 exports.setBudget = async (req, res) => {
@@ -54,14 +54,8 @@ exports.setBudget = async (req, res) => {
       `Saved ${budget.presetName} (${budget.needsPct}/${budget.wantsPct}/${budget.savingsPct}) for userId=${userId} (${targetYear}-${String(targetMonth).padStart(2, "0")}) -> Limit: RM ${numericLimit.toFixed(2)}, Savings Goal: RM ${Number(savingsTarget || 0).toFixed(2)}`,
     );
 
-    await Notification.create({
-      userId,
-      tag: "GOAL",
-      title: "Monthly Budget Updated",
-      message: `Your ${budget.presetName} budget limit is set to RM ${numericLimit.toFixed(
-        2,
-      )} with a savings goal of RM ${Number(savingsTarget || 0).toFixed(2)}.`,
-    });
+    // Upsert unread GOAL notification (no duplicate spam) AND immediately re-check 80%/100% Budget ALERT
+    await triggerBudgetGoalNotification(userId, numericLimit, Number(savingsTarget) || 0, budget.presetName || "Balanced");
 
     const history = await Budget.find({ userId }).sort({
       year: -1,

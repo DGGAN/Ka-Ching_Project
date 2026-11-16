@@ -5,10 +5,10 @@
  * @exports createTransaction, getTransactions, updateTransaction, deleteTransaction, getAutoCaptureStatus, toggleAutoCaptureSetting, autoCaptureNotification
  */
 
-// Import the Transaction model, AI analytics engine, notification trigger helper, and clean logger
+// Import the Transaction model, AI analytics engine, notification trigger helpers, and clean logger
 const Transaction = require("../models/Transaction");
 const { runAnalyticsEngine } = require("./analyticsController");
-const { triggerTransactionNotifications } = require("./notificationController");
+const { triggerTransactionNotifications, evaluateAndSyncBudgetAlert } = require("./notificationController");
 const logger = require("../utils/logger");
 
 // 1. Create a new manual or OCR transaction (POST /api/transactions)
@@ -77,7 +77,7 @@ exports.createTransaction = async (req, res) => {
       logger.warn("TX_CREATE", "Background analytics update warning", analyticsErr.message);
     }
 
-    // Step 5: Trigger automatic TXN, OCR, or Budget Overrun (80% / 100%) notifications
+    // Step 5: Trigger automatic TXN, smart-merged OCR, or Budget Overrun (80% / 100%) notifications
     try {
       await triggerTransactionNotifications(savedTransaction, false);
     } catch (notifyErr) {
@@ -326,7 +326,6 @@ exports.deleteTransaction = async (req, res) => {
 // SMART NOTIFICATION AUTO-CAPTURE (Uses Shared 4-Tier merchantCategorizer.js)
 // ============================================================================
 const User = require("../models/User");
-const Budget = require("../models/Budget");
 const Notification = require("../models/Notification");
 const { parsePaymentNotificationText } = require("../utils/merchantCategorizer");
 
@@ -467,53 +466,22 @@ exports.autoCaptureNotification = async (req, res) => {
       `Auto-captured ${parsed.type} -> Merchant: "${parsed.merchantName}", Amount: RM ${parsed.amount.toFixed(2)}, Category: ${parsed.category} (${parsed.matchedTier})`,
     );
 
-    // STEP 5: Non-blocking in-app notification & budget threshold check
+    // STEP 5: Upsert/Create Auto-Capture TXN notification, sync AI analytics, and upsert Budget ALERT (no duplicate ALERT spam)
     try {
-      await Notification.create({
-        userId,
-        tag: "TXN",
-        title: `Auto-Captured: ${parsed.merchantName}`,
-        message: `${parsed.sourceApp} payment of RM ${parsed.amount.toFixed(2)} (${parsed.category.replace(/_/g, " ")}) was automatically logged.`,
-      });
-
-      if (parsed.type === "EXPENSE") {
-        const currentYear = now.getFullYear();
-        const currentMonth = now.getMonth() + 1;
-        const activeBudget = await Budget.findOne({
+      await Notification.findOneAndUpdate(
+        { userId, tag: "TXN", isRead: false, title: /^Auto-Captured:/i },
+        {
           userId,
-          year: currentYear,
-          month: currentMonth,
-        });
+          tag: "TXN",
+          title: `Auto-Captured: ${parsed.merchantName}`,
+          message: `${parsed.sourceApp} payment of RM ${parsed.amount.toFixed(2)} (${parsed.category.replace(/_/g, " ")}) was automatically logged.`,
+          isRead: false,
+        },
+        { upsert: true, returnDocument: "after", sort: { createdAt: -1 } },
+      );
 
-        if (activeBudget && activeBudget.monthlyLimit > 0) {
-          const startOfMonth = new Date(currentYear, currentMonth - 1, 1);
-          const monthExpenses = await Transaction.find({
-            userId,
-            type: "EXPENSE",
-            date: { $gte: startOfMonth },
-          });
-          const totalSpent = monthExpenses.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-          const ratio = totalSpent / activeBudget.monthlyLimit;
-
-          if (ratio >= 1.0) {
-            await Notification.create({
-              userId,
-              tag: "ALERT",
-              title: "Monthly Budget Exceeded!",
-              message: `Auto-captured RM ${parsed.amount.toFixed(2)} at ${parsed.merchantName} pushed your spending to RM ${totalSpent.toFixed(
-                2,
-              )} (Limit: RM ${activeBudget.monthlyLimit.toFixed(2)}).`,
-            });
-          } else if (ratio >= (activeBudget.alertThreshold || 0.8)) {
-            await Notification.create({
-              userId,
-              tag: "ALERT",
-              title: `Approaching Budget Limit (${Math.round(ratio * 100)}%)`,
-              message: `You have used RM ${totalSpent.toFixed(2)} of your RM ${activeBudget.monthlyLimit.toFixed(2)} monthly budget.`,
-            });
-          }
-        }
-      }
+      await runAnalyticsEngine(userId);
+      await evaluateAndSyncBudgetAlert(userId);
     } catch (nonCriticalErr) {
       logger.warn("AUTO_CAPTURE", "Auto-capture notification notice", nonCriticalErr.message);
     }

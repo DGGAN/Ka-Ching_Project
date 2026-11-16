@@ -8,7 +8,11 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.dggan.kaching"
+      "bundleIdentifier": "com.dggan.kaching",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Ka-Ching! needs access to your camera so you can snap and scan receipts automatically.",
+        "NSPhotoLibraryUsageDescription": "Ka-Ching! needs access to your photo library so you can upload receipt images for OCR scanning."
+      }
     },
     "android": {
       "package": "com.dggan.kaching",
@@ -22,6 +26,8 @@
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
         "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED",
+        "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
@@ -31,7 +37,19 @@
     "web": {
       "favicon": "./assets/images/kaching_logo.png"
     },
-    "plugins": ["expo-web-browser", "expo-status-bar", "expo-audio", "expo-asset"],
+    "plugins": [
+      "expo-web-browser",
+      "expo-status-bar",
+      "expo-audio",
+      "expo-asset",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/kaching_logo.png",
+          "color": "#5F4E34"
+        }
+      ]
+    ],
     "extra": {
       "eas": {
         "projectId": "23745531-8eab-4339-98fc-2cc775f51453"
