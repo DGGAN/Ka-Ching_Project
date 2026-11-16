@@ -1,6 +1,6 @@
 /**
  * @file frontend/src/screens/AuthScreen.js
- * @layer Screen (Authentication Entry — Google OAuth + Forgot Password Modal)
+ * @layer Screen (Authentication Entry — 100% Original Design + Real Google OAuth + Forgot Password Modal)
  * @description Assembles the exact original AuthScreen design using useAuthForm, GoogleColorfulIcon, SecretDevPersonasPanel, and ForgotPasswordModal.
  * @props {Function} onLoginSuccess - Callback invoked with authenticated user object
  * @exports default AuthScreen
@@ -51,11 +51,13 @@ export default function AuthScreen({ onLoginSuccess }) {
         position: "relative",
       }}
     >
+      <FloatingToast toast={toast} slideAnim={slideAnim} />
+
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         {/* Top Logo & Title Section (Tap Logo 5 times quickly to unlock secret Dev Panel) */}
         <View style={styles.headerSection}>
           <TouchableOpacity activeOpacity={0.9} onPress={handleSecretLogoTap} style={styles.logoContainer}>
-            <Image source={require("../../assets/kaching_logo.png")} style={styles.logoImage} resizeMode="cover" />
+            <Image source={require("../../assets/images/kaching_logo.png")} style={styles.logoImage} resizeMode="cover" />
           </TouchableOpacity>
           <Text style={styles.appTitle}>Ka-Ching!</Text>
           <Text style={styles.subtitle1}>Your personal finance companion.</Text>
