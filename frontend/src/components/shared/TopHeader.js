@@ -42,7 +42,7 @@ export default function TopHeader({
           </TouchableOpacity>
         ) : (
           <View style={styles.logoBadge}>
-            <Image source={require("../../../assets/images/kaching_logo.png")} style={styles.logoImg} resizeMode="cover" />
+            <Image source={require("../../../assets/images/kaching_logo.png")} style={styles.logoImg} resizeMode="contain" />
           </View>
         )}
         <Text style={styles.headerTitle} numberOfLines={1}>

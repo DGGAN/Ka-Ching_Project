@@ -15,9 +15,13 @@ import { COLORS, applyTheme, ACTIVE_THEME } from "./src/theme/colors";
 import apiClient from "./src/api/apiClient";
 import { playUiSound } from "./src/utils/soundEffects";
 import { syncNotificationStatusWithOS, sendSystemBannerNotification } from "./src/utils/systemNotifications";
+import { registerAndroidHeadlessNotificationListener } from "./src/services/autoCaptureService";
 import TopHeader from "./src/components/shared/TopHeader";
 import BottomNav from "./src/components/shared/BottomNav";
 import IngestionModal from "./src/components/shared/IngestionModal";
+
+// Register Android native NotificationListenerService HeadlessJS task at startup
+registerAndroidHeadlessNotificationListener();
 
 // Import all application screens
 import AuthScreen from "./src/screens/AuthScreen";

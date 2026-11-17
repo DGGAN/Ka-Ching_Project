@@ -17,10 +17,6 @@
     "android": {
       "package": "com.dggan.kaching",
       "versionCode": 1,
-      "adaptiveIcon": {
-        "backgroundColor": "#FDF2C5",
-        "foregroundImage": "./assets/images/kaching_logo.png"
-      },
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
@@ -48,7 +44,8 @@
           "icon": "./assets/images/kaching_logo.png",
           "color": "#5F4E34"
         }
-      ]
+      ],
+      "./plugins/withAndroidNotificationListener"
     ],
     "extra": {
       "eas": {

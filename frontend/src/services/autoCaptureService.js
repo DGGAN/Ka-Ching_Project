@@ -1,76 +1,185 @@
 /**
  * @file frontend/src/services/autoCaptureService.js
- * @layer Service (Cross-Platform Android Notification Listener & iOS 27 Shortcuts Webhook Client)
- * @description Provides API methods to read/toggle the Profile Auto-Capture master switch and send live or simulated payment notifications to the backend.
- * @exports fetchAutoCaptureStatusApi, updateAutoCaptureToggleApi, sendAutoCaptureNotification, SAMPLE_MALAYSIAN_NOTIFICATIONS
+ * @layer Frontend Native Service (Android System Notification Listener Bridge)
+ * @description Connects Android's native NotificationListenerService (react-native-android-notification-listener) to POST /api/transactions/auto-capture so Ka-Ching! captures TNG eWallet, MAE, GrabPay & DuitNow alerts directly from Android OS without any third-party app.
+ * @exports checkAndroidNotificationListenerPermission, openAndroidNotificationListenerSettings, processIncomingNativeNotification, registerAndroidHeadlessNotificationListener
  */
 
-import { Platform } from "react-native";
+import { Platform, AppRegistry, Linking } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../api/apiClient";
 
-export const SAMPLE_MALAYSIAN_NOTIFICATIONS = [
-  {
-    id: "tng_familymart",
-    app: "Touch 'n Go eWallet",
-    packageName: "my.com.tngdigital.ewallet",
-    title: "Touch 'n Go eWallet",
-    text: "You have paid RM 15.90 to FAMILYMART SUNWAY PYRAMID using Touch 'n Go eWallet.",
-  },
-  {
-    id: "tng_zus",
-    app: "Touch 'n Go eWallet",
-    packageName: "my.com.tngdigital.ewallet",
-    title: "DuitNow QR Payment",
-    text: "Payment of RM 11.50 to ZUS COFFEE AMPANG was successful.",
-  },
-  {
-    id: "mae_uniqlo",
-    app: "MAE by Maybank2u",
-    packageName: "com.maybank2u.life",
-    title: "MAE QRPay",
-    text: "MAE: You've spent RM 79.90 at UNIQLO MID VALLEY.",
-  },
-  {
-    id: "grab_petronas",
-    app: "GrabPay",
-    packageName: "com.grabtaxi.passenger",
-    title: "GrabPay Transaction",
-    text: "You paid RM 50.00 to PETRONAS STATION SUBANG JAYA via GrabPay.",
-  },
-  {
-    id: "tng_income",
-    app: "Touch 'n Go eWallet",
-    packageName: "my.com.tngdigital.ewallet",
-    title: "Money Received",
-    text: "You have received RM 120.00 from TAN WEI MING via DuitNow.",
-  },
+// Safely load native module (only present in Android APK builds, gracefully degrades in Web/Expo Go)
+let RNAndroidNotificationListener = null;
+let RNAndroidNotificationListenerHeadlessJsName = "RNAndroidNotificationListenerHeadlessJs";
+
+if (Platform.OS === "android") {
+  try {
+    const mod = require("react-native-android-notification-listener");
+    RNAndroidNotificationListener = mod?.default || mod;
+    if (mod?.RNAndroidNotificationListenerHeadlessJsName) {
+      RNAndroidNotificationListenerHeadlessJsName = mod.RNAndroidNotificationListenerHeadlessJsName;
+    }
+  } catch (e) {
+    // Module not compiled in current runtime (e.g. Web or Expo Go)
+  }
+}
+
+// Target Malaysian financial & e-wallet package names (plus RM keyword filter so personal chats are ignored)
+const FINANCIAL_PACKAGE_HINTS = [
+  "tngdigital",
+  "touchngo",
+  "maybank",
+  "mae",
+  "grab",
+  "cimb",
+  "publicbank",
+  "pbengage",
+  "rhb",
+  "hlb",
+  "hongleong",
+  "ambank",
+  "bankislam",
+  "boost",
+  "shopeepay",
+  "shopee",
+  "bigpay",
+  "gxbank",
+  "aeonbank",
+  "rytbank",
+  "duitnow",
 ];
 
-export const fetchAutoCaptureStatusApi = async (userId) => {
-  const response = await apiClient.get(`/transactions/auto-capture-status/${userId}`);
-  return Boolean(response.data?.autoCaptureEnabled);
-};
+/**
+ * 1. Check if Android OS "Notification Access" is currently granted to Ka-Ching!
+ * @returns {Promise<"authorized" | "denied" | "unavailable">}
+ */
+export async function checkAndroidNotificationListenerPermission() {
+  if (Platform.OS !== "android" || !RNAndroidNotificationListener) {
+    return "unavailable";
+  }
+  try {
+    const status = await RNAndroidNotificationListener.getPermissionStatus();
+    // Returns "authorized", "denied", or "unknown"
+    return status === "authorized" ? "authorized" : "denied";
+  } catch (e) {
+    return "unavailable";
+  }
+}
 
-export const updateAutoCaptureToggleApi = async (userId, enabled) => {
-  const response = await apiClient.put(`/transactions/auto-capture-toggle/${userId}`, {
-    enabled: Boolean(enabled),
-  });
-  return response.data;
-};
+/**
+ * 2. Open Android's exact "Special App Access -> Notification Access" system screen
+ */
+export async function openAndroidNotificationListenerSettings() {
+  if (Platform.OS !== "android") return false;
+  try {
+    if (RNAndroidNotificationListener && typeof RNAndroidNotificationListener.requestPermission === "function") {
+      RNAndroidNotificationListener.requestPermission();
+      return true;
+    }
+    await Linking.openSettings();
+    return true;
+  } catch (e) {
+    await Linking.openSettings().catch(() => {});
+    return false;
+  }
+}
 
-export const sendAutoCaptureNotification = async ({
-  userId,
-  title,
-  text,
-  packageName = "my.com.tngdigital.ewallet",
-  platform = Platform.OS === "ios" ? "IOS_27_SHORTCUT" : "ANDROID_LISTENER",
-}) => {
-  const response = await apiClient.post("/transactions/auto-capture", {
-    userId,
-    title,
-    text,
-    packageName,
-    platform,
-  });
-  return response.data;
-};
+/**
+ * 3. Process an incoming Android status bar notification and forward payment alerts to backend
+ */
+export async function processIncomingNativeNotification(rawNotifEvent) {
+  try {
+    if (!rawNotifEvent) return null;
+
+    const payload = typeof rawNotifEvent === "string" ? JSON.parse(rawNotifEvent) : rawNotifEvent;
+
+    const appPkg = String(payload.app || payload.packageName || "").toLowerCase();
+    const title = String(payload.title || payload.titleBig || payload["android.title"] || "").trim();
+    const text = String(
+      payload.text ||
+        payload.bigText ||
+        payload.subText ||
+        payload.summaryText ||
+        payload.extraText ||
+        payload["android.text"] ||
+        payload["android.bigText"] ||
+        "",
+    ).trim();
+
+    // Ignore Ka-Ching!'s own notifications to prevent infinite loops!
+    if (appPkg.includes("com.dggan.kaching") || /ka-ching/i.test(title)) {
+      return null;
+    }
+
+    const combinedText = `${title} ${text}`;
+    // Quick pre-filter: Must contain "RM" or "MYR" currency amount
+    if (!/(?:RM|MYR)\s*[0-9]/i.test(combinedText)) {
+      return null;
+    }
+
+    const isKnownFinanceApp = FINANCIAL_PACKAGE_HINTS.some((kw) => appPkg.includes(kw));
+    const hasPaymentVerb = /(?:paid|payment|transferred|transfer|received|credited|deducted|duitnow|tng|ewallet|qr|sent)/i.test(combinedText);
+
+    if (!isKnownFinanceApp && !hasPaymentVerb) {
+      return null;
+    }
+
+    // Load logged-in user from AsyncStorage
+    const savedUserJson = await AsyncStorage.getItem("userData");
+    if (!savedUserJson) return null;
+
+    const currentUser = JSON.parse(savedUserJson);
+    if (!currentUser?.id || !currentUser?.autoCaptureEnabled) {
+      return null;
+    }
+
+    const response = await apiClient.post("/transactions/auto-capture", {
+      userId: currentUser.id,
+      title: title || "Payment Notification",
+      text: text || combinedText,
+      packageName: appPkg,
+      platform: "ANDROID_LISTENER",
+    });
+
+    const capturedTx = response.data?.data || null;
+
+    // Immediately fire an OS confirmation banner so the user sees it live while inside TNG / MAE!
+    if (capturedTx && !response.data?.duplicateSkipped) {
+      try {
+        const { sendSystemBannerNotification } = require("../utils/systemNotifications");
+        await sendSystemBannerNotification({
+          isUserNotificationEnabled: currentUser?.isNotificationEnabled !== false,
+          title: `Ka-Ching! Auto-Captured RM ${Number(capturedTx.amount).toFixed(2)}`,
+          body: `${capturedTx.merchantName} (${capturedTx.category.replace(/_/g, " ")}) was saved automatically.`,
+          data: { transactionId: capturedTx._id, tag: "AUTO_CAPTURE" },
+        });
+      } catch (bannerErr) {
+        // Non-blocking
+      }
+    }
+
+    return capturedTx;
+  } catch (err) {
+    // Non-blocking background listener
+    return null;
+  }
+}
+
+/**
+ * 4. Register Android HeadlessJS task so notifications are captured even when Ka-Ching! is in the background
+ */
+let isHeadlessRegistered = false;
+export function registerAndroidHeadlessNotificationListener() {
+  if (Platform.OS !== "android" || isHeadlessRegistered) return;
+  try {
+    isHeadlessRegistered = true;
+    AppRegistry.registerHeadlessTask(RNAndroidNotificationListenerHeadlessJsName, () => async ({ notification }) => {
+      if (notification) {
+        await processIncomingNativeNotification(notification);
+      }
+    });
+  } catch (e) {
+    // Ignore if already registered
+  }
+}

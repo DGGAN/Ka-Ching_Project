@@ -57,7 +57,7 @@ export default function AuthScreen({ onLoginSuccess }) {
         {/* Top Logo & Title Section (Tap Logo 5 times quickly to unlock secret Dev Panel) */}
         <View style={styles.headerSection}>
           <TouchableOpacity activeOpacity={0.9} onPress={handleSecretLogoTap} style={styles.logoContainer}>
-            <Image source={require("../../assets/images/kaching_logo.png")} style={styles.logoImage} resizeMode="cover" />
+            <Image source={require("../../assets/images/kaching_logo.png")} style={styles.logoImage} resizeMode="contain" />
           </TouchableOpacity>
           <Text style={styles.appTitle}>Ka-Ching!</Text>
           <Text style={styles.subtitle1}>Your personal finance companion.</Text>

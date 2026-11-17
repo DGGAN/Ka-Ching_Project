@@ -13,12 +13,12 @@ import { COLORS, SHAPES, FONTS } from "../theme/colors";
 import { playUiSound } from "../utils/soundEffects";
 import FloatingToast from "../components/shared/FloatingToast";
 import { useFloatingToast } from "../components/shared/useFloatingToast";
-import AutoCaptureModal from "../components/shared/AutoCaptureModal";
 
 import { useProfileSettings } from "../features/profile/hooks/useProfileSettings";
 import ProfileIdentityCard from "../features/profile/components/ProfileIdentityCard";
 import AccountSecurityCard from "../features/profile/components/AccountSecurityCard";
 import PreferencesCard from "../features/profile/components/PreferencesCard";
+import AutoCaptureModal from "../features/profile/components/AutoCaptureModal";
 
 export default function ProfileScreen({ user, activeThemeKey, onChangeTheme, onUserUpdated, onLogout }) {
   const styles = getStyles();
