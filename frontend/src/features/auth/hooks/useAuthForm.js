@@ -1,42 +1,46 @@
 /**
  * @file frontend/src/features/auth/hooks/useAuthForm.js
  * @layer Hook (Authentication State, Real Google OAuth 2.0 & 5-Tap Secret Dev Panel)
- * @description Manages Login/Register state, 5-tap duck logo secret unlock, and real Google OAuth 2.0 authentication. Displays a clean unavailable notice if Google OAuth cannot be reached.
+ * @description Manages Login/Register state, 5-tap duck logo secret unlock, and real Google OAuth 2.0 authentication on both Web and Mobile (Android/iOS).
  * @exports useAuthForm, DEV_TEST_ACCOUNTS
  */
 
 import { useState, useRef, useEffect } from "react";
 import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as WebBrowser from "expo-web-browser";
+import { makeRedirectUri } from "expo-auth-session";
 import apiClient from "../../../api/apiClient";
 import { playUiSound } from "../../../utils/soundEffects";
 import { loginWithEmailApi, registerWithEmailApi, authenticateGoogleBackendApi, fetchGoogleUserInfoApi } from "../services/authService";
+
+WebBrowser.maybeCompleteAuthSession();
 
 // 4 Preset Developer Test Accounts loaded from .env
 export const DEV_TEST_ACCOUNTS = [
   {
     tag: "1. Balanced",
-    email: process.env.EXPO_PUBLIC_GOOGLE_EMAIL || "darren.google@gmail.com",
-    username: process.env.EXPO_PUBLIC_GOOGLE_USERNAME || "Darren Google",
-    oauthId: process.env.EXPO_PUBLIC_GOOGLE_OAUTH_ID || "109283746554321098765",
+    email: process.env.EXPO_PUBLIC_GOOGLE_EMAIL,
+    username: process.env.EXPO_PUBLIC_GOOGLE_USERNAME,
+    oauthId: process.env.EXPO_PUBLIC_GOOGLE_OAUTH_ID,
   },
   {
     tag: "2. 92% Risk",
-    email: process.env.EXPO_PUBLIC_GOOGLE_ALT_EMAIL || "ganzhunyin@gmail.com",
-    username: process.env.EXPO_PUBLIC_GOOGLE_ALT_USERNAME || "Gan Zhun Yin",
-    oauthId: process.env.EXPO_PUBLIC_GOOGLE_ALT_OAUTH_ID || "109283746554321098888",
+    email: process.env.EXPO_PUBLIC_GOOGLE_ALT_EMAIL,
+    username: process.env.EXPO_PUBLIC_GOOGLE_ALT_USERNAME,
+    oauthId: process.env.EXPO_PUBLIC_GOOGLE_ALT_OAUTH_ID,
   },
   {
     tag: "3. Fast Saver",
-    email: process.env.EXPO_PUBLIC_GOOGLE_SAVER_EMAIL || "aiman.saver@gmail.com",
-    username: process.env.EXPO_PUBLIC_GOOGLE_SAVER_USERNAME || "Aiman Saver",
-    oauthId: process.env.EXPO_PUBLIC_GOOGLE_SAVER_OAUTH_ID || "109283746554321098777",
+    email: process.env.EXPO_PUBLIC_GOOGLE_SAVER_EMAIL,
+    username: process.env.EXPO_PUBLIC_GOOGLE_SAVER_USERNAME,
+    oauthId: process.env.EXPO_PUBLIC_GOOGLE_SAVER_OAUTH_ID,
   },
   {
     tag: "4. Empty New",
-    email: process.env.EXPO_PUBLIC_GOOGLE_FRESH_EMAIL || "chloe.fresh@gmail.com",
-    username: process.env.EXPO_PUBLIC_GOOGLE_FRESH_USERNAME || "Chloe Fresh",
-    oauthId: process.env.EXPO_PUBLIC_GOOGLE_FRESH_OAUTH_ID || "109283746554321098666",
+    email: process.env.EXPO_PUBLIC_GOOGLE_FRESH_EMAIL,
+    username: process.env.EXPO_PUBLIC_GOOGLE_FRESH_USERNAME,
+    oauthId: process.env.EXPO_PUBLIC_GOOGLE_FRESH_OAUTH_ID,
   },
 ];
 
@@ -136,7 +140,7 @@ export function useAuthForm(onLoginSuccess, showToast) {
       }, 300);
     } catch (error) {
       const targetUrl = apiClient.defaults.baseURL;
-      const errMsg = error.response?.data?.message || `Cannot reach backend (${targetUrl}). Ensure phone & PC are on same Wi-Fi.`;
+      const errMsg = error.response?.data?.message || `Cannot reach backend (${targetUrl}). Check internet connection.`;
       showToast("error", errMsg);
     } finally {
       setGoogleLoading(false);
@@ -154,21 +158,28 @@ export function useAuthForm(onLoginSuccess, showToast) {
         oauthId: profile.sub,
       });
     } catch (err) {
-      showToast("error", "Google Sign-In is currently unavailable. Please login with your email and password.");
+      showToast("error", "Google Sign-In verification failed. Please try again or use email login.");
       setGoogleLoading(false);
     }
   };
 
-  // 3. Primary Black Button: Real User "Continue with Google" Handler (No fake modal fallback)
+  // 3. Primary Black Button: Real User "Continue with Google" Handler (Web + Mobile APK)
   const handleRealUserGoogleLogin = async () => {
     playUiSound("pop");
 
-    const rawClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || "";
+    const rawClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "";
     const clientId = rawClientId.replace(/['"\s]/g, "").trim();
 
-    if (Platform.OS === "web" && clientId.endsWith(".apps.googleusercontent.com") && typeof window !== "undefined") {
+    if (!clientId.endsWith(".apps.googleusercontent.com")) {
+      showToast("error", "Google Client ID is missing in .env. Please login with your email and password.");
+      return;
+    }
+
+    const scope = encodeURIComponent("openid email profile");
+
+    // A. Web Browser Flow
+    if (Platform.OS === "web" && typeof window !== "undefined") {
       const redirectUri = window.location.origin;
-      const scope = encodeURIComponent("openid email profile");
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(
         redirectUri,
       )}&response_type=token&scope=${scope}&prompt=select_account`;
@@ -190,7 +201,7 @@ export function useAuthForm(onLoginSuccess, showToast) {
             if (popup.location.href.includes("error=")) {
               popup.close();
               clearInterval(pollTimer);
-              showToast("error", "Google Sign-In is currently unavailable. Please login with your email and password.");
+              showToast("error", "Google Sign-In was cancelled or rejected.");
               return;
             }
             if (popup.location.href.includes("access_token=")) {
@@ -212,8 +223,41 @@ export function useAuthForm(onLoginSuccess, showToast) {
       }
     }
 
-    // If Google OAuth is not configured or unavailable on current client, show clean error toast
-    showToast("error", "Google Sign-In is currently unavailable. Please login with your email and password.");
+    // B. Mobile (Android / iOS) System Browser Flow using your Authorized Render Callback URI
+    try {
+      setGoogleLoading(true);
+      const baseApiUrl = (apiClient.defaults?.baseURL || "https://kaching-backend-27o2.onrender.com/api").replace(/\/$/, "");
+      const backendRedirectUri = `${baseApiUrl}/auth/google/callback`;
+      const appReturnUrl = makeRedirectUri({ scheme: "kaching", path: "auth" });
+
+      // Pass appReturnUrl inside OAuth `state` so the Render callback bounces straight back into the app
+      const statePayload = encodeURIComponent(appReturnUrl);
+      const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(
+        backendRedirectUri,
+      )}&response_type=token&scope=${scope}&state=${statePayload}&prompt=select_account`;
+
+      const result = await WebBrowser.openAuthSessionAsync(googleAuthUrl, appReturnUrl);
+
+      if (result.type === "success" && result.url) {
+        const hashPart = result.url.split("#")[1] || "";
+        const queryPart = result.url.split("?")[1]?.split("#")[0] || "";
+        const params = new URLSearchParams(hashPart || queryPart);
+        const accessToken = params.get("access_token");
+
+        if (accessToken) {
+          await handleVerifyGoogleAccessToken(accessToken);
+          return;
+        }
+      }
+
+      if (result.type !== "cancel" && result.type !== "dismiss") {
+        showToast("error", "Google Sign-In could not complete. Please verify your internet or use email login.");
+      }
+    } catch (mobileErr) {
+      showToast("error", "Google Sign-In is currently unavailable. Please login with your email and password.");
+    } finally {
+      setGoogleLoading(false);
+    }
   };
 
   return {

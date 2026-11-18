@@ -2,6 +2,7 @@
   "expo": {
     "name": "Ka-Ching!",
     "slug": "kaching-pfm",
+    "scheme": "kaching",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/kaching_logo.png",

@@ -1,8 +1,8 @@
 /**
  * @file backend/controllers/authController.js
  * @layer Backend Controller (Authentication & Account Security Management)
- * @description Handles registration, dual-mode login (Email/Password + Google OAuth), profile updates (username & email), password setup/change, Google account binding/unbinding, and 2-step OTP password recovery.
- * @exports register, login, googleAuth, getUserProfile, updateUserProfile, forgotPasswordRequest, resetPasswordWithOtp
+ * @description Handles registration, dual-mode login (Email/Password + Google OAuth), mobile Google OAuth redirect callback, profile updates (username & email), password setup/change, Google account binding/unbinding, and 2-step OTP password recovery.
+ * @exports register, login, googleAuth, googleOAuthCallback, getUserProfile, updateUserProfile, forgotPasswordRequest, resetPasswordWithOtp
  */
 
 const User = require("../models/User");
@@ -245,6 +245,30 @@ exports.googleAuth = async (req, res) => {
       error: error.message,
     });
   }
+};
+
+// ==========================================
+// 3.5 Mobile Google OAuth Redirect Bridge (GET /api/auth/google/callback)
+// ==========================================
+exports.googleOAuthCallback = (req, res) => {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  return res.send(`<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Redirecting to Ka-Ching!...</title></head>
+<body style="font-family:monospace;text-align:center;padding-top:40px;background:#FAF6F0;color:#121212;">
+  <p>Completing Google Sign-In...</p>
+  <script>
+    (function() {
+      var hash = window.location.hash.substring(1);
+      var params = new URLSearchParams(hash);
+      var state = params.get("state");
+      var returnUrl = state ? decodeURIComponent(state) : "kaching://auth";
+      var sep = returnUrl.indexOf("?") !== -1 ? "&" : "?";
+      window.location.replace(returnUrl + (hash ? sep + hash : ""));
+    })();
+  </script>
+</body>
+</html>`);
 };
 
 // ==========================================
