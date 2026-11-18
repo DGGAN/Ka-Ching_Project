@@ -6,17 +6,17 @@
     "@expo/metro-runtime": "~58.0.17",
     "@react-native-async-storage/async-storage": "2.2.0",
     "axios": "^1.20.0",
-    "expo": "~58.0.25",
+    "expo": "~58.0.26",
     "expo-asset": "~58.0.21",
     "expo-audio": "~58.0.12",
-    "expo-auth-session": "~58.0.18",
+    "expo-auth-session": "~58.0.19",
     "expo-crypto": "~58.0.7",
     "expo-file-system": "~58.0.13",
     "expo-image-picker": "~58.0.10",
     "expo-notifications": "~58.1.9",
     "expo-status-bar": "~58.0.4",
     "expo-updates": "~58.0.22",
-    "expo-web-browser": "~58.0.7",
+    "expo-web-browser": "~58.1.0",
     "lucide-react-native": "^1.57.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -24,6 +24,23 @@
     "react-native-safe-area-context": "~5.11.1",
     "react-native-svg": "15.16.0",
     "react-native-web": "^0.21.2"
+  },
+  "expo": {
+    "install": {
+      "exclude": [
+        "expo",
+        "expo-asset",
+        "expo-audio",
+        "expo-auth-session",
+        "expo-crypto",
+        "expo-file-system",
+        "expo-image-picker",
+        "expo-notifications",
+        "expo-status-bar",
+        "expo-updates",
+        "expo-web-browser"
+      ]
+    }
   },
   "scripts": {
     "start": "expo start",

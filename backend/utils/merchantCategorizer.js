@@ -875,32 +875,48 @@ async function classifyTransactionCategory({ userId = null, merchantName = "", r
 async function parsePaymentNotificationText({ userId = null, title = "", text = "", packageName = "" }) {
   const combined = `${title} ${text}`.replace(/\s+/g, " ").trim();
 
-  // 1. Extract RM / MYR amount
+  logger.debug("NOTIFICATION_PARSER", `Analyzing raw notification text: "${combined}" (pkg="${packageName}")`);
+
+  // 1. Extract RM / MYR amount (also supports decimal fallback if from known finance package like TNG/MAE/Grab)
   const amountRegex = /(?:RM|MYR)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i;
-  const amountMatch = combined.match(amountRegex);
-  if (!amountMatch) return null;
+  let amountMatch = combined.match(amountRegex);
+
+  if (!amountMatch && /(?:tng|touch\s*'n\s*go|maybank|mae|grab|duitnow|cimb|gxbank)/i.test(`${packageName} ${combined}`)) {
+    amountMatch = combined.match(/\b([0-9]+\.[0-9]{2})\b/);
+  }
+
+  if (!amountMatch) {
+    logger.debug("NOTIFICATION_PARSER", `Skipped: No RM/MYR or decimal amount found in "${combined}"`);
+    return null;
+  }
 
   const parsedAmount = parseFloat(amountMatch[1].replace(/,/g, ""));
-  if (isNaN(parsedAmount) || parsedAmount <= 0) return null;
+  if (isNaN(parsedAmount) || parsedAmount <= 0) {
+    logger.warn("NOTIFICATION_PARSER", `Skipped: Extracted amount is invalid or <= 0 (${amountMatch[1]})`);
+    return null;
+  }
 
   // 2. Determine direction: INCOME vs EXPENSE
   const isIncome =
-    /(?:received|credited|money in|transferred to you|duitnow received|refunded)/i.test(combined) &&
-    !/(?:paid|sent to|payment to|deducted|transferred to\s+[A-Z])/i.test(combined);
+    /(?:received|credited|money in|transferred to you|duitnow received|refunded|reload(?:ed)?\s+rm)/i.test(combined) &&
+    !/(?:paid|sent to|payment to|deducted|transferred\s+(?:rm|myr)?\s*[0-9.,]+\s+to|you have transferred)/i.test(combined);
   const txType = isIncome ? "INCOME" : "EXPENSE";
 
-  // 3. Extract merchant or counterparty name
+  // 3. Extract merchant or counterparty name (supports TNG P2P transfer, DuitNow QR, MAE, GrabPay)
   let merchantName = "";
   const toFromPatterns = [
-    /(?:paid|payment|sent|transferred)\s+(?:RM|MYR)?\s*[0-9.,]+\s+to\s+([A-Za-z0-9\s&'’.\-_()]+?)(?:\s+(?:via|using|on|at|ref|reference|successful|was successful)|[.!]|$)/i,
-    /(?:to|at)\s+([A-Za-z0-9\s&'’.\-_()]{2,38}?)(?:\s+(?:via|using|on|was successful|successful|ref)|[.!]|$)/i,
-    /(?:received|from)\s+(?:RM|MYR)?\s*[0-9.,]*\s*(?:from\s+)?([A-Za-z0-9\s&'’.\-_()]{2,38}?)(?:\s+(?:via|using|into|ref)|[.!]|$)/i,
+    /(?:paid|payment(?:\s+of)?|sent|transferred|transfer(?:\s+of)?|deducted)\s+(?:RM|MYR)?\s*[0-9.,]+\s+(?:to|at|for)\s+([A-Za-z0-9\s&'’.\-_()]+?)(?:\s+(?:via|using|from|on|at|ref|reference|successful|was successful|is successful)|[.!]|$)/i,
+    /(?:to|at)\s+([A-Za-z0-9\s&'’.\-_()]{2,38}?)(?:\s+(?:via|using|on|was successful|is successful|successful|completed|ref)|[.!]|$)/i,
+    /(?:received|credited|from)\s+(?:RM|MYR)?\s*[0-9.,]*\s*(?:from\s+)?([A-Za-z0-9\s&'’.\-_()]{2,38}?)(?:\s+(?:via|using|into|ref)|[.!]|$)/i,
   ];
 
   for (const pattern of toFromPatterns) {
     const m = text.match(pattern) || combined.match(pattern);
     if (m && m[1]) {
-      const candidate = m[1].replace(/\b(using|via|touch 'n go|ewallet|tng|duitnow|qr|mae|grabpay)\b/gi, "").trim();
+      const candidate = m[1]
+        .replace(/\b(using|via|touch 'n go|touch n go|ewallet|tng|duitnow|qr|mae|grabpay|maybank2u)\b/gi, "")
+        .replace(/[.,;:\-]+$/, "")
+        .trim();
       if (candidate.length >= 2) {
         merchantName = candidate;
         break;
@@ -909,12 +925,14 @@ async function parsePaymentNotificationText({ userId = null, title = "", text = 
   }
 
   if (!merchantName) {
-    if (/tng|touch 'n go/i.test(combined) || /tngdigital/i.test(packageName)) {
-      merchantName = "TNG eWallet Payment";
+    if (/tng|touch 'n go|touch n go/i.test(combined) || /tngdigital/i.test(packageName)) {
+      merchantName = /transfer/i.test(combined) ? (isIncome ? "TNG eWallet Transfer In" : "TNG eWallet Transfer") : "TNG eWallet Payment";
     } else if (/grab/i.test(combined) || /grabtaxi/i.test(packageName)) {
       merchantName = "GrabPay Transaction";
     } else if (/maybank|mae/i.test(combined) || /maybank/i.test(packageName)) {
       merchantName = "MAE DuitNow Payment";
+    } else if (/duitnow/i.test(combined)) {
+      merchantName = isIncome ? "DuitNow Transfer Received" : "DuitNow Transfer";
     } else {
       merchantName = title || "Auto-Captured Payment";
     }
@@ -928,7 +946,7 @@ async function parsePaymentNotificationText({ userId = null, title = "", text = 
     type: txType,
   });
 
-  if (classification.aiEnhancedMerchant && /Payment|Transaction/i.test(merchantName)) {
+  if (classification.aiEnhancedMerchant && /Payment|Transaction|Transfer/i.test(merchantName)) {
     merchantName = classification.aiEnhancedMerchant;
   }
 

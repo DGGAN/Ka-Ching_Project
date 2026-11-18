@@ -44,6 +44,7 @@ exports.createTransaction = async (req, res) => {
 
     // Validation 3: Ensure transaction amount does not exceed RM 1,000,000 per entry
     if (parsedAmount > 1000000) {
+      logger.warn("TX_CREATE", `Blocked createTransaction: Amount exceeds RM 1,000,000 (${parsedAmount})`);
       return res.status(400).json({
         message: "Transaction amount cannot exceed RM 1,000,000.00.",
       });
@@ -51,6 +52,7 @@ exports.createTransaction = async (req, res) => {
 
     // Validation 4: Ensure transaction type is strictly EXPENSE or INCOME
     if (!["EXPENSE", "INCOME"].includes(type)) {
+      logger.warn("TX_CREATE", `Blocked createTransaction: Invalid transaction type (${type})`);
       return res.status(400).json({
         message: "Invalid transaction type. Must be EXPENSE or INCOME.",
       });
@@ -345,8 +347,10 @@ exports.getAutoCaptureStatus = async (req, res) => {
     const { userId } = req.params;
     const user = await User.findById(userId);
     if (!user) {
+      logger.warn("AUTO_CAPTURE", `getAutoCaptureStatus: User not found for userId=${userId}`);
       return res.status(404).json({ success: false, message: "User not found." });
     }
+    logger.debug("AUTO_CAPTURE", `Fetched status for ${user.email} -> autoCaptureEnabled=${Boolean(user.autoCaptureEnabled)}`);
     return res.status(200).json({
       success: true,
       autoCaptureEnabled: Boolean(user.autoCaptureEnabled),
@@ -397,8 +401,17 @@ exports.autoCaptureNotification = async (req, res) => {
     const packageName = String(req.body?.packageName || req.query?.packageName || "").trim();
     const platform = req.body?.platform || req.query?.platform || "ANDROID_LISTENER";
 
-    // ALWAYS log incoming auto-capture hits at INFO level so Render Production logs always show them!
+    // 1. Concise INFO milestone (always visible even if DEBUG_LOGS=false)
     logger.info("AUTO_CAPTURE_HIT", `Incoming [${platform}] userId="${userId}" pkg="${packageName}" title="${title}" text="${text.slice(0, 140)}"`);
+
+    // 2. Full raw payload dump for DEBUG_LOGS=true
+    logger.debug("AUTO_CAPTURE_PAYLOAD", "Full incoming notification payload:", {
+      userId,
+      title,
+      text,
+      packageName,
+      platform,
+    });
 
     if (!text && !title) {
       logger.warn("AUTO_CAPTURE", "Rejected: notification text and title are both empty");
@@ -417,7 +430,7 @@ exports.autoCaptureNotification = async (req, res) => {
       user = await User.findOne({ autoCaptureEnabled: true }).sort({ updatedAt: -1 });
       if (user) {
         userId = String(user._id);
-        logger.info("AUTO_CAPTURE", `Resolved active auto-capture user -> ${user.email} (${userId})`);
+        logger.debug("AUTO_CAPTURE", `Resolved active auto-capture user -> ${user.email} (${userId})`);
       }
     }
 
@@ -429,7 +442,7 @@ exports.autoCaptureNotification = async (req, res) => {
       });
     }
     if (!user.autoCaptureEnabled) {
-      logger.info("AUTO_CAPTURE", `Blocked notification for ${user.email}: autoCaptureEnabled is FALSE in MongoDB`);
+      logger.warn("AUTO_CAPTURE", `Blocked notification for ${user.email}: autoCaptureEnabled is FALSE in MongoDB`);
       return res.status(403).json({
         success: false,
         autoCaptureEnabled: false,
@@ -445,7 +458,7 @@ exports.autoCaptureNotification = async (req, res) => {
       packageName,
     });
     if (!parsed) {
-      logger.info("AUTO_CAPTURE", `Ignored notification (no valid RM payment amount detected): "${title} | ${text}"`);
+      logger.debug("AUTO_CAPTURE", `Ignored notification (no valid RM payment amount detected): "${title} | ${text}"`);
       return res.status(422).json({
         success: false,
         message: "No valid RM payment amount detected in notification text.",
@@ -462,7 +475,7 @@ exports.autoCaptureNotification = async (req, res) => {
     });
 
     if (duplicate) {
-      logger.info("AUTO_CAPTURE", `Skipped duplicate notification within 60s: ${parsed.merchantName} (RM ${parsed.amount})`);
+      logger.debug("AUTO_CAPTURE", `Skipped duplicate notification within 60s: ${parsed.merchantName} (RM ${parsed.amount})`);
       return res.status(200).json({
         success: true,
         duplicateSkipped: true,

@@ -1,74 +1,82 @@
 /**
  * @file frontend/src/services/autoCaptureService.js
- * @layer Frontend Service (Smart Auto-Capture Pipeline & Live OS Notification Simulator)
- * @description Clean, zero-crash service that simulates real OS payment notifications via expo-notifications and posts payment text to POST /api/transactions/auto-capture.
- * @exports triggerLivePaymentNotificationCapture, flushPendingAutoCaptureQueue, registerAndroidHeadlessNotificationListener
+ * @layer Frontend Native Service (Android System Notification Listener Bridge)
+ * @description Bridges Ka-Ching!'s built-in Android KaChingAutoCapture native module to check Notification Access permission, open Android's Notification Access settings screen, sync the logged-in userId to native SharedPreferences, and scan active status bar notifications on app resume.
+ * @exports checkAndroidNotificationListenerPermission, openAndroidNotificationListenerSettings, syncAutoCaptureUserToNative, scanActiveStatusBarNotifications
  */
 
-import apiClient from "../api/apiClient";
-import { sendSystemBannerNotification } from "../utils/systemNotifications";
+import { Platform, NativeModules, Linking } from "react-native";
 
 /**
- * 1. Fires a REAL OS top banner notification (simulating TNG/MAE/GrabPay) AND sends it through
- *    POST /api/transactions/auto-capture, then pops the Ka-Ching! Auto-Captured confirmation banner.
+ * 1. Check if Android OS "Notification Access" is currently granted to Ka-Ching!
+ * @returns {Promise<"authorized" | "denied" | "unavailable">}
  */
-export async function triggerLivePaymentNotificationCapture({
-  userId,
-  title = "Touch 'n Go eWallet",
-  text = "",
-  packageName = "my.com.tngdigital.ewallet",
-  platform = "ANDROID_LISTENER",
-  isUserNotificationEnabled = true,
-}) {
-  // Step 1: Pop the incoming eWallet/Bank payment banner at the top of the phone screen
+export async function checkAndroidNotificationListenerPermission() {
+  if (Platform.OS !== "android") {
+    return "unavailable";
+  }
   try {
-    await sendSystemBannerNotification({
-      isUserNotificationEnabled: true,
-      title: title,
-      body: text,
-      data: { tag: "SIMULATED_BANK_ALERT" },
-    });
-  } catch (e) {
-    // Non-blocking on web
-  }
-
-  // Step 2: Send to Render backend POST /api/transactions/auto-capture
-  const response = await apiClient.post(
-    "/transactions/auto-capture",
-    {
-      userId,
-      title,
-      text,
-      packageName,
-      platform,
-    },
-    { timeout: 60000 },
-  );
-
-  const capturedTx = response.data?.data || null;
-
-  // Step 3: Pop the Ka-Ching! Auto-Captured confirmation banner in the phone status bar
-  if (capturedTx && !response.data?.duplicateSkipped) {
-    try {
-      await sendSystemBannerNotification({
-        isUserNotificationEnabled,
-        title: `Ka-Ching! Auto-Captured RM ${Number(capturedTx.amount).toFixed(2)}`,
-        body: `${capturedTx.merchantName} (${capturedTx.category.replace(/_/g, " ")}) was saved with AUTO badge.`,
-        data: { transactionId: capturedTx._id, tag: "AUTO_CAPTURE" },
-      });
-    } catch (e) {
-      // Non-blocking
+    const nativeMod = NativeModules?.KaChingAutoCapture;
+    if (nativeMod && typeof nativeMod.getPermissionStatus === "function") {
+      const status = await nativeMod.getPermissionStatus();
+      return status === "authorized" ? "authorized" : "denied";
     }
+    return "denied";
+  } catch (e) {
+    return "denied";
   }
-
-  return response;
 }
 
-// Keep no-op exports so App.js or any existing import never breaks
-export async function flushPendingAutoCaptureQueue() {
-  return;
+/**
+ * 2. Open Android's exact "Special App Access -> Notification Access" system screen
+ */
+export async function openAndroidNotificationListenerSettings() {
+  if (Platform.OS !== "android") return false;
+  try {
+    const nativeMod = NativeModules?.KaChingAutoCapture;
+    if (nativeMod && typeof nativeMod.requestPermission === "function") {
+      nativeMod.requestPermission();
+      return true;
+    }
+    await Linking.openSettings();
+    return true;
+  } catch (e) {
+    await Linking.openSettings().catch(() => {});
+    return false;
+  }
 }
 
-export function registerAndroidHeadlessNotificationListener() {
-  return;
+/**
+ * 3. Sync logged-in userId & autoCaptureEnabled state to Android native SharedPreferences
+ *    so background KaChingNotificationListener.java knows which user account to post to.
+ */
+export async function syncAutoCaptureUserToNative(userId, enabled = true) {
+  if (Platform.OS !== "android" || !userId) return false;
+  try {
+    const nativeMod = NativeModules?.KaChingAutoCapture;
+    if (nativeMod && typeof nativeMod.setActiveUser === "function") {
+      await nativeMod.setActiveUser(String(userId), Boolean(enabled));
+      return true;
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * 4. Scan any active TNG / MAE / GrabPay notifications currently sitting in the phone's top status bar
+ *    (Called automatically when user switches back to Ka-Ching! from TNG eWallet)
+ */
+export async function scanActiveStatusBarNotifications() {
+  if (Platform.OS !== "android") return false;
+  try {
+    const nativeMod = NativeModules?.KaChingAutoCapture;
+    if (nativeMod && typeof nativeMod.scanActiveNotifications === "function") {
+      return await nativeMod.scanActiveNotifications();
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
 }
