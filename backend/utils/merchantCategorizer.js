@@ -10,6 +10,25 @@ const Transaction = require("../models/Transaction");
 const logger = require("./logger");
 
 // ============================================================================
+// STRICT MALAYSIAN FINANCE & E-WALLET PACKAGE WHITELIST
+// Add any new banking / e-wallet Android package name here in the future.
+// ============================================================================
+const ALLOWED_FINANCE_PACKAGES = [
+  "my.com.tngdigital.ewallet", // Touch 'n Go eWallet
+  "com.maybank2u.life", // MAE by Maybank2u
+  "com.grabtaxi.passenger", // Grab / GrabPay
+  "com.cimbmalaysia.clicks", // CIMB Clicks
+  "com.cimbmalaysia.cimbclicks", // CIMB Clicks / OCTO
+  "com.pbbank.PBeM", // Public Bank PB engage
+  "com.pbbank.mypb", // Public Bank MyPB
+  "com.rhbgroup.rhbmobilebanking", // RHB Mobile Banking
+  "my.com.hongleongconnect.mobileconnect", // HLB Connect
+  "my.com.boost", // Boost eWallet
+  "com.shopee.my", // Shopee / ShopeePay
+  "com.gxbank.app", // GXBank
+];
+
+// ============================================================================
 // TIER 2: MALAYSIAN BRAND & ROOT-WORD DICTIONARY (Instant 0ms Match)
 // ============================================================================
 const MERCHANT_BRAND_RULES = [
@@ -176,6 +195,17 @@ const MERCHANT_BRAND_RULES = [
   {
     category: "SHOPPING",
     keywords: [
+      "pinduoduo",
+      "temu",
+      "lazada",
+      "shopee",
+      "tiktok shop",
+      "taobao",
+      "tmall",
+      "1688",
+      "zalora",
+      "shein",
+      "aliexpress",
       "louis vuitton",
       "vuitton",
       "gucci",
@@ -224,12 +254,6 @@ const MERCHANT_BRAND_RULES = [
       "sembonia",
       "carlo rino",
       "christy ng",
-      "shopee",
-      "lazada",
-      "tiktok shop",
-      "taobao",
-      "zalora",
-      "shein",
       "uniqlo",
       "padini",
       "brands outlet",
@@ -873,15 +897,32 @@ async function classifyTransactionCategory({ userId = null, merchantName = "", r
 // MAIN EXPORT 2: Shared Notification Parser (Used by autoCaptureNotification)
 // ============================================================================
 async function parsePaymentNotificationText({ userId = null, title = "", text = "", packageName = "" }) {
-  const combined = `${title} ${text}`.replace(/\s+/g, " ").trim();
+  const pkgLower = String(packageName || "").toLowerCase();
+  if (pkgLower && !ALLOWED_FINANCE_PACKAGES.some((allowed) => pkgLower === allowed.toLowerCase())) {
+    logger.debug("NOTIFICATION_PARSER", `Skipped non-whitelisted package: ${packageName}`);
+    return null;
+  }
+
+  let combined = `${title} ${text}`.replace(/\s+/g, " ").trim();
+
+  // Strip Android Notification style class names
+  combined = combined
+    .replace(/android\.app\.Notification\$[A-Za-z]+/g, " ")
+    .replace(/androidx\.core\.app\.NotificationCompat\$[A-Za-z]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
   logger.debug("NOTIFICATION_PARSER", `Analyzing raw notification text: "${combined}" (pkg="${packageName}")`);
 
-  // 1. Extract RM / MYR amount (also supports decimal fallback if from known finance package like TNG/MAE/Grab)
+  // 1. Extract RM / MYR amount (strictly > 0)
   const amountRegex = /(?:RM|MYR)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i;
   let amountMatch = combined.match(amountRegex);
 
-  if (!amountMatch && /(?:tng|touch\s*'n\s*go|maybank|mae|grab|duitnow|cimb|gxbank)/i.test(`${packageName} ${combined}`)) {
+  if (
+    !amountMatch &&
+    /(?:tng|touch\s*'n\s*go|maybank|mae|grab|duitnow|cimb|gxbank|alipay)/i.test(`${packageName} ${combined}`) &&
+    !/(?:mb|gb|kb|download)/i.test(combined)
+  ) {
     amountMatch = combined.match(/\b([0-9]+\.[0-9]{2})\b/);
   }
 
@@ -899,15 +940,25 @@ async function parsePaymentNotificationText({ userId = null, title = "", text = 
   // 2. Determine direction: INCOME vs EXPENSE
   const isIncome =
     /(?:received|credited|money in|transferred to you|duitnow received|refunded|reload(?:ed)?\s+rm)/i.test(combined) &&
-    !/(?:paid|sent to|payment to|deducted|transferred\s+(?:rm|myr)?\s*[0-9.,]+\s+to|you have transferred)/i.test(combined);
+    !/(?:paid|sent to|payment to|deducted|transferred\s+to\s+[A-Za-z\[]|transferred\s+(?:rm|myr)?\s*[0-9.,]+\s+to|you have transferred)/i.test(
+      combined,
+    );
   const txType = isIncome ? "INCOME" : "EXPENSE";
 
-  // 3. Extract merchant or counterparty name (supports TNG P2P transfer, DuitNow QR, MAE, GrabPay)
+  // 3. Extract merchant or counterparty name
+  // Supports:
+  // - Sample 1: "ALIPAY+ PAYMENT" | "You have paid RM0.00 at PINDUODUO"
+  // - Sample 2: "Transfer Successful." | "RM0.00 has been successfully transferred to [name]"
   let merchantName = "";
   const toFromPatterns = [
-    /(?:paid|payment(?:\s+of)?|sent|transferred|transfer(?:\s+of)?|deducted)\s+(?:RM|MYR)?\s*[0-9.,]+\s+(?:to|at|for)\s+([A-Za-z0-9\s&'’.\-_()]+?)(?:\s+(?:via|using|from|on|at|ref|reference|successful|was successful|is successful)|[.!]|$)/i,
-    /(?:to|at)\s+([A-Za-z0-9\s&'’.\-_()]{2,38}?)(?:\s+(?:via|using|on|was successful|is successful|successful|completed|ref)|[.!]|$)/i,
-    /(?:received|credited|from)\s+(?:RM|MYR)?\s*[0-9.,]*\s*(?:from\s+)?([A-Za-z0-9\s&'’.\-_()]{2,38}?)(?:\s+(?:via|using|into|ref)|[.!]|$)/i,
+    // Pattern A: TNG eWallet passive format -> "RM0.01 has been successfully transferred to FRIENDNAME."
+    /(?:RM|MYR)\s*[0-9.,]+\s+has\s+been\s+(?:successfully\s+|succesful+y\s+)?(?:transferred|paid|sent)\s+(?:to|at)\s+([A-Za-z0-9\s&'’.\-_()\[\]]+?)(?:\s+(?:via|using|from|on|ref|reference)|[.!]|$)/i,
+    // Pattern B: Active format -> "You have paid RM12.50 at PINDUODUO" or "Paid/Transferred RM 12.50 to MERCHANT"
+    /(?:you\s+have\s+)?(?:paid|payment(?:\s+of)?|sent|transferred|transfer(?:\s+of)?|deducted)\s+(?:RM|MYR)?\s*[0-9.,]+\s+(?:to|at|for)\s+([A-Za-z0-9\s&'’.\-_()\[\]]+?)(?:\s+(?:via|using|from|on|at|ref|reference|successful|was successful|is successful)|[.!]|$)/i,
+    // Pattern C: General "transferred to / paid to / payment at <NAME>"
+    /(?:transferred|paid|payment|sent)\s+(?:to|at)\s+([A-Za-z0-9\s&'’.\-_()\[\]]{2,38}?)(?:\s+(?:via|using|on|was successful|is successful|successful|completed|ref)|[.!]|$)/i,
+    // Pattern D: Incoming transfer -> "received RM 10.00 from <NAME>"
+    /(?:received|credited|from)\s+(?:RM|MYR)?\s*[0-9.,]*\s*(?:from\s+)?([A-Za-z0-9\s&'’.\-_()\[\]]{2,38}?)(?:\s+(?:via|using|into|ref)|[.!]|$)/i,
   ];
 
   for (const pattern of toFromPatterns) {
@@ -925,7 +976,9 @@ async function parsePaymentNotificationText({ userId = null, title = "", text = 
   }
 
   if (!merchantName) {
-    if (/tng|touch 'n go|touch n go/i.test(combined) || /tngdigital/i.test(packageName)) {
+    if (/alipay\+/i.test(combined)) {
+      merchantName = "Alipay+ Merchant";
+    } else if (/tng|touch 'n go|touch n go/i.test(combined) || /tngdigital/i.test(packageName)) {
       merchantName = /transfer/i.test(combined) ? (isIncome ? "TNG eWallet Transfer In" : "TNG eWallet Transfer") : "TNG eWallet Payment";
     } else if (/grab/i.test(combined) || /grabtaxi/i.test(packageName)) {
       merchantName = "GrabPay Transaction";
@@ -946,7 +999,7 @@ async function parsePaymentNotificationText({ userId = null, title = "", text = 
     type: txType,
   });
 
-  if (classification.aiEnhancedMerchant && /Payment|Transaction|Transfer/i.test(merchantName)) {
+  if (classification.aiEnhancedMerchant && /Payment|Transaction|Transfer|Merchant/i.test(merchantName)) {
     merchantName = classification.aiEnhancedMerchant;
   }
 
@@ -965,11 +1018,14 @@ async function parsePaymentNotificationText({ userId = null, title = "", text = 
     budgetType,
     matchedTier: classification.matchedTier,
     sourceApp:
-      title || (packageName.includes("tng") ? "Touch 'n Go eWallet" : packageName.includes("maybank") ? "MAE by Maybank2u" : "Payment Notification"),
+      /alipay\+/i.test(title) || /tngdigital/i.test(packageName)
+        ? "Touch 'n Go eWallet"
+        : title || (packageName.includes("maybank") ? "MAE by Maybank2u" : "Payment Notification"),
   };
 }
 
 module.exports = {
+  ALLOWED_FINANCE_PACKAGES,
   classifyTransactionCategory,
   analyzeReceiptWithGeminiAI,
   parsePaymentNotificationText,
