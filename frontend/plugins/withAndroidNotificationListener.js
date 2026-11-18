@@ -13,20 +13,48 @@ import android.app.Notification;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.os.Parcelable;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 public class KaChingNotificationListener extends NotificationListenerService {
     private static final String TAG = "KaChingNotifListener";
     private static final String BACKEND_URL = "https://kaching-backend-27o2.onrender.com/api/transactions/auto-capture";
+    private static final String PREFS_NAME = "KaChingAutoCapturePrefs";
+    private static final String QUEUE_KEY = "pendingNotifQueue";
+    private static final Set<String> PROCESSED_KEYS = Collections.synchronizedSet(new HashSet<>());
+    private static final Pattern RM_AMOUNT_PATTERN = Pattern.compile("(?i)(?:RM|MYR)\\s*[0-9]");
+
+    // Strict Whitelist: ONLY capture notifications from these Malaysian eWallets & Banking apps!
+    // Add any new banking/eWallet package name here in the future.
+    private static final String[] ALLOWED_FINANCE_PACKAGES = new String[]{
+        "my.com.tngdigital.ewallet",             // Touch 'n Go eWallet
+        "com.maybank2u.life",                    // MAE by Maybank2u
+        "com.grabtaxi.passenger",                // Grab / GrabPay
+        "com.cimbmalaysia.clicks",               // CIMB Clicks
+        "com.cimbmalaysia.cimbclicks",           // CIMB Clicks / OCTO
+        "com.pbbank.PBeM",                       // Public Bank PB engage
+        "com.pbbank.mypb",                       // Public Bank MyPB
+        "com.rhbgroup.rhbmobilebanking",         // RHB Mobile Banking
+        "my.com.hongleongconnect.mobileconnect", // HLB Connect
+        "my.com.boost",                          // Boost eWallet
+        "com.shopee.my",                         // Shopee / ShopeePay
+        "com.gxbank.app"                         // GXBank
+    };
+
     public static KaChingNotificationListener instance = null;
 
     @Override
@@ -34,7 +62,7 @@ public class KaChingNotificationListener extends NotificationListenerService {
         super.onListenerConnected();
         instance = this;
         Log.i(TAG, "Ka-Ching! Native NotificationListenerService CONNECTED");
-        scanCurrentActiveNotifications();
+        flushPendingQueueAsync();
     }
 
     @Override
@@ -55,14 +83,83 @@ public class KaChingNotificationListener extends NotificationListenerService {
     public void onNotificationRemoved(StatusBarNotification sbn) {}
 
     public void scanCurrentActiveNotifications() {
-        try {
-            StatusBarNotification[] activeList = getActiveNotifications();
-            if (activeList == null) return;
-            for (StatusBarNotification sbn : activeList) {
-                extractAndForwardNotification(sbn);
+        flushPendingQueueAsync();
+    }
+
+    private boolean isAllowedFinancePackage(String pkgLower) {
+        if (pkgLower == null || pkgLower.isEmpty()) return false;
+        for (String allowed : ALLOWED_FINANCE_PACKAGES) {
+            if (pkgLower.equals(allowed.toLowerCase())) {
+                return true;
             }
-        } catch (Exception e) {
-            Log.e(TAG, "scanCurrentActiveNotifications error", e);
+        }
+        return false;
+    }
+
+    private void extractFromBundle(Bundle extras, StringBuilder titleHolder, StringBuilder textBuilder) {
+        if (extras == null) return;
+
+        Object rawTitle = extras.get(Notification.EXTRA_TITLE);
+        if (rawTitle != null && titleHolder.length() == 0) {
+            titleHolder.append(String.valueOf(rawTitle).trim());
+        }
+
+        Object rawTitleBig = extras.get(Notification.EXTRA_TITLE_BIG);
+        if (rawTitleBig != null && titleHolder.length() == 0) {
+            titleHolder.append(String.valueOf(rawTitleBig).trim());
+        }
+
+        String[] textKeys = new String[]{
+            Notification.EXTRA_TEXT,
+            Notification.EXTRA_BIG_TEXT,
+            Notification.EXTRA_SUB_TEXT,
+            Notification.EXTRA_SUMMARY_TEXT,
+            Notification.EXTRA_INFO_TEXT
+        };
+        for (String key : textKeys) {
+            Object val = extras.get(key);
+            if (val != null) {
+                String str = String.valueOf(val).trim();
+                if (!str.isEmpty() && !textBuilder.toString().contains(str)) {
+                    textBuilder.append(str).append(" ");
+                }
+            }
+        }
+
+        CharSequence[] lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES);
+        if (lines != null) {
+            for (CharSequence line : lines) {
+                if (line != null) {
+                    String lineStr = line.toString().trim();
+                    if (!lineStr.isEmpty() && !textBuilder.toString().contains(lineStr)) {
+                        textBuilder.append(lineStr).append(" ");
+                    }
+                }
+            }
+        }
+
+        try {
+            Parcelable[] msgParcelables = extras.getParcelableArray("android.messages");
+            if (msgParcelables != null) {
+                for (Parcelable p : msgParcelables) {
+                    if (p instanceof Bundle) {
+                        Bundle msgBundle = (Bundle) p;
+                        Object msgText = msgBundle.get("text");
+                        if (msgText != null) textBuilder.append(String.valueOf(msgText)).append(" ");
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // Deep fallback: scan all remaining string/charsequence keys in extras
+        for (String k : extras.keySet()) {
+            Object v = extras.get(k);
+            if (v instanceof CharSequence || v instanceof String) {
+                String s = String.valueOf(v).trim();
+                if (!s.isEmpty() && !s.equals(titleHolder.toString()) && !textBuilder.toString().contains(s)) {
+                    textBuilder.append(s).append(" ");
+                }
+            }
         }
     }
 
@@ -74,86 +171,41 @@ public class KaChingNotificationListener extends NotificationListenerService {
             String pkg = sbn.getPackageName() != null ? sbn.getPackageName() : "";
             String pkgLower = pkg.toLowerCase();
 
-            // Ignore Ka-Ching!'s own notifications
-            if (pkgLower.contains("com.dggan.kaching")) {
+            if (isIgnoredSystemPackage(pkgLower)) {
                 return;
             }
 
-            Bundle extras = notif.extras;
-            String title = "";
+            StringBuilder titleHolder = new StringBuilder();
             StringBuilder textBuilder = new StringBuilder();
 
-            if (extras != null) {
-                CharSequence t1 = extras.getCharSequence(Notification.EXTRA_TITLE);
-                if (t1 != null) title = t1.toString().trim();
+            extractFromBundle(notif.extras, titleHolder, textBuilder);
 
-                CharSequence t2 = extras.getCharSequence(Notification.EXTRA_TITLE_BIG);
-                if (title.isEmpty() && t2 != null) title = t2.toString().trim();
-
-                CharSequence csText = extras.getCharSequence(Notification.EXTRA_TEXT);
-                if (csText != null) textBuilder.append(csText.toString()).append(" ");
-
-                CharSequence csBig = extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
-                if (csBig != null) textBuilder.append(csBig.toString()).append(" ");
-
-                CharSequence csSub = extras.getCharSequence(Notification.EXTRA_SUB_TEXT);
-                if (csSub != null) textBuilder.append(csSub.toString()).append(" ");
-
-                CharSequence csSum = extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT);
-                if (csSum != null) textBuilder.append(csSum.toString()).append(" ");
-
-                CharSequence csInfo = extras.getCharSequence(Notification.EXTRA_INFO_TEXT);
-                if (csInfo != null) textBuilder.append(csInfo.toString()).append(" ");
-
-                CharSequence[] lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES);
-                if (lines != null) {
-                    for (CharSequence line : lines) {
-                        if (line != null) textBuilder.append(line.toString()).append(" ");
-                    }
-                }
+            // Also inspect publicVersion in case Xiaomi/Android marks financial notification as VISIBILITY_PRIVATE
+            if (notif.publicVersion != null) {
+                extractFromBundle(notif.publicVersion.extras, titleHolder, textBuilder);
             }
 
             if (notif.tickerText != null) {
-                textBuilder.append(notif.tickerText.toString()).append(" ");
+                String ticker = notif.tickerText.toString().trim();
+                if (!ticker.isEmpty() && !textBuilder.toString().contains(ticker)) {
+                    textBuilder.append(ticker).append(" ");
+                }
             }
 
+            String title = titleHolder.toString().trim();
             String text = textBuilder.toString().trim();
             String combined = (title + " " + text).trim();
-            if (combined.isEmpty() || title.toLowerCase().contains("ka-ching")) return;
 
-            String combinedLower = combined.toLowerCase();
-            boolean hasPaymentSignal = combinedLower.contains("rm") ||
-                    combinedLower.contains("myr") ||
-                    combinedLower.contains("paid") ||
-                    combinedLower.contains("transfer") ||
-                    combinedLower.contains("received") ||
-                    combinedLower.contains("payment") ||
-                    combinedLower.contains("duitnow") ||
-                    combinedLower.matches(".*\\\\d+\\\\.\\\\d{2}.*");
+            if (title.toLowerCase().contains("ka-ching")) return;
 
-            boolean isFinanceApp = pkgLower.contains("tng") ||
-                    pkgLower.contains("touchngo") ||
-                    pkgLower.contains("maybank") ||
-                    pkgLower.contains("mae") ||
-                    pkgLower.contains("grab") ||
-                    pkgLower.contains("cimb") ||
-                    pkgLower.contains("publicbank") ||
-                    pkgLower.contains("pbengage") ||
-                    pkgLower.contains("rhb") ||
-                    pkgLower.contains("hlb") ||
-                    pkgLower.contains("hongleong") ||
-                    pkgLower.contains("ambank") ||
-                    pkgLower.contains("bankislam") ||
-                    pkgLower.contains("boost") ||
-                    pkgLower.contains("shopee") ||
-                    pkgLower.contains("bigpay") ||
-                    pkgLower.contains("gxbank") ||
-                    pkgLower.contains("aeon") ||
-                    pkgLower.contains("duitnow");
+            // If notification came from a non-ignored app and has any text, forward it to Render so we can see it in logs & parse RM amounts!
+            if (combined.isEmpty()) {
+                title = "Empty Notification (" + pkg + ")";
+                text = "Notification posted by " + pkg + " with empty extras.";
+                combined = title + " " + text;
+            }
 
-            if (!hasPaymentSignal && !isFinanceApp) return;
-
-            SharedPreferences prefs = getApplicationContext().getSharedPreferences("KaChingAutoCapturePrefs", Context.MODE_PRIVATE);
+            SharedPreferences prefs = getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
             String savedUserId = prefs.getString("userId", "AUTO_ACTIVE_USER");
 
             final String finalUserId = (savedUserId == null || savedUserId.isEmpty()) ? "AUTO_ACTIVE_USER" : savedUserId;
@@ -161,20 +213,81 @@ public class KaChingNotificationListener extends NotificationListenerService {
             final String finalText = text.isEmpty() ? combined : text;
             final String finalPkg = pkg;
 
-            new Thread(() -> postToRenderBackend(finalUserId, finalTitle, finalText, finalPkg)).start();
+            new Thread(() -> {
+                boolean ok = postToRenderBackend(finalUserId, finalTitle, finalText, finalPkg);
+                if (!ok) {
+                    enqueueFailedNotification(finalUserId, finalTitle, finalText, finalPkg);
+                }
+            }).start();
         } catch (Exception e) {
             Log.e(TAG, "extractAndForwardNotification error", e);
         }
     }
 
-    private void postToRenderBackend(String userId, String title, String text, String packageName) {
+    private synchronized void enqueueFailedNotification(String userId, String title, String text, String packageName) {
+        try {
+            SharedPreferences prefs = getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            String raw = prefs.getString(QUEUE_KEY, "[]");
+            JSONArray arr = new JSONArray(raw);
+
+            JSONObject item = new JSONObject();
+            item.put("userId", userId);
+            item.put("title", title);
+            item.put("text", text);
+            item.put("packageName", packageName);
+
+            JSONArray nextArr = new JSONArray();
+            int start = Math.max(0, arr.length() - 19);
+            for (int i = start; i < arr.length(); i++) {
+                nextArr.put(arr.getJSONObject(i));
+            }
+            nextArr.put(item);
+
+            prefs.edit().putString(QUEUE_KEY, nextArr.toString()).apply();
+        } catch (Exception e) {
+            Log.e(TAG, "enqueueFailedNotification error", e);
+        }
+    }
+
+    public void flushPendingQueueAsync() {
+        new Thread(() -> {
+            try {
+                SharedPreferences prefs = getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                String raw = prefs.getString(QUEUE_KEY, "[]");
+                JSONArray arr = new JSONArray(raw);
+                if (arr.length() == 0) return;
+
+                prefs.edit().putString(QUEUE_KEY, "[]").apply();
+
+                String activeUserId = prefs.getString("userId", "AUTO_ACTIVE_USER");
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject item = arr.getJSONObject(i);
+                    String uid = item.optString("userId", activeUserId);
+                    if (uid.equals("AUTO_ACTIVE_USER") && activeUserId != null && !activeUserId.isEmpty()) {
+                        uid = activeUserId;
+                    }
+                    String t = item.optString("title", "Payment Notification");
+                    String txt = item.optString("text", "");
+                    String p = item.optString("packageName", "");
+                    boolean sent = postToRenderBackend(uid, t, txt, p);
+                    if (!sent) {
+                        enqueueFailedNotification(uid, t, txt, p);
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "flushPendingQueueAsync error", e);
+            }
+        }).start();
+    }
+
+    private boolean postToRenderBackend(String userId, String title, String text, String packageName) {
         HttpURLConnection conn = null;
         try {
             URL url = new URL(BACKEND_URL);
             conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
-            conn.setConnectTimeout(60000);
-            conn.setReadTimeout(60000);
+            conn.setConnectTimeout(45000);
+            conn.setReadTimeout(45000);
             conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
             conn.setRequestProperty("Accept", "application/json");
             conn.setDoOutput(true);
@@ -193,8 +306,10 @@ public class KaChingNotificationListener extends NotificationListenerService {
 
             int code = conn.getResponseCode();
             Log.i(TAG, "POST /transactions/auto-capture response: " + code);
+            return code >= 200 && code < 500;
         } catch (Exception e) {
-            Log.e(TAG, "POST /transactions/auto-capture failed", e);
+            Log.e(TAG, "POST /transactions/auto-capture network error (will retry)", e);
+            return false;
         } finally {
             if (conn != null) conn.disconnect();
         }
@@ -204,10 +319,14 @@ public class KaChingNotificationListener extends NotificationListenerService {
 
 const KACHING_MODULE_JAVA = `package com.dggan.kaching;
 
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.provider.Settings;
+import android.service.notification.NotificationListenerService;
 
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
@@ -227,12 +346,118 @@ public class KaChingAutoCaptureModule extends ReactContextBaseJavaModule {
         return "KaChingAutoCapture";
     }
 
+    private void ensureListenerRebound() {
+        try {
+            ComponentName cn = new ComponentName(reactContext, KaChingNotificationListener.class);
+            PackageManager pm = reactContext.getPackageManager();
+            pm.setComponentEnabledSetting(cn, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
+            pm.setComponentEnabledSetting(cn, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                NotificationListenerService.requestRebind(cn);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void extractAndForwardNotification(StatusBarNotification sbn) {
+        try {
+            Notification notif = sbn.getNotification();
+            if (notif == null) return;
+
+            if ((notif.flags & Notification.FLAG_ONGOING_EVENT) != 0) {
+                return;
+            }
+
+            String pkg = sbn.getPackageName() != null ? sbn.getPackageName() : "";
+            String pkgLower = pkg.toLowerCase();
+
+            // Strict Whitelist Check: Only process notifications from our 10 target finance apps!
+            if (!isAllowedFinancePackage(pkgLower)) {
+                return;
+            }
+
+            // Deduplicate by notification key + postTime so an unswiped notification is NEVER sent twice!
+            String uniqueNotifId = sbn.getKey() + "_" + sbn.getPostTime();
+            if (PROCESSED_KEYS.contains(uniqueNotifId)) {
+                return;
+            }
+
+            StringBuilder titleHolder = new StringBuilder();
+            StringBuilder textBuilder = new StringBuilder();
+
+            extractFromBundle(notif.extras, titleHolder, textBuilder);
+
+            // Also inspect publicVersion in case Xiaomi/Android marks financial notification as VISIBILITY_PRIVATE
+            if (notif.publicVersion != null) {
+                extractFromBundle(notif.publicVersion.extras, titleHolder, textBuilder);
+            }
+
+            if (notif.tickerText != null) {
+                String ticker = notif.tickerText.toString().trim();
+                if (!ticker.isEmpty() && !textBuilder.toString().contains(ticker)) {
+                    textBuilder.append(ticker).append(" ");
+                }
+            }
+
+            String title = titleHolder.toString().trim();
+            String text = textBuilder.toString().trim();
+            String combined = (title + " " + text).trim();
+
+            if (combined.isEmpty() || title.toLowerCase().contains("ka-ching")) {
+                return;
+            }
+
+            // Only forward notifications that contain an RM / MYR payment amount
+            if (!RM_AMOUNT_PATTERN.matcher(combined).find()) {
+                return;
+            }
+
+            PROCESSED_KEYS.add(uniqueNotifId);
+            if (PROCESSED_KEYS.size() > 200) {
+                PROCESSED_KEYS.clear();
+                PROCESSED_KEYS.add(uniqueNotifId);
+            }
+
+            SharedPreferences prefs = getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            String savedUserId = prefs.getString("userId", "AUTO_ACTIVE_USER");
+
+            final String finalUserId = (savedUserId == null || savedUserId.isEmpty()) ? "AUTO_ACTIVE_USER" : savedUserId;
+            final String finalTitle = title.isEmpty() ? "Payment Notification" : title;
+            final String finalText = text.isEmpty() ? combined : text;
+            final String finalPkg = pkg;
+
+            new Thread(() -> {
+                boolean ok = postToRenderBackend(finalUserId, finalTitle, finalText, finalPkg);
+                if (!ok) {
+                    enqueueFailedNotification(finalUserId, finalTitle, finalText, finalPkg);
+                }
+            }).start();
+        } catch (Exception e) {
+            Log.e(TAG, "extractAndForwardNotification error", e);
+        }
+    }
+
+    private synchronized void enqueueFailedNotification(String userId, String title, String text, String packageName) {
+    private void ensureListenerRebound() {
+        try {
+            ComponentName cn = new ComponentName(reactContext, KaChingNotificationListener.class);
+            PackageManager pm = reactContext.getPackageManager();
+            pm.setComponentEnabledSetting(cn, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
+            pm.setComponentEnabledSetting(cn, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                NotificationListenerService.requestRebind(cn);
+            }
+        } catch (Exception ignored) {}
+    }
+
     @ReactMethod
     public void getPermissionStatus(Promise promise) {
         try {
             String pkgName = reactContext.getPackageName();
             String flat = Settings.Secure.getString(reactContext.getContentResolver(), "enabled_notification_listeners");
             boolean granted = flat != null && flat.contains(pkgName);
+            if (granted && KaChingNotificationListener.instance == null) {
+                ensureListenerRebound();
+            }
             promise.resolve(granted ? "authorized" : "denied");
         } catch (Exception e) {
             promise.resolve("denied");
@@ -258,8 +483,12 @@ public class KaChingAutoCaptureModule extends ReactContextBaseJavaModule {
                 .putBoolean("enabled", enabled)
                 .apply();
 
-            if (enabled && KaChingNotificationListener.instance != null) {
-                KaChingNotificationListener.instance.scanCurrentActiveNotifications();
+            if (enabled) {
+                if (KaChingNotificationListener.instance == null) {
+                    ensureListenerRebound();
+                } else {
+                    KaChingNotificationListener.instance.scanCurrentActiveNotifications();
+                }
             }
             promise.resolve(true);
         } catch (Exception e) {
@@ -274,6 +503,7 @@ public class KaChingAutoCaptureModule extends ReactContextBaseJavaModule {
                 KaChingNotificationListener.instance.scanCurrentActiveNotifications();
                 promise.resolve(true);
             } else {
+                ensureListenerRebound();
                 promise.resolve(false);
             }
         } catch (Exception e) {
@@ -343,17 +573,56 @@ module.exports = function withAndroidNotificationListener(config) {
     return modConfig;
   });
 
-  // 3. Register KaChingNotificationListener service in AndroidManifest.xml
+  // 3. Register KaChingNotificationListener service + Android 11-15 Package Visibility (<queries> & QUERY_ALL_PACKAGES) in AndroidManifest.xml
   return withAndroidManifest(config, async (modConfig) => {
     const androidManifest = modConfig.modResults;
     const manifestRoot = androidManifest.manifest;
     const mainApp = manifestRoot?.application?.[0];
     if (!mainApp) return modConfig;
 
+    // A. Add QUERY_ALL_PACKAGES permission so Android 11-15 / Xiaomi HyperOS never hides third-party eWallet notifications!
+    if (!manifestRoot["uses-permission"]) {
+      manifestRoot["uses-permission"] = [];
+    }
+    const hasQueryAll = manifestRoot["uses-permission"].some((p) => p.$?.["android:name"] === "android.permission.QUERY_ALL_PACKAGES");
+    if (!hasQueryAll) {
+      manifestRoot["uses-permission"].push({
+        $: { "android:name": "android.permission.QUERY_ALL_PACKAGES" },
+      });
+    }
+
+    // B. Explicitly declare <queries> for Malaysian eWallet & Banking packages
+    const financePackages = [
+      "my.com.tngdigital.ewallet",
+      "com.maybank2u.life",
+      "com.grabtaxi.passenger",
+      "com.cimbmalaysia.clicks",
+      "com.pbbank.PBeM",
+      "com.rhbgroup.rhbmobilebanking",
+      "my.com.hongleongconnect.mobileconnect",
+      "my.com.boost",
+      "com.shopee.my",
+      "com.gxbank.app",
+    ];
+    if (!manifestRoot.queries) {
+      manifestRoot.queries = [{ package: [] }];
+    }
+    if (!manifestRoot.queries[0].package) {
+      manifestRoot.queries[0].package = [];
+    }
+    for (const pkgName of financePackages) {
+      const pkgExists = manifestRoot.queries[0].package.some((p) => p.$?.["android:name"] === pkgName);
+      if (!pkgExists) {
+        manifestRoot.queries[0].package.push({
+          $: { "android:name": pkgName },
+        });
+      }
+    }
+
+    // C. Register KaChingNotificationListener service
     if (!mainApp.service) {
       mainApp.service = [];
     }
-
     const serviceName = ".KaChingNotificationListener";
     const exists = mainApp.service.some((s) => s.$?.["android:name"] === serviceName);
     if (!exists) {

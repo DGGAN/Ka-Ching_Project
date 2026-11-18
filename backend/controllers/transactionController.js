@@ -340,7 +340,7 @@ exports.deleteTransaction = async (req, res) => {
 // ============================================================================
 const User = require("../models/User");
 const Notification = require("../models/Notification");
-const { parsePaymentNotificationText } = require("../utils/merchantCategorizer");
+const { parsePaymentNotificationText, ALLOWED_FINANCE_PACKAGES } = require("../utils/merchantCategorizer");
 
 exports.getAutoCaptureStatus = async (req, res) => {
   try {
@@ -401,16 +401,21 @@ exports.autoCaptureNotification = async (req, res) => {
     const packageName = String(req.body?.packageName || req.query?.packageName || "").trim();
     const platform = req.body?.platform || req.query?.platform || "ANDROID_LISTENER";
 
-    // Silently ignore non-payment Xiaomi / Chrome system background services so Render logs stay clean
-    if (/^(com\.xiaomi\.mirror|com\.xiaomi\.mi_connect_service|com\.android\.chrome|com\.android\.providers\.downloads)$/i.test(packageName)) {
+    // Strict Whitelist Check for Android Listener: ONLY accept notifications from our allowed Malaysian finance packages!
+    const pkgLower = packageName.toLowerCase();
+    const isWhitelistedFinancePkg = platform === "IOS_27_SHORTCUT" || ALLOWED_FINANCE_PACKAGES.some((allowed) => pkgLower === allowed.toLowerCase());
+
+    const isEmptyPlaceholder = /^Empty Notification \(/i.test(title) || /with empty extras\.$/i.test(text);
+
+    if (!isWhitelistedFinancePkg || isEmptyPlaceholder) {
       return res.status(200).json({
         success: false,
-        ignoredSystemPackage: true,
-        message: "Ignored non-financial system notification.",
+        ignoredNonWhitelistedPackage: true,
+        message: "Ignored notification from non-whitelisted app.",
       });
     }
 
-    // 1. Concise INFO milestone (always visible even if DEBUG_LOGS=false)
+    // 1. Concise INFO milestone (only printed for genuine whitelisted financial notifications!)
     logger.info("AUTO_CAPTURE_HIT", `Incoming [${platform}] userId="${userId}" pkg="${packageName}" title="${title}" text="${text.slice(0, 140)}"`);
 
     // 2. Full raw payload dump for DEBUG_LOGS=true

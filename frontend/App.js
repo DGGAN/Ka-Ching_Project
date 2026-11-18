@@ -15,7 +15,7 @@ import { COLORS, applyTheme, ACTIVE_THEME } from "./src/theme/colors";
 import apiClient from "./src/api/apiClient";
 import { playUiSound } from "./src/utils/soundEffects";
 import { syncNotificationStatusWithOS, sendSystemBannerNotification } from "./src/utils/systemNotifications";
-import { syncAutoCaptureUserToNative, scanActiveStatusBarNotifications } from "./src/services/autoCaptureService";
+import { syncAutoCaptureUserToNative } from "./src/services/autoCaptureService";
 import TopHeader from "./src/components/shared/TopHeader";
 import BottomNav from "./src/components/shared/BottomNav";
 import IngestionModal from "./src/components/shared/IngestionModal";
@@ -93,7 +93,7 @@ export default function App() {
     ]).start();
   }, [activeTab]);
 
-  // 4.5. Sync OS notification permission AFTER user logs in AND whenever user returns from Phone OS Settings or TNG eWallet
+  // 4.5. Sync OS notification permission AFTER user logs in AND whenever user returns from Phone OS Settings
   useEffect(() => {
     if (!currentUser?.id) return;
 
@@ -108,25 +108,21 @@ export default function App() {
     };
 
     syncNotificationStatusWithOS(currentUser, handleUserSyncedIfChanged);
-    syncAutoCaptureUserToNative(currentUser.id, Boolean(currentUser.autoCaptureEnabled));
+    syncAutoCaptureUserToNative(currentUser.id, currentUser.autoCaptureEnabled !== false);
 
     const subscription = AppState.addEventListener("change", (nextAppState) => {
       if (nextAppState === "active" && currentUser?.id) {
         syncNotificationStatusWithOS(currentUser, handleUserSyncedIfChanged);
-        // Scan any active TNG / MAE notifications in status bar and refresh UI when returning to Ka-Ching!
-        scanActiveStatusBarNotifications().finally(() => {
-          setTimeout(() => {
-            fetchUnreadNotifications(currentUser.id);
-            setThemeRenderTick((t) => t + 1);
-          }, 1200);
-        });
+        // Refresh unread notifications and transactions list when returning from TNG / MAE
+        fetchUnreadNotifications(currentUser.id);
+        setThemeRenderTick((t) => t + 1);
       }
     });
 
     return () => {
       subscription.remove();
     };
-  }, [currentUser?.id, currentUser?.autoCaptureEnabled]);
+  }, [currentUser?.id]);
 
   // 5. Poll unread notifications count, play "bell" sound, AND fire external OS system banner ONLY when a genuinely NEW unread notification arrives
   const fetchUnreadNotifications = async (userId) => {

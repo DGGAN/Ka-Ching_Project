@@ -16,7 +16,6 @@ import {
   checkAndroidNotificationListenerPermission,
   openAndroidNotificationListenerSettings,
   syncAutoCaptureUserToNative,
-  scanActiveStatusBarNotifications,
 } from "../../../services/autoCaptureService";
 import WireButton from "../../../components/shared/WireButton";
 import FloatingToast from "../../../components/shared/FloatingToast";
@@ -56,7 +55,6 @@ export default function AutoCaptureModal({ visible = false, onClose, user, autoC
     const sub = AppState.addEventListener("change", (nextState) => {
       if (nextState === "active") {
         refreshAndroidListenerStatus();
-        scanActiveStatusBarNotifications();
       }
     });
     return () => sub.remove();
@@ -337,14 +335,15 @@ export default function AutoCaptureModal({ visible = false, onClose, user, autoC
                 {showRestrictedHelp && (
                   <View style={styles.helpAccordionBody}>
                     <Text style={styles.helpAccordionText}>
-                      On Android 13+, APK apps require a 1-time unlock before enabling Notification Access:{"\n"}
-                      1. Open your phone{" "}
+                      On Android 13+, APK apps require a 1-time unlock:{"\n"}
+                      1. Open phone{" "}
                       <Text style={{ fontWeight: "bold" }}>
                         Settings {"->"} Apps {"->"} Ka-Ching!
                       </Text>
                       {"\n"}
-                      2. Tap the <Text style={{ fontWeight: "bold" }}>3 dots (⋮)</Text> at the top-right corner (or scroll down to the bottom){"\n"}
-                      3. Tap <Text style={{ fontWeight: "bold" }}>"Allow restricted settings"</Text>, then return here and enable Notification Access.
+                      2. Tap <Text style={{ fontWeight: "bold" }}>"Allow restricted settings"</Text> (top-right ⋮ menu or bottom of page) and turn ON{" "}
+                      <Text style={{ fontWeight: "bold" }}>"Autostart"</Text>.{"\n"}
+                      3. Return here and enable Notification Access.
                     </Text>
                   </View>
                 )}
