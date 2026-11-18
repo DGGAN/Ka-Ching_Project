@@ -873,15 +873,25 @@ async function classifyTransactionCategory({ userId = null, merchantName = "", r
 // MAIN EXPORT 2: Shared Notification Parser (Used by autoCaptureNotification)
 // ============================================================================
 async function parsePaymentNotificationText({ userId = null, title = "", text = "", packageName = "" }) {
+  // Ignore non-financial system / download notifications (e.g., Chrome .apk download MB, Xiaomi Mirror)
+  if (/^(com\.xiaomi\.mirror|com\.xiaomi\.mi_connect_service|com\.android\.chrome|com\.android\.providers\.downloads)$/i.test(packageName)) {
+    logger.debug("NOTIFICATION_PARSER", `Ignored system/browser package: ${packageName}`);
+    return null;
+  }
+
   const combined = `${title} ${text}`.replace(/\s+/g, " ").trim();
 
   logger.debug("NOTIFICATION_PARSER", `Analyzing raw notification text: "${combined}" (pkg="${packageName}")`);
 
-  // 1. Extract RM / MYR amount (also supports decimal fallback if from known finance package like TNG/MAE/Grab)
+  // 1. Extract RM / MYR amount (strictly requires RM/MYR prefix OR known financial package + payment keyword)
   const amountRegex = /(?:RM|MYR)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i;
   let amountMatch = combined.match(amountRegex);
 
-  if (!amountMatch && /(?:tng|touch\s*'n\s*go|maybank|mae|grab|duitnow|cimb|gxbank)/i.test(`${packageName} ${combined}`)) {
+  if (
+    !amountMatch &&
+    /(?:tng|touch\s*'n\s*go|maybank|mae|grab|duitnow|cimb|gxbank)/i.test(`${packageName} ${combined}`) &&
+    !/(?:mb|gb|kb|download)/i.test(combined)
+  ) {
     amountMatch = combined.match(/\b([0-9]+\.[0-9]{2})\b/);
   }
 
@@ -899,14 +909,21 @@ async function parsePaymentNotificationText({ userId = null, title = "", text = 
   // 2. Determine direction: INCOME vs EXPENSE
   const isIncome =
     /(?:received|credited|money in|transferred to you|duitnow received|refunded|reload(?:ed)?\s+rm)/i.test(combined) &&
-    !/(?:paid|sent to|payment to|deducted|transferred\s+(?:rm|myr)?\s*[0-9.,]+\s+to|you have transferred)/i.test(combined);
+    !/(?:paid|sent to|payment to|deducted|transferred\s+to\s+[A-Za-z]|transferred\s+(?:rm|myr)?\s*[0-9.,]+\s+to|you have transferred)/i.test(
+      combined,
+    );
   const txType = isIncome ? "INCOME" : "EXPENSE";
 
-  // 3. Extract merchant or counterparty name (supports TNG P2P transfer, DuitNow QR, MAE, GrabPay)
+  // 3. Extract merchant or counterparty name (supports TNG "RM0.01 has been successfully transferred to FRIENDNAME.", DuitNow QR, MAE, GrabPay)
   let merchantName = "";
   const toFromPatterns = [
+    // Pattern A: TNG eWallet passive format -> "RM0.01 has been successfully transferred to FRIENDNAME."
+    /(?:RM|MYR)\s*[0-9.,]+\s+has\s+been\s+(?:successfully\s+|succesful+y\s+)?(?:transferred|paid|sent)\s+(?:to|at)\s+([A-Za-z0-9\s&'’.\-_()]+?)(?:\s+(?:via|using|from|on|ref|reference)|[.!]|$)/i,
+    // Pattern B: Active format -> "Paid/Transferred RM 12.50 to MERCHANT"
     /(?:paid|payment(?:\s+of)?|sent|transferred|transfer(?:\s+of)?|deducted)\s+(?:RM|MYR)?\s*[0-9.,]+\s+(?:to|at|for)\s+([A-Za-z0-9\s&'’.\-_()]+?)(?:\s+(?:via|using|from|on|at|ref|reference|successful|was successful|is successful)|[.!]|$)/i,
-    /(?:to|at)\s+([A-Za-z0-9\s&'’.\-_()]{2,38}?)(?:\s+(?:via|using|on|was successful|is successful|successful|completed|ref)|[.!]|$)/i,
+    // Pattern C: General "transferred to / paid to / payment at <NAME>"
+    /(?:transferred|paid|payment|sent)\s+(?:to|at)\s+([A-Za-z0-9\s&'’.\-_()]{2,38}?)(?:\s+(?:via|using|on|was successful|is successful|successful|completed|ref)|[.!]|$)/i,
+    // Pattern D: Incoming transfer -> "received RM 10.00 from <NAME>"
     /(?:received|credited|from)\s+(?:RM|MYR)?\s*[0-9.,]*\s*(?:from\s+)?([A-Za-z0-9\s&'’.\-_()]{2,38}?)(?:\s+(?:via|using|into|ref)|[.!]|$)/i,
   ];
 

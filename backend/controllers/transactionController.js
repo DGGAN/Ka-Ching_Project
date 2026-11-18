@@ -370,7 +370,7 @@ exports.toggleAutoCaptureSetting = async (req, res) => {
     const { userId } = req.params;
     const { enabled } = req.body;
 
-    const user = await User.findByIdAndUpdate(userId, { autoCaptureEnabled: Boolean(enabled) }, { new: true });
+    const user = await User.findByIdAndUpdate(userId, { autoCaptureEnabled: Boolean(enabled) }, { returnDocument: "after" });
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found." });
     }
@@ -400,6 +400,15 @@ exports.autoCaptureNotification = async (req, res) => {
     const text = String(req.body?.text || req.query?.text || "").trim();
     const packageName = String(req.body?.packageName || req.query?.packageName || "").trim();
     const platform = req.body?.platform || req.query?.platform || "ANDROID_LISTENER";
+
+    // Silently ignore non-payment Xiaomi / Chrome system background services so Render logs stay clean
+    if (/^(com\.xiaomi\.mirror|com\.xiaomi\.mi_connect_service|com\.android\.chrome|com\.android\.providers\.downloads)$/i.test(packageName)) {
+      return res.status(200).json({
+        success: false,
+        ignoredSystemPackage: true,
+        message: "Ignored non-financial system notification.",
+      });
+    }
 
     // 1. Concise INFO milestone (always visible even if DEBUG_LOGS=false)
     logger.info("AUTO_CAPTURE_HIT", `Incoming [${platform}] userId="${userId}" pkg="${packageName}" title="${title}" text="${text.slice(0, 140)}"`);
