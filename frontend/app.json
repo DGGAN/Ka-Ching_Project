@@ -44,8 +44,7 @@
           "icon": "./assets/images/kaching_logo.png",
           "color": "#5F4E34"
         }
-      ],
-      "./plugins/withAndroidNotificationListener"
+      ]
     ],
     "extra": {
       "eas": {
