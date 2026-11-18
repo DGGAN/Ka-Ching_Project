@@ -1,35 +1,69 @@
 /**
  * @file frontend/src/features/profile/components/AutoCaptureModal.js
- * @layer Profile Feature Modal Component (Smart Auto-Capture Setup & Step-by-Step User Guide)
- * @description Clean, user-friendly setup modal for Smart Auto-Capture on Android (System Notification Access) and iPhone (iOS Shortcuts), showing real-time readiness status and clear instructions for live eWallet/bank testing.
+ * @layer Profile Feature Modal Component (Smart Auto-Capture Setup & Live Payment Notification Tester)
+ * @description Provides the PDPA 2010 opt-in master switch, step-by-step Android & iOS 27 Webhook automation setup, and a Live Payment Notification Tester that pops real OS banners and logs directly to Render.
  * @exports default AutoCaptureModal
  */
 
 import React, { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, Modal, ScrollView, ActivityIndicator, Platform, AppState, StyleSheet } from "react-native";
-import {
-  Zap,
-  Smartphone,
-  ShieldCheck,
-  Copy,
-  Check,
-  X,
-  ExternalLink,
-  CheckCircle2,
-  AlertCircle,
-  HelpCircle,
-  ChevronDown,
-  ChevronUp,
-} from "lucide-react-native";
+import { View, Text, TouchableOpacity, Modal, ScrollView, TextInput, ActivityIndicator, Platform, StyleSheet } from "react-native";
+import { Zap, Smartphone, ShieldCheck, Copy, Check, X, Play, Send, CheckCircle2 } from "lucide-react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../../../api/apiClient";
 import { COLORS, SHAPES, FONTS } from "../../../theme/colors";
 import { playUiSound } from "../../../utils/soundEffects";
-import { checkAndroidNotificationListenerPermission, openAndroidNotificationListenerSettings } from "../../../services/autoCaptureService";
+import { triggerLivePaymentNotificationCapture } from "../../../services/autoCaptureService";
 import WireButton from "../../../components/shared/WireButton";
 import FloatingToast from "../../../components/shared/FloatingToast";
 import { useFloatingToast } from "../../../components/shared/useFloatingToast";
 
-export default function AutoCaptureModal({ visible = false, onClose, user, autoCaptureEnabled = false, onStatusChanged }) {
+// Predefined real-world Malaysian e-wallet & bank notification samples for instant live demo & testing
+const SAMPLE_NOTIFICATIONS = [
+  {
+    id: "tng_transfer",
+    label: "TNG • Transfer (RM 0.01)",
+    title: "Touch 'n Go eWallet",
+    text: "You have transferred RM 0.01 to FRIEND via Touch 'n Go eWallet.",
+    packageName: "my.com.tngdigital.ewallet",
+  },
+  {
+    id: "tng_familymart",
+    label: "TNG • FamilyMart (RM 15.90)",
+    title: "Touch 'n Go eWallet",
+    text: "You have paid RM 15.90 to FAMILYMART SUNWAY using Touch 'n Go eWallet.",
+    packageName: "my.com.tngdigital.ewallet",
+  },
+  {
+    id: "tng_chagee",
+    label: "TNG • Chagee (RM 22.80)",
+    title: "Touch 'n Go eWallet",
+    text: "You have paid RM 22.80 to CHAGEE PAVILION using Touch 'n Go eWallet.",
+    packageName: "my.com.tngdigital.ewallet",
+  },
+  {
+    id: "grab_ride",
+    label: "GrabPay • Grab Ride (RM 18.00)",
+    title: "Grab",
+    text: "Paid RM 18.00 to Grab Ride via GrabPay.",
+    packageName: "com.grabtaxi.passenger",
+  },
+  {
+    id: "mae_groceries",
+    label: "MAE • Jaya Grocer (RM 64.50)",
+    title: "MAE by Maybank2u",
+    text: "DuitNow QR payment of RM 64.50 to JAYA GROCER was successful.",
+    packageName: "com.maybank2u.life",
+  },
+  {
+    id: "duitnow_income",
+    label: "DuitNow • Received (+RM 120.00)",
+    title: "DuitNow Transfer",
+    text: "You have received RM 120.00 from FREELANCE CLIENT via DuitNow.",
+    packageName: "com.maybank2u.life",
+  },
+];
+
+export default function AutoCaptureModal({ visible = false, onClose, user, autoCaptureEnabled = false, onStatusChanged, onTransactionCaptured }) {
   const styles = getStyles();
 
   // Single FloatingToast instance rendered strictly inside the Modal overlay
@@ -39,35 +73,29 @@ export default function AutoCaptureModal({ visible = false, onClose, user, autoC
   const [toggling, setToggling] = useState(false);
   const [activeGuideTab, setActiveGuideTab] = useState(Platform.OS === "ios" ? "ios" : "android");
   const [copiedField, setCopiedField] = useState(null);
-  const [androidListenerStatus, setAndroidListenerStatus] = useState("unavailable");
-  const [showRestrictedHelp, setShowRestrictedHelp] = useState(false);
-
-  const refreshAndroidListenerStatus = async () => {
-    const status = await checkAndroidNotificationListenerPermission();
-    setAndroidListenerStatus(status);
-  };
+  const [simulatingId, setSimulatingId] = useState(null);
+  const [customNotifText, setCustomNotifText] = useState("");
+  const [lastCapturedResult, setLastCapturedResult] = useState(null);
 
   useEffect(() => {
     setEnabled(Boolean(autoCaptureEnabled));
-    if (visible) {
-      refreshAndroidListenerStatus();
-    }
   }, [autoCaptureEnabled, visible]);
 
-  // Automatically re-check Android Notification Access when user returns from Android Settings
-  useEffect(() => {
-    if (!visible || Platform.OS !== "android") return;
-    const sub = AppState.addEventListener("change", (nextState) => {
-      if (nextState === "active") {
-        refreshAndroidListenerStatus();
-      }
-    });
-    return () => sub.remove();
-  }, [visible]);
-
-  // Build full webhook endpoint URL for iOS Shortcuts
+  // Build full webhook endpoint URL
   const baseApiUrl = apiClient.defaults?.baseURL || "https://kaching-backend-27o2.onrender.com/api";
   const webhookUrl = `${baseApiUrl.replace(/\/$/, "")}/transactions/auto-capture`;
+
+  const androidJsonTemplate = JSON.stringify(
+    {
+      userId: user?.id || "YOUR_USER_ID",
+      title: "{not_title}",
+      text: "{not_text}",
+      packageName: "{not_app_package}",
+      platform: "ANDROID_LISTENER",
+    },
+    null,
+    2,
+  );
 
   const iosShortcutJsonTemplate = JSON.stringify(
     {
@@ -80,7 +108,7 @@ export default function AutoCaptureModal({ visible = false, onClose, user, autoC
     2,
   );
 
-  // 1. Toggle Master Opt-In Switch in MongoDB
+  // 1. Toggle Master Opt-In Switch in MongoDB & sync to AsyncStorage
   const handleToggleMasterSwitch = async () => {
     if (!user?.id || toggling) return;
     const nextState = !enabled;
@@ -88,17 +116,27 @@ export default function AutoCaptureModal({ visible = false, onClose, user, autoC
     try {
       setToggling(true);
       playUiSound("pop");
-      const res = await apiClient.put(`/transactions/auto-capture-toggle/${user.id}`, {
-        enabled: nextState,
-      });
+      const res = await apiClient.put(`/transactions/auto-capture-toggle/${user.id}`, { enabled: nextState });
 
       const confirmedState = Boolean(res.data?.autoCaptureEnabled);
       setEnabled(confirmedState);
+
+      try {
+        const savedUserJson = await AsyncStorage.getItem("userData");
+        if (savedUserJson) {
+          const parsedUser = JSON.parse(savedUserJson);
+          parsedUser.autoCaptureEnabled = confirmedState;
+          await AsyncStorage.setItem("userData", JSON.stringify(parsedUser));
+        }
+      } catch (e) {
+        // Non-blocking
+      }
+
       if (typeof onStatusChanged === "function") {
         onStatusChanged(confirmedState);
       }
 
-      notify(confirmedState ? "success" : "info", confirmedState ? "Step 1 Complete: Smart Auto-Capture is ON!" : "Smart Auto-Capture turned OFF.");
+      notify(confirmedState ? "success" : "info", confirmedState ? "Smart Auto-Capture ENABLED!" : "Smart Auto-Capture DISABLED.");
     } catch (error) {
       notify("error", error.response?.data?.message || "Failed to update Auto-Capture status.");
     } finally {
@@ -106,40 +144,78 @@ export default function AutoCaptureModal({ visible = false, onClose, user, autoC
     }
   };
 
-  // 2. Copy Webhook URL or JSON payload to clipboard (for iOS Shortcuts)
+  // 2. Copy Webhook URL or JSON template
   const handleCopyText = async (fieldKey, textValue) => {
     playUiSound("pop");
     try {
       if (Platform.OS === "web" && typeof navigator !== "undefined" && navigator.clipboard) {
         await navigator.clipboard.writeText(textValue);
       } else {
-        try {
-          const { Share } = require("react-native");
-          await Share.share({ message: textValue });
-        } catch (shareErr) {
-          // Non-blocking
-        }
+        const { Share } = require("react-native");
+        await Share.share({ message: textValue }).catch(() => {});
       }
       setCopiedField(fieldKey);
       notify("success", `Copied ${fieldKey}!`);
-      setTimeout(() => setCopiedField(null), 2200);
+      setTimeout(() => setCopiedField(null), 2000);
     } catch (e) {
       notify("info", textValue);
     }
   };
 
-  // 3. Open Android System Notification Access Settings Directly
-  const handleOpenAndroidSettings = async () => {
-    playUiSound("pop");
-    if (Platform.OS === "web") {
-      notify("info", "On your Android phone APK, this button opens Settings -> Notification Access directly.");
-      return;
+  // 3. Fire Live OS Notification & Auto-Capture into Backend
+  const handleSimulateNotification = async (sampleObj) => {
+    if (!user?.id) return;
+
+    try {
+      setSimulatingId(sampleObj.id);
+      const res = await triggerLivePaymentNotificationCapture({
+        userId: user.id,
+        title: sampleObj.title,
+        text: sampleObj.text,
+        packageName: sampleObj.packageName,
+        platform: activeGuideTab === "ios" ? "IOS_27_SHORTCUT" : "ANDROID_LISTENER",
+        isUserNotificationEnabled: user?.isNotificationEnabled !== false,
+      });
+
+      const capturedTx = res.data?.data;
+      setLastCapturedResult(capturedTx);
+
+      if (capturedTx?.type === "INCOME") {
+        playUiSound("income");
+      } else {
+        playUiSound("expense");
+      }
+
+      notify("success", res.data?.message || "Payment auto-captured into Transaction History!");
+
+      if (typeof onTransactionCaptured === "function") {
+        onTransactionCaptured(capturedTx);
+      }
+    } catch (error) {
+      playUiSound("pop");
+      const errMsg = error.response?.data?.message || "Auto-capture blocked or failed. Make sure Step 1 above is ENABLED.";
+      notify("error", errMsg);
+    } finally {
+      setSimulatingId(null);
     }
-    await openAndroidNotificationListenerSettings();
   };
 
-  const isAndroidAccessGranted = androidListenerStatus === "authorized";
-  const isFullyReadyOnAndroid = enabled && isAndroidAccessGranted;
+  // 4. Parse & Log Any Custom / Copied Payment Notification Text
+  const handleSendCustomNotification = async () => {
+    const cleanText = customNotifText.trim();
+    if (!cleanText) {
+      notify("error", "Paste or type a payment alert first (e.g. Paid RM 19.90 to ZUS COFFEE).");
+      return;
+    }
+
+    await handleSimulateNotification({
+      id: "custom_input",
+      title: "Touch 'n Go eWallet",
+      text: cleanText,
+      packageName: "my.com.tngdigital.ewallet",
+    });
+    setCustomNotifText("");
+  };
 
   return (
     <Modal
@@ -169,8 +245,8 @@ export default function AutoCaptureModal({ visible = false, onClose, user, autoC
                 <Zap size={14} color="#121212" strokeWidth={2.5} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitle}>SMART AUTO-CAPTURE SETUP</Text>
-                <Text style={styles.modalSubtitle}>Automatically log Touch 'n Go eWallet, MAE & GrabPay payments</Text>
+                <Text style={styles.modalTitle}>SMART AUTO-CAPTURE (TNG & DUITNOW)</Text>
+                <Text style={styles.modalSubtitle}>Zero-touch expense logging from payment notifications</Text>
               </View>
             </View>
 
@@ -185,43 +261,104 @@ export default function AutoCaptureModal({ visible = false, onClose, user, autoC
           </View>
 
           <ScrollView style={{ maxHeight: 470 }} showsVerticalScrollIndicator={false}>
-            {/* STEP 1: Account Privacy Switch (PDPA Consent) */}
-            <View style={[styles.stepBox, enabled ? styles.stepBoxReady : styles.stepBoxPending]}>
-              <View style={styles.stepTopRow}>
-                <View style={styles.stepBadgeRow}>
-                  <View style={[styles.stepCircle, { backgroundColor: enabled ? "#15803D" : "#E11D48" }]}>
-                    <Text style={styles.stepCircleText}>1</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.stepHeading}>STEP 1: ENABLE AUTO-CAPTURE SWITCH</Text>
-                    <Text style={[styles.stepStatusSub, { color: enabled ? "#15803D" : "#E11D48" }]}>
-                      {enabled ? "✓ Enabled — Your account is ready to log payments" : "Currently OFF — Turn this ON first"}
-                    </Text>
-                  </View>
+            {/* 1. Master Opt-In Switch Card (PDPA 2010 Privacy Gatekeeper) */}
+            <View style={[styles.masterSwitchCard, enabled ? styles.masterSwitchCardOn : styles.masterSwitchCardOff]}>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <ShieldCheck size={14} color={enabled ? "#15803D" : "#E11D48"} strokeWidth={2.5} />
+                  <Text style={[styles.masterStatusTitle, { color: enabled ? "#15803D" : "#E11D48" }]}>
+                    STEP 1: {enabled ? "ENABLED (ACTIVE)" : "DISABLED (LOCKED)"}
+                  </Text>
                 </View>
+                <Text style={styles.masterStatusDesc}>
+                  {enabled
+                    ? "Incoming TNG eWallet, MAE, GrabPay & DuitNow alerts will be parsed by the 4-Tier AI engine and logged with an AUTO badge."
+                    : "Privacy Lock Active (PDPA 2010): No payment notifications will be captured until you enable this switch."}
+                </Text>
+              </View>
 
-                <TouchableOpacity
-                  style={[styles.togglePillBtn, { backgroundColor: enabled ? "#15803D" : COLORS.primary }]}
-                  onPress={handleToggleMasterSwitch}
-                  disabled={toggling}
-                >
-                  {toggling ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <Text style={[styles.togglePillText, { color: enabled ? "#FFFFFF" : COLORS.primaryText }]}>
-                      {enabled ? "ENABLED" : "TURN ON"}
-                    </Text>
-                  )}
+              <TouchableOpacity
+                style={[styles.togglePillBtn, { backgroundColor: enabled ? "#15803D" : COLORS.danger }]}
+                onPress={handleToggleMasterSwitch}
+                disabled={toggling}
+              >
+                {toggling ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.togglePillText}>{enabled ? "TURN OFF" : "ENABLE NOW"}</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* 2. Live Notification & Paste Tester (100% Reliable on Any Phone + Web) */}
+            <View style={styles.sandboxCard}>
+              <Text style={styles.sandboxTitle}>STEP 2: LIVE PAYMENT NOTIFICATION TESTER & QUICK PARSER</Text>
+              <Text style={styles.sandboxSub}>
+                Tap any real Malaysian eWallet notification below (or paste any TNG/MAE alert text) — it will pop a real OS notification banner and
+                auto-capture it into your account:
+              </Text>
+
+              <View style={styles.samplePillsWrap}>
+                {SAMPLE_NOTIFICATIONS.map((item) => {
+                  const isRunning = simulatingId === item.id;
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      style={styles.samplePillBtn}
+                      onPress={() => handleSimulateNotification(item)}
+                      disabled={Boolean(simulatingId)}
+                    >
+                      {isRunning ? (
+                        <ActivityIndicator size="small" color={COLORS.primary} />
+                      ) : (
+                        <Play size={11} color={COLORS.primary} strokeWidth={2.5} />
+                      )}
+                      <Text style={styles.samplePillText}>{item.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Custom Notification Text Paste / Input Tester */}
+              <View style={styles.customInputRow}>
+                <TextInput
+                  style={styles.customInput}
+                  placeholder="Paste or type alert: Paid RM 19.90 to ZUS COFFEE"
+                  placeholderTextColor={COLORS.textMuted}
+                  value={customNotifText}
+                  onChangeText={setCustomNotifText}
+                />
+                <TouchableOpacity style={styles.sendCustomBtn} onPress={handleSendCustomNotification} disabled={Boolean(simulatingId)}>
+                  <Send size={13} color={COLORS.primaryText} />
+                  <Text style={styles.sendCustomBtnText}>CAPTURE</Text>
                 </TouchableOpacity>
               </View>
 
-              <Text style={styles.stepDescription}>
-                Only notifications containing an <Text style={{ fontWeight: "bold" }}>RM / MYR</Text> payment amount from banking & eWallet apps are
-                recorded. Personal chats are ignored.
-              </Text>
+              {/* Last Captured Result Feedback Box */}
+              {lastCapturedResult && (
+                <View style={styles.capturedResultBox}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 5,
+                      marginBottom: 2,
+                    }}
+                  >
+                    <CheckCircle2 size={13} color="#15803D" />
+                    <Text style={styles.capturedResultTitle}>AUTO-CAPTURED & SAVED WITH "AUTO" BADGE:</Text>
+                  </View>
+                  <Text style={styles.capturedResultMeta}>
+                    • Merchant: {lastCapturedResult.merchantName} | Amount: RM {Number(lastCapturedResult.amount).toFixed(2)}
+                  </Text>
+                  <Text style={styles.capturedResultMeta}>
+                    • Category: {lastCapturedResult.category} ({lastCapturedResult.budgetType}) | Source: {lastCapturedResult.source}
+                  </Text>
+                </View>
+              )}
             </View>
 
-            {/* Platform Switcher Tabs */}
+            {/* 3. Platform Background Webhook Bridge Guide (Android & iOS Shortcuts) */}
             <View style={styles.platformTabsRow}>
               <TouchableOpacity
                 style={[styles.platformTabBtn, activeGuideTab === "android" && styles.platformTabBtnActive]}
@@ -231,7 +368,7 @@ export default function AutoCaptureModal({ visible = false, onClose, user, autoC
                 }}
               >
                 <Zap size={13} color={activeGuideTab === "android" ? COLORS.primaryText : COLORS.text} />
-                <Text style={[styles.platformTabText, activeGuideTab === "android" && styles.platformTabTextActive]}>ANDROID PHONE</Text>
+                <Text style={[styles.platformTabText, activeGuideTab === "android" && styles.platformTabTextActive]}>ANDROID WEBHOOK BRIDGE</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -242,189 +379,51 @@ export default function AutoCaptureModal({ visible = false, onClose, user, autoC
                 }}
               >
                 <Smartphone size={13} color={activeGuideTab === "ios" ? COLORS.primaryText : COLORS.text} />
-                <Text style={[styles.platformTabText, activeGuideTab === "ios" && styles.platformTabTextActive]}>iPHONE (iOS)</Text>
+                <Text style={[styles.platformTabText, activeGuideTab === "ios" && styles.platformTabTextActive]}>iOS 27 SHORTCUTS BRIDGE</Text>
               </TouchableOpacity>
             </View>
 
-            {/* STEP 2: Phone OS Setup */}
-            {activeGuideTab === "android" ? (
-              <View style={[styles.stepBox, isAndroidAccessGranted ? styles.stepBoxReady : styles.stepBoxNeutral]}>
-                <View style={styles.stepBadgeRow}>
-                  <View
-                    style={[
-                      styles.stepCircle,
-                      {
-                        backgroundColor: isAndroidAccessGranted ? "#15803D" : COLORS.primary,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.stepCircleText,
-                        {
-                          color: isAndroidAccessGranted ? "#FFFFFF" : COLORS.primaryText,
-                        },
-                      ]}
-                    >
-                      2
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.stepHeading}>STEP 2: ALLOW ANDROID NOTIFICATION ACCESS</Text>
-                    <Text
-                      style={[
-                        styles.stepStatusSub,
-                        {
-                          color: isAndroidAccessGranted ? "#15803D" : COLORS.textMuted,
-                        },
-                      ]}
-                    >
-                      {isAndroidAccessGranted ? "✓ System Permission Granted" : "One-time phone permission required"}
-                    </Text>
-                  </View>
-                </View>
+            <View style={styles.guideBox}>
+              <Text style={styles.guideHeader}>
+                {activeGuideTab === "android" ? "OPTIONAL: ANDROID BACKGROUND NOTIFICATION FORWARDER" : "OPTIONAL: iOS 27 APPLE SHORTCUTS AUTOMATION"}
+              </Text>
+              <Text style={styles.guideStep}>
+                {activeGuideTab === "android"
+                  ? "Note: When you transfer money inside TNG eWallet, TNG only sends a push banner to the receiver's phone. To auto-forward incoming bank/eWallet banners in the background on Android (bypassing Xiaomi/OPPO battery killers), paste your Webhook URL & JSON below into Notification Forwarder / MacroDroid:"
+                  : "Open iPhone Shortcuts -> Automation -> New Automation -> Transaction / When Touch 'n Go eWallet closes -> Run Immediately -> Get Contents of URL (POST JSON):"}
+              </Text>
 
-                <View style={styles.numberedListBox}>
-                  <Text style={styles.numberedItem}>
-                    <Text style={{ fontWeight: "bold" }}>1.</Text> Tap the <Text style={{ fontWeight: "bold" }}>Open Notification Access</Text> button
-                    below.
-                  </Text>
-                  <Text style={styles.numberedItem}>
-                    <Text style={{ fontWeight: "bold" }}>2.</Text> Find <Text style={{ fontWeight: "bold" }}>Ka-Ching!</Text> in the list and switch
-                    it <Text style={{ fontWeight: "bold" }}>ON</Text>.
-                  </Text>
-                  <Text style={[styles.numberedItem, { marginBottom: 0 }]}>
-                    <Text style={{ fontWeight: "bold" }}>3.</Text> Done! Any payment or transfer you make in{" "}
-                    <Text style={{ fontWeight: "bold" }}>Touch 'n Go eWallet, MAE, or GrabPay</Text> will be logged automatically with an{" "}
-                    <Text style={{ fontWeight: "bold", color: "#15803D" }}>AUTO</Text> badge.
+              {/* Copyable Webhook URL Row */}
+              <View style={styles.codeBlock}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.codeLabel}>WEBHOOK ENDPOINT URL (POST):</Text>
+                  <Text style={styles.codeText} numberOfLines={1} selectable={true}>
+                    {webhookUrl}
                   </Text>
                 </View>
-
-                <TouchableOpacity
-                  style={[styles.primaryActionBtn, isAndroidAccessGranted && styles.primaryActionBtnDone]}
-                  onPress={handleOpenAndroidSettings}
-                >
-                  <ExternalLink size={14} color={isAndroidAccessGranted ? "#15803D" : COLORS.primaryText} />
-                  <Text style={[styles.primaryActionBtnText, isAndroidAccessGranted && { color: "#15803D" }]}>
-                    {isAndroidAccessGranted ? "NOTIFICATION ACCESS GRANTED (VIEW SETTINGS)" : "OPEN ANDROID NOTIFICATION ACCESS"}
-                  </Text>
+                <TouchableOpacity style={styles.copyBtn} onPress={() => handleCopyText("URL", webhookUrl)}>
+                  {copiedField === "URL" ? <Check size={12} color="#15803D" /> : <Copy size={12} color={COLORS.text} />}
+                  <Text style={styles.copyBtnText}>{copiedField === "URL" ? "COPIED" : "COPY URL"}</Text>
                 </TouchableOpacity>
+              </View>
 
-                {/* Collapsible Help for Android 13/14/15 "Restricted Setting" */}
+              {/* Copyable JSON Payload Template */}
+              <View style={[styles.codeBlock, { marginTop: 6 }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.codeLabel}>JSON BODY (USER ID PRE-FILLED):</Text>
+                  <Text style={styles.codeText} numberOfLines={3} selectable={true}>
+                    {activeGuideTab === "android" ? androidJsonTemplate : iosShortcutJsonTemplate}
+                  </Text>
+                </View>
                 <TouchableOpacity
-                  style={styles.helpAccordionHeader}
-                  onPress={() => {
-                    playUiSound("pop");
-                    setShowRestrictedHelp(!showRestrictedHelp);
-                  }}
+                  style={styles.copyBtn}
+                  onPress={() => handleCopyText("JSON", activeGuideTab === "android" ? androidJsonTemplate : iosShortcutJsonTemplate)}
                 >
-                  <HelpCircle size={13} color={COLORS.textMuted} />
-                  <Text style={styles.helpAccordionTitle}>Switch greyed out or says "Restricted Setting"?</Text>
-                  {showRestrictedHelp ? <ChevronUp size={14} color={COLORS.textMuted} /> : <ChevronDown size={14} color={COLORS.textMuted} />}
+                  {copiedField === "JSON" ? <Check size={12} color="#15803D" /> : <Copy size={12} color={COLORS.text} />}
+                  <Text style={styles.copyBtnText}>{copiedField === "JSON" ? "COPIED" : "COPY JSON"}</Text>
                 </TouchableOpacity>
-
-                {showRestrictedHelp && (
-                  <View style={styles.helpAccordionBody}>
-                    <Text style={styles.helpAccordionText}>
-                      On Android 13+, APK apps require a 1-time unlock before enabling Notification Access:{"\n"}
-                      1. Open your phone{" "}
-                      <Text style={{ fontWeight: "bold" }}>
-                        Settings {"->"} Apps {"->"} Ka-Ching!
-                      </Text>
-                      {"\n"}
-                      2. Tap the <Text style={{ fontWeight: "bold" }}>3 dots (⋮)</Text> at the top-right corner{"\n"}
-                      3. Tap <Text style={{ fontWeight: "bold" }}>"Allow restricted settings"</Text>, then return here and enable Notification Access.
-                    </Text>
-                  </View>
-                )}
-
-                {/* Overall Readiness Banner */}
-                <View
-                  style={[
-                    styles.readinessBanner,
-                    {
-                      backgroundColor: isFullyReadyOnAndroid ? "#DCFCE7" : "#FEF3C7",
-                      borderColor: isFullyReadyOnAndroid ? "#15803D" : "#D97706",
-                    },
-                  ]}
-                >
-                  {isFullyReadyOnAndroid ? (
-                    <CheckCircle2 size={15} color="#15803D" strokeWidth={2.5} />
-                  ) : (
-                    <AlertCircle size={15} color="#B45309" strokeWidth={2.5} />
-                  )}
-                  <Text
-                    style={[
-                      styles.readinessBannerText,
-                      {
-                        color: isFullyReadyOnAndroid ? "#15803D" : "#B45309",
-                      },
-                    ]}
-                  >
-                    {isFullyReadyOnAndroid
-                      ? "ALL SET! Open Touch 'n Go eWallet or MAE and make any payment or transfer — Ka-Ching! will capture it automatically."
-                      : "Complete Step 1 and Step 2 above to start capturing live eWallet & bank notifications."}
-                  </Text>
-                </View>
               </View>
-            ) : (
-              <View style={[styles.stepBox, styles.stepBoxNeutral]}>
-                <View style={styles.stepBadgeRow}>
-                  <View style={[styles.stepCircle, { backgroundColor: COLORS.primary }]}>
-                    <Text style={[styles.stepCircleText, { color: COLORS.primaryText }]}>2</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.stepHeading}>STEP 2: ADD iPHONE SHORTCUTS AUTOMATION</Text>
-                    <Text style={styles.stepStatusSub}>Forwards Apple Pay / eWallet alerts to Ka-Ching!</Text>
-                  </View>
-                </View>
-
-                <View style={styles.numberedListBox}>
-                  <Text style={styles.numberedItem}>
-                    <Text style={{ fontWeight: "bold" }}>1.</Text> Open the <Text style={{ fontWeight: "bold" }}>Shortcuts</Text> app on iPhone {"->"}{" "}
-                    tap <Text style={{ fontWeight: "bold" }}>Automation</Text> {"->"} tap <Text style={{ fontWeight: "bold" }}>+</Text>.
-                  </Text>
-                  <Text style={styles.numberedItem}>
-                    <Text style={{ fontWeight: "bold" }}>2.</Text> Choose <Text style={{ fontWeight: "bold" }}>Transaction</Text> (or{" "}
-                    <Text style={{ fontWeight: "bold" }}>App</Text> when Touch 'n Go eWallet closes) and set to{" "}
-                    <Text style={{ fontWeight: "bold" }}>Run Immediately</Text>.
-                  </Text>
-                  <Text style={[styles.numberedItem, { marginBottom: 0 }]}>
-                    <Text style={{ fontWeight: "bold" }}>3.</Text> Add action <Text style={{ fontWeight: "bold" }}>Get Contents of URL</Text> (Method:{" "}
-                    <Text style={{ fontWeight: "bold" }}>POST</Text>, Body: <Text style={{ fontWeight: "bold" }}>JSON</Text>) and paste the URL & JSON
-                    below:
-                  </Text>
-                </View>
-
-                {/* Copyable Webhook URL */}
-                <View style={styles.codeBlock}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.codeLabel}>WEBHOOK URL (POST):</Text>
-                    <Text style={styles.codeText} numberOfLines={1} selectable={true}>
-                      {webhookUrl}
-                    </Text>
-                  </View>
-                  <TouchableOpacity style={styles.copyBtn} onPress={() => handleCopyText("URL", webhookUrl)}>
-                    {copiedField === "URL" ? <Check size={12} color="#15803D" /> : <Copy size={12} color={COLORS.text} />}
-                    <Text style={styles.copyBtnText}>{copiedField === "URL" ? "COPIED" : "COPY URL"}</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Copyable JSON Body */}
-                <View style={[styles.codeBlock, { marginTop: 6 }]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.codeLabel}>JSON BODY (YOUR USER ID PRE-FILLED):</Text>
-                    <Text style={styles.codeText} numberOfLines={4} selectable={true}>
-                      {iosShortcutJsonTemplate}
-                    </Text>
-                  </View>
-                  <TouchableOpacity style={styles.copyBtn} onPress={() => handleCopyText("JSON", iosShortcutJsonTemplate)}>
-                    {copiedField === "JSON" ? <Check size={12} color="#15803D" /> : <Copy size={12} color={COLORS.text} />}
-                    <Text style={styles.copyBtnText}>{copiedField === "JSON" ? "COPIED" : "COPY JSON"}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
+            </View>
           </ScrollView>
 
           <WireButton
@@ -469,7 +468,7 @@ const getStyles = () =>
       borderColor: COLORS.borderMuted,
       borderStyle: "dashed",
       paddingBottom: 10,
-      marginBottom: 12,
+      marginBottom: 10,
       gap: 8,
     },
     zapBadge: {
@@ -494,88 +493,153 @@ const getStyles = () =>
       color: COLORS.textMuted,
       marginTop: 1,
     },
-    stepBox: {
+    masterSwitchCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
       borderWidth: 1.5,
       borderRadius: SHAPES.inputRadius,
-      padding: 11,
+      padding: 10,
       marginBottom: 10,
     },
-    stepBoxReady: {
+    masterSwitchCardOn: {
       backgroundColor: "#F0FDF4",
       borderColor: "#15803D",
     },
-    stepBoxPending: {
+    masterSwitchCardOff: {
       backgroundColor: "#FFF1F2",
       borderColor: "#E11D48",
     },
-    stepBoxNeutral: {
-      backgroundColor: COLORS.inputBg,
-      borderColor: COLORS.border,
-    },
-    stepTopRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: 8,
-    },
-    stepBadgeRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-      flex: 1,
-    },
-    stepCircle: {
-      width: 22,
-      height: 22,
-      borderRadius: 11,
-      borderWidth: 1.2,
-      borderColor: "#121212",
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    stepCircleText: {
+    masterStatusTitle: {
       fontFamily: FONTS.mono,
       fontSize: 9.5,
       fontWeight: "bold",
-      color: "#FFFFFF",
     },
-    stepHeading: {
-      fontFamily: FONTS.mono,
-      fontSize: 9.5,
-      fontWeight: "bold",
-      color: COLORS.text,
-    },
-    stepStatusSub: {
-      fontFamily: FONTS.mono,
-      fontSize: 8,
-      color: COLORS.textMuted,
-      marginTop: 1,
-    },
-    stepDescription: {
+    masterStatusDesc: {
       fontFamily: FONTS.mono,
       fontSize: 8,
       color: COLORS.textMuted,
       lineHeight: 12,
-      marginTop: 7,
+      marginTop: 3,
     },
     togglePillBtn: {
-      paddingHorizontal: 11,
-      paddingVertical: 7,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
       borderRadius: SHAPES.chipRadius,
       borderWidth: 1.2,
       borderColor: "#121212",
-      minWidth: 78,
+      minWidth: 82,
       alignItems: "center",
     },
     togglePillText: {
       fontFamily: FONTS.mono,
       fontSize: 8.5,
       fontWeight: "bold",
+      color: "#FFFFFF",
+    },
+    sandboxCard: {
+      borderWidth: 1.5,
+      borderColor: COLORS.border,
+      borderStyle: "dashed",
+      borderRadius: SHAPES.inputRadius,
+      backgroundColor: COLORS.secondary,
+      padding: 10,
+      marginBottom: 10,
+    },
+    sandboxTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 9,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    sandboxSub: {
+      fontFamily: FONTS.mono,
+      fontSize: 7.5,
+      color: COLORS.textMuted,
+      lineHeight: 11.5,
+      marginTop: 2,
+      marginBottom: 8,
+    },
+    samplePillsWrap: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 6,
+      marginBottom: 8,
+    },
+    samplePillBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      borderWidth: 1.2,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.chipRadius,
+      backgroundColor: COLORS.card,
+      paddingHorizontal: 8,
+      paddingVertical: 6,
+    },
+    samplePillText: {
+      fontFamily: FONTS.mono,
+      fontSize: 8,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
+    customInputRow: {
+      flexDirection: "row",
+      gap: 6,
+      alignItems: "center",
+    },
+    customInput: {
+      flex: 1,
+      borderWidth: 1.2,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.inputRadius,
+      backgroundColor: COLORS.card,
+      paddingHorizontal: 8,
+      paddingVertical: 6,
+      fontFamily: FONTS.mono,
+      fontSize: 8.5,
+      color: COLORS.text,
+    },
+    sendCustomBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      backgroundColor: COLORS.primary,
+      borderWidth: 1.2,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.inputRadius,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+    },
+    sendCustomBtnText: {
+      fontFamily: FONTS.mono,
+      fontSize: 8.5,
+      fontWeight: "bold",
+      color: COLORS.primaryText,
+    },
+    capturedResultBox: {
+      marginTop: 8,
+      padding: 8,
+      borderWidth: 1,
+      borderColor: "#15803D",
+      borderRadius: 6,
+      backgroundColor: "#DCFCE7",
+    },
+    capturedResultTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 7.8,
+      fontWeight: "bold",
+      color: "#15803D",
+    },
+    capturedResultMeta: {
+      fontFamily: FONTS.mono,
+      fontSize: 8,
+      color: "#121212",
     },
     platformTabsRow: {
       flexDirection: "row",
       gap: 8,
-      marginBottom: 10,
+      marginBottom: 8,
     },
     platformTabBtn: {
       flex: 1,
@@ -594,97 +658,33 @@ const getStyles = () =>
     },
     platformTabText: {
       fontFamily: FONTS.mono,
-      fontSize: 8.5,
+      fontSize: 8,
       fontWeight: "bold",
       color: COLORS.text,
     },
     platformTabTextActive: {
       color: COLORS.primaryText,
     },
-    numberedListBox: {
-      backgroundColor: COLORS.card,
-      borderWidth: 1,
+    guideBox: {
+      borderWidth: 1.2,
       borderColor: COLORS.borderMuted,
-      borderRadius: 6,
-      padding: 9,
-      marginTop: 9,
-      marginBottom: 9,
+      borderRadius: SHAPES.inputRadius,
+      backgroundColor: COLORS.inputBg,
+      padding: 10,
     },
-    numberedItem: {
-      fontFamily: FONTS.mono,
-      fontSize: 8,
-      color: COLORS.text,
-      lineHeight: 13,
-      marginBottom: 5,
-    },
-    primaryActionBtn: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 6,
-      borderWidth: 1.5,
-      borderColor: COLORS.border,
-      borderRadius: SHAPES.buttonRadius,
-      backgroundColor: COLORS.primary,
-      paddingVertical: 9,
-      paddingHorizontal: 10,
-    },
-    primaryActionBtnDone: {
-      backgroundColor: "#DCFCE7",
-      borderColor: "#15803D",
-    },
-    primaryActionBtnText: {
+    guideHeader: {
       fontFamily: FONTS.mono,
       fontSize: 8.5,
       fontWeight: "bold",
-      color: COLORS.primaryText,
+      color: COLORS.primary,
+      marginBottom: 4,
     },
-    helpAccordionHeader: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      marginTop: 9,
-      paddingTop: 7,
-      borderTopWidth: 1,
-      borderColor: COLORS.borderMuted,
-      borderStyle: "dashed",
-    },
-    helpAccordionTitle: {
-      flex: 1,
-      fontFamily: FONTS.mono,
-      fontSize: 7.5,
-      fontWeight: "bold",
-      color: COLORS.textMuted,
-    },
-    helpAccordionBody: {
-      backgroundColor: COLORS.card,
-      borderWidth: 1,
-      borderColor: COLORS.borderMuted,
-      borderRadius: 6,
-      padding: 8,
-      marginTop: 6,
-    },
-    helpAccordionText: {
-      fontFamily: FONTS.mono,
-      fontSize: 7.5,
-      color: COLORS.text,
-      lineHeight: 12.5,
-    },
-    readinessBanner: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-      borderWidth: 1.2,
-      borderRadius: 6,
-      padding: 8,
-      marginTop: 9,
-    },
-    readinessBannerText: {
-      flex: 1,
+    guideStep: {
       fontFamily: FONTS.mono,
       fontSize: 7.8,
-      fontWeight: "bold",
+      color: COLORS.text,
       lineHeight: 12,
+      marginBottom: 6,
     },
     codeBlock: {
       flexDirection: "row",

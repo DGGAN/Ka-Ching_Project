@@ -19,6 +19,12 @@ exports.createTransaction = async (req, res) => {
 
     // Validation 1: Check mandatory fields (userId, amount, type, and category are required)
     if (!userId || amount === undefined || !type || !category) {
+      logger.warn("TX_CREATE", "Blocked createTransaction: Missing required fields", {
+        userId,
+        amount,
+        type,
+        category,
+      });
       return res.status(400).json({
         message: "Missing required fields: userId, amount, type, and category are mandatory.",
       });
@@ -30,6 +36,7 @@ exports.createTransaction = async (req, res) => {
 
     // Validation 2: Ensure transaction amount is a valid number greater than RM 0
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      logger.warn("TX_CREATE", `Blocked createTransaction: Invalid amount (${amount})`);
       return res.status(400).json({
         message: "Transaction amount must be a valid number greater than RM 0.00.",
       });
@@ -49,12 +56,16 @@ exports.createTransaction = async (req, res) => {
       });
     }
 
+    // Auto-map 50/30/20 budgetType (NEEDS / WANTS / NONE) for manual & OCR transactions
+    const resolvedBudgetType = type === "EXPENSE" ? Transaction.BUDGET_TYPE_MAP?.[category] || "WANTS" : "NONE";
+
     // Step 3: Instantiate and save the new transaction document in MongoDB
     const newTransaction = new Transaction({
       userId,
       amount: Number(parsedAmount.toFixed(2)),
       type,
       category,
+      budgetType: resolvedBudgetType,
       merchantName: merchantName ? merchantName.trim() : "General",
       description: description ? description.trim() : null,
       date: date ? new Date(date) : new Date(),
@@ -67,7 +78,7 @@ exports.createTransaction = async (req, res) => {
 
     logger.info(
       "TX_CREATE",
-      `Created ${savedTransaction.type} (${savedTransaction.source}) -> Merchant: "${savedTransaction.merchantName}", Amount: RM ${savedTransaction.amount.toFixed(2)}, Category: ${savedTransaction.category}`,
+      `Created ${savedTransaction.type} (${savedTransaction.source}) -> Merchant: "${savedTransaction.merchantName}", Amount: RM ${savedTransaction.amount.toFixed(2)}, Category: ${savedTransaction.category} (${savedTransaction.budgetType})`,
     );
 
     // Step 4: Trigger AI analytics engine to recalculate linear regression forecast
@@ -379,31 +390,46 @@ exports.toggleAutoCaptureSetting = async (req, res) => {
 
 exports.autoCaptureNotification = async (req, res) => {
   try {
-    const { userId, title = "", text = "", packageName = "", platform = "ANDROID_LISTENER" } = req.body;
+    // Support both standard JSON body AND query/form parameters
+    let userId = req.body?.userId || req.query?.userId;
+    const title = String(req.body?.title || req.query?.title || "").trim();
+    const text = String(req.body?.text || req.query?.text || "").trim();
+    const packageName = String(req.body?.packageName || req.query?.packageName || "").trim();
+    const platform = req.body?.platform || req.query?.platform || "ANDROID_LISTENER";
 
-    // Verbose raw notification payload only printed in development mode or when DEBUG_LOGS=true
-    logger.debug("AUTO_CAPTURE_PAYLOAD", "Incoming notification payload:", {
-      userId,
-      title,
-      text,
-      packageName,
-      platform,
-    });
+    // ALWAYS log incoming auto-capture hits at INFO level so Render Production logs always show them!
+    logger.info("AUTO_CAPTURE_HIT", `Incoming [${platform}] userId="${userId}" pkg="${packageName}" title="${title}" text="${text.slice(0, 140)}"`);
 
-    if (!userId || !text) {
+    if (!text && !title) {
+      logger.warn("AUTO_CAPTURE", "Rejected: notification text and title are both empty");
       return res.status(400).json({
         success: false,
-        message: "userId and notification text are required.",
+        message: "Notification text is required.",
       });
     }
 
-    // GATE 1: Verify user opt-in consent (PDPA 2010 Privacy Gatekeeper)
-    const user = await User.findById(userId);
+    // GATE 1: Resolve User & Verify opt-in consent (PDPA 2010 Privacy Gatekeeper)
+    let user = null;
+    if (userId && userId !== "AUTO_ACTIVE_USER" && /^[0-9a-fA-F]{24}$/.test(String(userId))) {
+      user = await User.findById(userId);
+    }
     if (!user) {
-      return res.status(404).json({ success: false, message: "User not found." });
+      user = await User.findOne({ autoCaptureEnabled: true }).sort({ updatedAt: -1 });
+      if (user) {
+        userId = String(user._id);
+        logger.info("AUTO_CAPTURE", `Resolved active auto-capture user -> ${user.email} (${userId})`);
+      }
+    }
+
+    if (!user) {
+      logger.warn("AUTO_CAPTURE", `No user found with autoCaptureEnabled=true (requested userId=${userId})`);
+      return res.status(404).json({
+        success: false,
+        message: "User not found or Auto-Capture is not enabled on any account.",
+      });
     }
     if (!user.autoCaptureEnabled) {
-      logger.debug("AUTO_CAPTURE", `Blocked notification for ${user.email}: autoCaptureEnabled is FALSE`);
+      logger.info("AUTO_CAPTURE", `Blocked notification for ${user.email}: autoCaptureEnabled is FALSE in MongoDB`);
       return res.status(403).json({
         success: false,
         autoCaptureEnabled: false,
@@ -415,11 +441,11 @@ exports.autoCaptureNotification = async (req, res) => {
     const parsed = await parsePaymentNotificationText({
       userId,
       title,
-      text,
+      text: text || title,
       packageName,
     });
     if (!parsed) {
-      logger.debug("AUTO_CAPTURE", "No valid RM amount detected in notification text", text);
+      logger.info("AUTO_CAPTURE", `Ignored notification (no valid RM payment amount detected): "${title} | ${text}"`);
       return res.status(422).json({
         success: false,
         message: "No valid RM payment amount detected in notification text.",
@@ -436,7 +462,7 @@ exports.autoCaptureNotification = async (req, res) => {
     });
 
     if (duplicate) {
-      logger.debug("AUTO_CAPTURE", `Skipped duplicate notification within 60s: ${parsed.merchantName} (RM ${parsed.amount})`);
+      logger.info("AUTO_CAPTURE", `Skipped duplicate notification within 60s: ${parsed.merchantName} (RM ${parsed.amount})`);
       return res.status(200).json({
         success: true,
         duplicateSkipped: true,

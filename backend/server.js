@@ -1,13 +1,14 @@
 /**
  * @file backend/server.js
  * @layer Backend Application Entry & Express REST API Server
- * @description Initializes the Express application, configures global CORS and 15MB JSON body limits for base64 receipt images, connects to MongoDB Atlas, mounts all REST API routes, and starts the HTTP server with environment-aware logging.
+ * @description Initializes the Express application, configures global CORS and 15MB JSON body limits for base64 receipt images, connects to MongoDB Atlas, mounts all REST API routes, and starts the HTTP server with Render Keep-Alive ping.
  */
 
 // Import core dependencies and environment configuration
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const https = require("https");
 require("dotenv").config();
 const logger = require("./utils/logger");
 
@@ -42,11 +43,27 @@ app.get("/", (req, res) => {
   });
 });
 
-// 6. Start listening on configured port
+// 6. Start listening on configured port + Auto Keep-Alive Ping on Render (prevents 50s free-tier cold start!)
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, "0.0.0.0", () => {
   logger.info(
     "SERVER",
     `Listening on http://0.0.0.0:${PORT} | Environment: ${logger.env.toUpperCase()} | Debug Logs: ${logger.isDebugEnabled() ? "ENABLED" : "DISABLED"}`,
   );
+
+  // Ping public Render URL every 13 minutes so the free instance stays warm for instant Auto-Capture
+  const renderExternalUrl = process.env.RENDER_EXTERNAL_URL || "https://kaching-backend-27o2.onrender.com";
+
+  if (logger.isProd || process.env.RENDER) {
+    setInterval(
+      () => {
+        https
+          .get(`${renderExternalUrl}/`, (res) => {
+            logger.debug("KEEP_ALIVE", `Self-ping status: ${res.statusCode}`);
+          })
+          .on("error", () => {});
+      },
+      13 * 60 * 1000,
+    );
+  }
 });
