@@ -1,7 +1,7 @@
 /**
  * @file frontend/src/screens/AuthScreen.js
- * @layer Screen (Authentication Entry — 100% Original Design + Real Google OAuth + Forgot Password Modal)
- * @description Assembles the exact original AuthScreen design using useAuthForm, GoogleColorfulIcon, SecretDevPersonasPanel, and ForgotPasswordModal.
+ * @layer Screen (Authentication Entry — 100% Original Design + Real Google OAuth + Forgot Password & Legal Policy Modals)
+ * @description Assembles the exact original AuthScreen design using useAuthForm, GoogleColorfulIcon, SecretDevPersonasPanel, ForgotPasswordModal, and LegalPolicyModal.
  * @props {Function} onLoginSuccess - Callback invoked with authenticated user object
  * @exports default AuthScreen
  */
@@ -14,6 +14,7 @@ import WireInput from "../components/shared/WireInput";
 import WireButton from "../components/shared/WireButton";
 import FloatingToast from "../components/shared/FloatingToast";
 import { useFloatingToast } from "../components/shared/useFloatingToast";
+import LegalPolicyModal from "../components/shared/LegalPolicyModal";
 
 import { useAuthForm } from "../features/auth/hooks/useAuthForm";
 import GoogleColorfulIcon from "../features/auth/components/GoogleColorfulIcon";
@@ -24,6 +25,7 @@ export default function AuthScreen({ onLoginSuccess }) {
   const styles = getStyles();
   const { toast, slideAnim, showToast } = useFloatingToast();
   const [showForgotModal, setShowForgotModal] = useState(false);
+  const [legalModalTab, setLegalModalTab] = useState(null); // "privacy" | "terms" | null
 
   const {
     isRegistering,
@@ -103,6 +105,33 @@ export default function AuthScreen({ onLoginSuccess }) {
             <Text style={styles.googleBlackBtnText}>{googleLoading ? "Signing in..." : "Continue with Google"}</Text>
           </TouchableOpacity>
 
+          {/* Clickable Terms of Service & Privacy Policy Agreement Notice */}
+          <View style={styles.legalRow}>
+            <Text style={styles.legalText}>
+              By continuing, you agree to Ka-Ching!'s{" "}
+              <Text
+                style={styles.legalLink}
+                onPress={() => {
+                  playUiSound("pop");
+                  setLegalModalTab("terms");
+                }}
+              >
+                Terms of Service
+              </Text>{" "}
+              &amp;{" "}
+              <Text
+                style={styles.legalLink}
+                onPress={() => {
+                  playUiSound("pop");
+                  setLegalModalTab("privacy");
+                }}
+              >
+                Privacy Policy
+              </Text>
+              .
+            </Text>
+          </View>
+
           {/* SECRET DEVELOPER PANEL: Completely invisible unless Logo is tapped 5 times */}
           <SecretDevPersonasPanel
             visible={showSecretDevPanel}
@@ -136,6 +165,9 @@ export default function AuthScreen({ onLoginSuccess }) {
           showToast("success", "Password updated! Please login with your new password.");
         }}
       />
+
+      {/* In-App Privacy Policy & Terms of Service Modal */}
+      <LegalPolicyModal visible={Boolean(legalModalTab)} initialTab={legalModalTab || "privacy"} onClose={() => setLegalModalTab(null)} />
     </View>
   );
 }
@@ -237,7 +269,7 @@ const getStyles = () =>
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      marginBottom: 16,
+      marginBottom: 12,
       position: "relative",
     },
     googleWhiteBadge: {
@@ -256,6 +288,22 @@ const getStyles = () =>
       fontSize: 12,
       fontWeight: "bold",
       letterSpacing: 0.5,
+    },
+    legalRow: {
+      marginBottom: 14,
+      paddingHorizontal: 4,
+    },
+    legalText: {
+      fontFamily: FONTS.mono,
+      fontSize: 9,
+      color: COLORS.textMuted,
+      textAlign: "center",
+      lineHeight: 14,
+    },
+    legalLink: {
+      color: COLORS.text,
+      fontWeight: "bold",
+      textDecorationLine: "underline",
     },
     bottomSwitchRow: {
       flexDirection: "row",

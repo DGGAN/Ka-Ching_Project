@@ -1,18 +1,19 @@
 /**
  * @file frontend/src/screens/ProfileScreen.js
  * @layer Screen (Top-Level Page Skeleton)
- * @description Assembles ProfileIdentityCard (with popup edit modal), AccountSecurityCard (with popup password & Google modals), PreferencesCard, AutoCaptureModal, and Sign Out button.
+ * @description Assembles ProfileIdentityCard (with popup edit modal), AccountSecurityCard (with popup password & Google modals), PreferencesCard, LegalPolicyModal, AutoCaptureModal, and Sign Out button.
  * @exports default ProfileScreen
  */
 
-import React from "react";
+import React, { useState } from "react";
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LogOut } from "lucide-react-native";
+import { LogOut, ShieldCheck, FileText } from "lucide-react-native";
 import { COLORS, SHAPES, FONTS } from "../theme/colors";
 import { playUiSound } from "../utils/soundEffects";
 import FloatingToast from "../components/shared/FloatingToast";
 import { useFloatingToast } from "../components/shared/useFloatingToast";
+import LegalPolicyModal from "../components/shared/LegalPolicyModal";
 
 import { useProfileSettings } from "../features/profile/hooks/useProfileSettings";
 import ProfileIdentityCard from "../features/profile/components/ProfileIdentityCard";
@@ -23,6 +24,7 @@ import AutoCaptureModal from "../features/profile/components/AutoCaptureModal";
 export default function ProfileScreen({ user, activeThemeKey, onChangeTheme, onUserUpdated, onLogout }) {
   const styles = getStyles();
   const { toast, slideAnim, showToast } = useFloatingToast();
+  const [legalModalTab, setLegalModalTab] = useState(null); // "privacy" | "terms" | null
 
   const {
     profileUser,
@@ -51,7 +53,7 @@ export default function ProfileScreen({ user, activeThemeKey, onChangeTheme, onU
     bindingGoogle,
     notificationsEnabled,
     autoCaptureEnabled,
-    setAutoCaptureEnabled,
+    handleAutoCaptureStatusChanged,
     showAutoCaptureModal,
     setShowAutoCaptureModal,
     showThemeModal,
@@ -145,21 +147,51 @@ export default function ProfileScreen({ user, activeThemeKey, onChangeTheme, onU
           onToggleNotifications={handleToggleNotifications}
         />
 
-        {/* 4. Sign Out Button */}
+        {/* 4. Legal & PDPA 2010 Privacy Links Row */}
+        <View style={styles.legalLinksRow}>
+          <TouchableOpacity
+            style={styles.legalLinkBtn}
+            activeOpacity={0.8}
+            onPress={() => {
+              playUiSound("pop");
+              setLegalModalTab("privacy");
+            }}
+          >
+            <ShieldCheck size={13} color={COLORS.primary} strokeWidth={2.5} />
+            <Text style={styles.legalLinkBtnText}>PRIVACY POLICY (PDPA)</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.legalLinkBtn}
+            activeOpacity={0.8}
+            onPress={() => {
+              playUiSound("pop");
+              setLegalModalTab("terms");
+            }}
+          >
+            <FileText size={13} color={COLORS.primary} strokeWidth={2.5} />
+            <Text style={styles.legalLinkBtnText}>TERMS OF SERVICE</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* 5. Sign Out Button */}
         <TouchableOpacity style={styles.logoutBtn} activeOpacity={0.85} onPress={handlePressLogout}>
           <LogOut size={15} color={COLORS.danger} strokeWidth={2.5} />
           <Text style={styles.logoutBtnText}>SIGN OUT OF KA-CHING!</Text>
         </TouchableOpacity>
       </ScrollView>
 
-      {/* 5. Smart Auto-Capture Setup & Verification Modal */}
+      {/* 6. Smart Auto-Capture Setup & Verification Modal */}
       <AutoCaptureModal
         visible={showAutoCaptureModal}
         onClose={() => setShowAutoCaptureModal(false)}
         user={profileUser}
         autoCaptureEnabled={autoCaptureEnabled}
-        onStatusChanged={(nextState) => setAutoCaptureEnabled(nextState)}
+        onStatusChanged={handleAutoCaptureStatusChanged}
       />
+
+      {/* 7. In-App Privacy Policy & Terms of Service Modal */}
+      <LegalPolicyModal visible={Boolean(legalModalTab)} initialTab={legalModalTab || "privacy"} onClose={() => setLegalModalTab(null)} />
     </View>
   );
 }
@@ -171,6 +203,30 @@ const getStyles = () =>
       paddingTop: 12,
       paddingBottom: 36,
     },
+    legalLinksRow: {
+      flexDirection: "row",
+      gap: 8,
+      marginBottom: 10,
+    },
+    legalLinkBtn: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      borderWidth: 1.5,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.buttonRadius,
+      backgroundColor: COLORS.card,
+      paddingVertical: 10,
+      paddingHorizontal: 8,
+    },
+    legalLinkBtnText: {
+      fontFamily: FONTS.mono,
+      fontSize: 8.5,
+      fontWeight: "bold",
+      color: COLORS.text,
+    },
     logoutBtn: {
       flexDirection: "row",
       alignItems: "center",
@@ -181,7 +237,7 @@ const getStyles = () =>
       borderRadius: SHAPES.buttonRadius,
       backgroundColor: COLORS.dangerBg,
       paddingVertical: 12,
-      marginTop: 4,
+      marginTop: 2,
     },
     logoutBtnText: {
       fontFamily: FONTS.mono,

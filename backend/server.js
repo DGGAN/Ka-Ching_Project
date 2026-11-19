@@ -1,11 +1,12 @@
 /**
  * @file backend/server.js
  * @layer Backend Application Entry & Express REST API Server
- * @description Initializes the Express application, configures global CORS and 15MB JSON body limits for base64 receipt images, connects to MongoDB Atlas, mounts all REST API routes, and starts the HTTP server with Render Keep-Alive ping.
+ * @description Initializes the Express application, configures global CORS and 15MB JSON body limits for base64 receipt images, connects to MongoDB Atlas, mounts all REST API routes, serves static legal pages, and starts the HTTP server with Render Keep-Alive ping.
  */
 
 // Import core dependencies and environment configuration
 const express = require("express");
+const path = require("path");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const https = require("https");
@@ -35,15 +36,25 @@ app.use("/api/analytics", require("./routes/analyticsRoutes"));
 app.use("/api/ocr", require("./routes/ocrRoutes"));
 app.use("/api/notifications", require("./routes/notificationRoutes"));
 
-// 5. Health check endpoint
+// 5. Serve public legal pages (index.html, privacy.html, terms.html) for Google OAuth verification
+app.use(express.static(path.join(__dirname, "public")));
+app.get("/privacy", (req, res) => res.sendFile(path.join(__dirname, "public", "privacy.html")));
+app.get("/terms", (req, res) => res.sendFile(path.join(__dirname, "public", "terms.html")));
+
+// 6. Health check & Home Page endpoint
 app.get("/", (req, res) => {
-  res.status(200).json({
+  const acceptsHtml = req.headers.accept && req.headers.accept.includes("text/html");
+  if (acceptsHtml) {
+    return res.sendFile(path.join(__dirname, "public", "index.html"));
+  }
+  return res.status(200).json({
+    name: "Ka-Ching! Personal Finance Manager",
     message: "Ka-Ching! Backend API is running.",
     environment: logger.env,
   });
 });
 
-// 6. Start listening on configured port + Auto Keep-Alive Ping on Render (prevents 50s free-tier cold start!)
+// 7. Start listening on configured port + Auto Keep-Alive Ping on Render (prevents 50s free-tier cold start!)
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, "0.0.0.0", () => {
   logger.info(
