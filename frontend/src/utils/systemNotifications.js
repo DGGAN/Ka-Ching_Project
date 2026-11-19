@@ -190,7 +190,7 @@ export async function handleTogglePushNotificationSwitch({ user, nextValue, onUs
       await persistUserNotificationPref(user, true, onUserSynced);
       await sendSystemBannerNotification({
         isUserNotificationEnabled: true,
-        title: "Ka-Ching! Push Notifications Enabled",
+        title: "Push Notifications Enabled",
         body: "You will now receive budget and transaction alerts outside the app.",
       });
       if (showToast) {

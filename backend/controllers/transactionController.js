@@ -519,19 +519,17 @@ exports.autoCaptureNotification = async (req, res) => {
       `Auto-captured ${parsed.type} -> Merchant: "${parsed.merchantName}", Amount: RM ${parsed.amount.toFixed(2)}, Category: ${parsed.category} (${parsed.matchedTier})`,
     );
 
-    // STEP 5: Upsert/Create Auto-Capture TXN notification, sync AI analytics, and upsert Budget ALERT (no duplicate ALERT spam)
+    // STEP 5: Create Auto-Capture TXN notification in requested format, sync AI analytics, and upsert Budget ALERT
     try {
-      await Notification.findOneAndUpdate(
-        { userId, tag: "TXN", isRead: false, title: /^Auto-Captured:/i },
-        {
-          userId,
-          tag: "TXN",
-          title: `Auto-Captured: ${parsed.merchantName}`,
-          message: `${parsed.sourceApp} payment of RM ${parsed.amount.toFixed(2)} (${parsed.category.replace(/_/g, " ")}) was automatically logged.`,
-          isRead: false,
-        },
-        { upsert: true, returnDocument: "after", sort: { createdAt: -1 } },
-      );
+      const viaLabel = platform === "IOS_27_SHORTCUT" ? "iOS 27 Shortcut" : parsed.sourceApp;
+      const formattedCategory = String(parsed.category || "OTHER_EXPENSE").replace(/_/g, " ");
+      await Notification.create({
+        userId,
+        tag: "TXN",
+        title: `Ka-Ching! Auto-Captured RM ${parsed.amount.toFixed(2)}`,
+        message: `${parsed.merchantName} (${formattedCategory}) was automatically logged via ${viaLabel}.`,
+        isRead: false,
+      });
 
       await runAnalyticsEngine(userId);
       await evaluateAndSyncBudgetAlert(userId);

@@ -46,6 +46,8 @@ export default function App() {
   // so toggling the Bell icon NEVER re-fires the same notification banner or bell sound!
   const prevUnreadCountRef = useRef(null);
   const lastNotifiedSignatureRef = useRef(null);
+  const delayedAlertTimerRef = useRef(null);
+  const appStateRef = useRef(AppState.currentState);
 
   // 2. Animated values for smooth screen fade and vertical slide transitions
   const fadeAnim = useRef(new Animated.Value(1)).current;
@@ -111,6 +113,7 @@ export default function App() {
     syncAutoCaptureUserToNative(currentUser.id, currentUser.autoCaptureEnabled !== false);
 
     const subscription = AppState.addEventListener("change", (nextAppState) => {
+      appStateRef.current = nextAppState;
       if (nextAppState === "active" && currentUser?.id) {
         syncNotificationStatusWithOS(currentUser, handleUserSyncedIfChanged);
         // Refresh unread notifications and transactions list when returning from TNG / MAE
@@ -119,12 +122,23 @@ export default function App() {
       }
     });
 
+    // Lightweight background poll every 12s while app is alive so Auto-Captured transactions sync automatically
+    const pollInterval = setInterval(() => {
+      if (currentUser?.id) {
+        fetchUnreadNotifications(currentUser.id);
+      }
+    }, 12000);
+
     return () => {
       subscription.remove();
+      clearInterval(pollInterval);
+      if (delayedAlertTimerRef.current) {
+        clearTimeout(delayedAlertTimerRef.current);
+      }
     };
   }, [currentUser?.id]);
 
-  // 5. Poll unread notifications count, play "bell" sound, AND fire external OS system banner ONLY when a genuinely NEW unread notification arrives
+  // 5. Poll unread notifications count, play "bell" sound (2.5s delay in-app), AND fire external OS banner ONLY when user is OUTSIDE the app (3.5s delay)
   const fetchUnreadNotifications = async (userId) => {
     if (!userId) return;
     try {
@@ -143,19 +157,37 @@ export default function App() {
           return;
         }
 
-        // Only fire "bell" sound & OS banner if unread count increased AND the newest unread item is genuinely new!
+        // Only trigger alert if unread count increased AND the newest unread item is genuinely new!
         if (count > prevUnreadCountRef.current && newestSignature && newestSignature !== lastNotifiedSignatureRef.current) {
           lastNotifiedSignatureRef.current = newestSignature;
-          playUiSound("bell");
+          const isUserInsideApp = (appStateRef.current || AppState.currentState) === "active";
+          // Staggered delay: 2.5s inside app (after save toast settles), 3.5s outside app (after eWallet banner clears)
+          const delayMs = isUserInsideApp ? 2500 : 3500;
 
-          if (newestUnread && currentUser?.isNotificationEnabled !== false) {
-            sendSystemBannerNotification({
-              isUserNotificationEnabled: currentUser?.isNotificationEnabled !== false,
-              title: newestUnread.title || "Ka-Ching! Alert",
-              body: newestUnread.message || "You have a new financial update.",
-              data: { notificationId: newestUnread._id, tag: newestUnread.tag },
-            });
+          if (delayedAlertTimerRef.current) {
+            clearTimeout(delayedAlertTimerRef.current);
           }
+
+          delayedAlertTimerRef.current = setTimeout(() => {
+            setUnreadCount(count);
+            const currentlyInApp = (appStateRef.current || AppState.currentState) === "active";
+
+            if (currentlyInApp) {
+              // Inside app: ONLY play subtle bell sound & update badge — NEVER pop an external OS banner!
+              playUiSound("bell");
+            } else if (newestUnread && currentUser?.isNotificationEnabled !== false) {
+              // Outside app (e.g., still in TNG / MAE / home screen): fire external OS banner after 3.5s delay
+              sendSystemBannerNotification({
+                isUserNotificationEnabled: currentUser?.isNotificationEnabled !== false,
+                title: newestUnread.title || "Ka-Ching! Alert",
+                body: newestUnread.message || "You have a new financial update.",
+                data: { notificationId: newestUnread._id, tag: newestUnread.tag },
+              });
+            }
+          }, delayMs);
+
+          prevUnreadCountRef.current = count;
+          return;
         } else if (newestSignature) {
           lastNotifiedSignatureRef.current = newestSignature;
         }
