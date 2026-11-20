@@ -33,7 +33,7 @@ async function ensureAndroidChannelAsync() {
   if (Platform.OS !== "android" || !Notifications) return;
   try {
     await Notifications.setNotificationChannelAsync("kaching_alerts", {
-      name: "Ka-Ching! Budget & Expense Alerts",
+      name: "Budget & Expense Alerts",
       importance: Notifications.AndroidImportance?.HIGH || 4,
       vibrationPattern: [0, 200, 150, 200],
       lightColor: "#5F4E34",
@@ -110,8 +110,8 @@ export async function syncNotificationStatusWithOS(user, onUserSynced) {
         await persistUserNotificationPref(user, true, onUserSynced);
         await sendSystemBannerNotification({
           isUserNotificationEnabled: true,
-          title: "Ka-Ching! Notifications Active",
-          body: "System push notifications are now enabled for your account.",
+          title: "Notifications Active",
+          body: "System notifications are now enabled for your account.",
         });
         return true;
       } else {
@@ -226,11 +226,11 @@ export async function handleTogglePushNotificationSwitch({ user, nextValue, onUs
     await persistUserNotificationPref(user, true, onUserSynced);
     await sendSystemBannerNotification({
       isUserNotificationEnabled: true,
-      title: "Ka-Ching! Push Notifications Enabled",
+      title: "Push Notifications Enabled",
       body: "You will now receive budget & expense alerts outside the app.",
     });
     if (showToast) {
-      showToast("success", "System push notifications enabled!");
+      showToast("success", "System notifications enabled!");
     }
     return true;
   }
@@ -260,7 +260,7 @@ export async function handleTogglePushNotificationSwitch({ user, nextValue, onUs
  * 4. Trigger External OS / Browser System Banner Notification
  * - Fires ONLY when user.isNotificationEnabled === true AND OS permission is granted!
  */
-export async function sendSystemBannerNotification({ isUserNotificationEnabled = true, title = "Ka-Ching! Alert", body = "", data = {} }) {
+export async function sendSystemBannerNotification({ isUserNotificationEnabled = true, title = "Alert", body = "", data = {} }) {
   if (!isUserNotificationEnabled || !body) return;
 
   try {

@@ -20,6 +20,7 @@ import { useAuthForm } from "../features/auth/hooks/useAuthForm";
 import GoogleColorfulIcon from "../features/auth/components/GoogleColorfulIcon";
 import { SecretDevPersonasPanel } from "../features/auth/components/GoogleSignInModal";
 import ForgotPasswordModal from "../features/auth/components/ForgotPasswordModal";
+import AuthLegalNotice from "../features/auth/components/AuthLegalNotice";
 
 export default function AuthScreen({ onLoginSuccess }) {
   const styles = getStyles();
@@ -106,31 +107,7 @@ export default function AuthScreen({ onLoginSuccess }) {
           </TouchableOpacity>
 
           {/* Clickable Terms of Service & Privacy Policy Agreement Notice */}
-          <View style={styles.legalRow}>
-            <Text style={styles.legalText}>
-              By continuing, you agree to Ka-Ching!'s{" "}
-              <Text
-                style={styles.legalLink}
-                onPress={() => {
-                  playUiSound("pop");
-                  setLegalModalTab("terms");
-                }}
-              >
-                Terms of Service
-              </Text>{" "}
-              &amp;{" "}
-              <Text
-                style={styles.legalLink}
-                onPress={() => {
-                  playUiSound("pop");
-                  setLegalModalTab("privacy");
-                }}
-              >
-                Privacy Policy
-              </Text>
-              .
-            </Text>
-          </View>
+          <AuthLegalNotice onOpenLegalModal={(tab) => setLegalModalTab(tab)} />
 
           {/* SECRET DEVELOPER PANEL: Completely invisible unless Logo is tapped 5 times */}
           <SecretDevPersonasPanel
@@ -288,22 +265,6 @@ const getStyles = () =>
       fontSize: 12,
       fontWeight: "bold",
       letterSpacing: 0.5,
-    },
-    legalRow: {
-      marginBottom: 14,
-      paddingHorizontal: 4,
-    },
-    legalText: {
-      fontFamily: FONTS.mono,
-      fontSize: 9,
-      color: COLORS.textMuted,
-      textAlign: "center",
-      lineHeight: 14,
-    },
-    legalLink: {
-      color: COLORS.text,
-      fontWeight: "bold",
-      textDecorationLine: "underline",
     },
     bottomSwitchRow: {
       flexDirection: "row",

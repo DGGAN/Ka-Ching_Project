@@ -1,16 +1,14 @@
 /**
  * @file frontend/src/screens/AddTransactionScreen.js
- * @layer Screen (100% Original Manual Add Transaction Design + Income/Expense Sound Trigger)
- * @description Preserves the exact original large amount hero card, EXPENSE/INCOME toggle, 2-column category popup, and passes `type` to `onTransactionSaved(type)` so App.js plays "income" or "expense".
+ * @layer Screen (Top-Level Page Skeleton — Manual Add Transaction)
+ * @description Assembles AmountHeroCard, EXPENSE/INCOME toggle, category selector, merchant/date/description inputs, CategoryPickerModal, and CalendarModal using useAddTransactionForm.
  * @exports default AddTransactionScreen
  */
 
-import React, { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet } from "react-native";
-import { Calendar as CalendarIcon, ChevronDown, Check } from "lucide-react-native";
-import apiClient from "../api/apiClient";
+import React from "react";
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
+import { Calendar as CalendarIcon, ChevronDown } from "lucide-react-native";
 import { COLORS, SHAPES, FONTS } from "../theme/colors";
-import { EXPENSE_CATEGORY_KEYS, INCOME_CATEGORY_KEYS, getCategoryMeta } from "../utils/categoryConfig";
 import { playUiSound } from "../utils/soundEffects";
 import WireInput from "../components/shared/WireInput";
 import WireButton from "../components/shared/WireButton";
@@ -19,142 +17,47 @@ import { useFloatingToast } from "../components/shared/useFloatingToast";
 import CalendarModal from "../components/shared/CalendarModal";
 import CategoryBadge from "../components/shared/CategoryBadge";
 
+import { useAddTransactionForm } from "../features/addTransaction/hooks/useAddTransactionForm";
+import AmountHeroCard from "../features/addTransaction/components/AmountHeroCard";
+import CategoryPickerModal from "../features/addTransaction/components/CategoryPickerModal";
+
 export default function AddTransactionScreen({ user, onTransactionSaved }) {
   const styles = getStyles();
-
-  const [type, setType] = useState("EXPENSE");
-  const [amount, setAmount] = useState("");
-  const [amountHintError, setAmountHintError] = useState("");
-  const [category, setCategory] = useState("FOOD_AND_BEVERAGE");
-  const [merchant, setMerchant] = useState("");
-  const [description, setDescription] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const [showCategoryPopup, setShowCategoryPopup] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [showCalendarModal, setShowCalendarModal] = useState(false);
-
   const { toast, slideAnim, showToast } = useFloatingToast();
 
-  const handleSwitchType = (newType) => {
-    playUiSound("pop");
-    setType(newType);
-    setCategory(newType === "EXPENSE" ? "FOOD_AND_BEVERAGE" : "SALARY");
-    setAmountHintError("");
-  };
-
-  const handleAmountChange = (rawText) => {
-    if (/[^0-9.]/.test(rawText)) {
-      setAmountHintError("Only numbers and a decimal point are allowed.");
-      showToast("error", "Amount: Only numbers and a decimal point are allowed.");
-      return;
-    }
-
-    const parts = rawText.split(".");
-    if (parts.length > 2) {
-      setAmountHintError("Only one decimal point is allowed.");
-      showToast("error", "Amount: Only one decimal point is allowed.");
-      return;
-    }
-
-    if (parts.length === 2 && parts[1].length > 2) {
-      setAmountHintError("Maximum 2 decimal places allowed (e.g. 15.90).");
-      showToast("error", "Amount: Maximum 2 decimal places allowed.");
-      return;
-    }
-
-    setAmountHintError("");
-    setAmount(rawText);
-  };
-
-  const handleSaveTransaction = async () => {
-    setAmountHintError("");
-
-    const parsedAmount = parseFloat(amount);
-    if (!amount || isNaN(parsedAmount)) {
-      showToast("error", "Please enter a valid numeric amount.");
-      return;
-    }
-
-    if (parsedAmount <= 0) {
-      showToast("error", "Transaction amount must be greater than RM 0.00.");
-      return;
-    }
-
-    if (parsedAmount > 1000000) {
-      showToast("error", "Amount cannot exceed RM 1,000,000.00 per transaction.");
-      return;
-    }
-
-    if (!merchant.trim()) {
-      showToast("error", "Please enter a Merchant or Payee name.");
-      return;
-    }
-
-    try {
-      setSaving(true);
-
-      await apiClient.post("/transactions", {
-        userId: user.id,
-        amount: Number(parsedAmount.toFixed(2)),
-        type,
-        category,
-        merchantName: merchant.trim(),
-        description: description.trim() ? description.trim() : null,
-        date: selectedDate.toISOString(),
-        source: "MANUAL",
-        status: "VERIFIED",
-        confidenceScore: 1.0,
-      });
-
-      showToast("success", "Transaction saved successfully!");
-      setTimeout(() => {
-        if (typeof onTransactionSaved === "function") {
-          // Pass `type` ("EXPENSE" | "INCOME") so App.js plays "expense" or "income"
-          onTransactionSaved(type);
-        }
-      }, 450);
-    } catch (error) {
-      const backendMsg = error.response?.data?.message || "Failed to save transaction. Please try again.";
-      showToast("error", backendMsg);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const activeCategoryKeys = type === "EXPENSE" ? EXPENSE_CATEGORY_KEYS : INCOME_CATEGORY_KEYS;
-  const currentCategoryConfig = getCategoryMeta(category);
+  const {
+    type,
+    amount,
+    amountHintError,
+    category,
+    setCategory,
+    merchant,
+    setMerchant,
+    description,
+    setDescription,
+    saving,
+    showCategoryPopup,
+    setShowCategoryPopup,
+    selectedDate,
+    setSelectedDate,
+    showCalendarModal,
+    setShowCalendarModal,
+    activeCategoryKeys,
+    currentCategoryConfig,
+    handleSwitchType,
+    handleAmountChange,
+    handleSaveTransaction,
+  } = useAddTransactionForm(user, onTransactionSaved, showToast);
 
   return (
     <View style={{ flex: 1, position: "relative" }}>
       <FloatingToast toast={toast} slideAnim={slideAnim} />
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Top Large Amount Input Hero Card */}
-        <View style={[styles.amountHeroCard, amountHintError ? { borderColor: COLORS.danger } : null]}>
-          <Text style={styles.amountCardLabel}>AMOUNT (RM)</Text>
-          <View style={styles.amountInputRow}>
-            <Text style={styles.currencyPrefix}>RM</Text>
-            <TextInput
-              style={styles.amountBigInput}
-              placeholder="0.00"
-              placeholderTextColor={COLORS.textMuted}
-              keyboardType="decimal-pad"
-              value={amount}
-              onChangeText={handleAmountChange}
-              maxLength={10}
-            />
-          </View>
-          <View style={styles.amountCardFooter}>
-            {amountHintError ? (
-              <Text style={styles.amountErrorHint}>{amountHintError}</Text>
-            ) : (
-              <Text style={styles.amountFooterHint}>Tap digits above to enter amount (e.g. 15.90)</Text>
-            )}
-          </View>
-        </View>
+        {/* 1. Top Large Amount Input Hero Card */}
+        <AmountHeroCard amount={amount} amountHintError={amountHintError} onChangeAmount={handleAmountChange} />
 
-        {/* Transaction Type Toggle: EXPENSE / INCOME */}
+        {/* 2. Transaction Type Toggle: EXPENSE / INCOME */}
         <View style={styles.fieldBlock}>
           <Text style={styles.fieldLabel}>TRANSACTION TYPE</Text>
           <View style={styles.typeToggleRow}>
@@ -167,7 +70,7 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
           </View>
         </View>
 
-        {/* Category Selector Trigger */}
+        {/* 3. Category Selector Trigger */}
         <View style={styles.fieldBlock}>
           <Text style={styles.fieldLabel}>CATEGORY</Text>
           <TouchableOpacity
@@ -192,7 +95,7 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
           </TouchableOpacity>
         </View>
 
-        {/* Merchant or Payee Name Input */}
+        {/* 4. Merchant or Payee Name Input */}
         <WireInput
           label="Merchant / Payee"
           placeholder={type === "EXPENSE" ? "e.g. Starbucks Ampang, Grab, Tesco" : "e.g. Monthly Salary, Parents"}
@@ -200,7 +103,7 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
           onChangeText={setMerchant}
         />
 
-        {/* Interactive Date Picker Trigger */}
+        {/* 5. Interactive Date Picker Trigger */}
         <View style={styles.fieldBlock}>
           <Text style={styles.fieldLabel}>DATE</Text>
           <TouchableOpacity
@@ -228,64 +131,21 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
           </TouchableOpacity>
         </View>
 
-        {/* Optional Description Input */}
+        {/* 6. Optional Description Input */}
         <WireInput label="Description (Optional)" placeholder="Add a note..." value={description} onChangeText={setDescription} />
 
-        {/* Save Transaction Submit Button */}
+        {/* 7. Save Transaction Submit Button */}
         <WireButton label={saving ? "SAVING..." : "SAVE TRANSACTION"} onPress={handleSaveTransaction} variant="filled" style={{ marginTop: 8 }} />
 
-        {/* Modal 1: Category Icon Popup List Modal */}
-        <Modal visible={showCategoryPopup} transparent={true} animationType="fade" onRequestClose={() => setShowCategoryPopup(false)}>
-          <View style={styles.modalOverlay}>
-            <View style={styles.popupCard}>
-              <View style={styles.popupHeader}>
-                <Text style={styles.popupTitle}>SELECT {type} CATEGORY</Text>
-                <Text style={styles.popupSubtitle}>Choose a category to organize your spending</Text>
-              </View>
-
-              <View style={styles.categoryGrid}>
-                {activeCategoryKeys.map((catKey) => {
-                  const cfg = getCategoryMeta(catKey);
-                  const isSelected = category === catKey;
-                  return (
-                    <TouchableOpacity
-                      key={catKey}
-                      activeOpacity={0.8}
-                      onPress={() => {
-                        playUiSound("pop");
-                        setCategory(catKey);
-                        setShowCategoryPopup(false);
-                      }}
-                      style={[styles.catCard, isSelected && styles.catCardSelected]}
-                    >
-                      <CategoryBadge category={catKey} size={34} iconSize={17} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.catCardTitle, isSelected && { color: COLORS.primary }]} numberOfLines={1}>
-                          {cfg.name || cfg.label}
-                        </Text>
-                      </View>
-                      {isSelected && (
-                        <View style={styles.checkBadge}>
-                          <Check size={10} color={COLORS.primaryText} strokeWidth={3} />
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              <WireButton
-                label="CANCEL"
-                variant="outline"
-                onPress={() => {
-                  playUiSound("pop");
-                  setShowCategoryPopup(false);
-                }}
-                style={{ marginTop: 12 }}
-              />
-            </View>
-          </View>
-        </Modal>
+        {/* Modal 1: 2-Column Category Picker Modal */}
+        <CategoryPickerModal
+          visible={showCategoryPopup}
+          type={type}
+          activeCategoryKeys={activeCategoryKeys}
+          selectedCategory={category}
+          onSelectCategory={setCategory}
+          onClose={() => setShowCategoryPopup(false)}
+        />
 
         {/* Modal 2: Shared Reusable Calendar Modal */}
         <CalendarModal
@@ -308,63 +168,6 @@ const getStyles = () =>
       paddingHorizontal: 16,
       paddingTop: 14,
       paddingBottom: 36,
-    },
-    amountHeroCard: {
-      borderWidth: SHAPES.borderWidth,
-      borderColor: COLORS.border,
-      borderRadius: SHAPES.cardRadius,
-      backgroundColor: COLORS.card,
-      padding: 16,
-      alignItems: "center",
-      marginBottom: 16,
-    },
-    amountCardLabel: {
-      fontFamily: FONTS.mono,
-      fontSize: 9,
-      color: COLORS.textMuted,
-      letterSpacing: 1.5,
-      marginBottom: 6,
-    },
-    amountInputRow: {
-      flexDirection: "row",
-      alignItems: "baseline",
-      justifyContent: "center",
-    },
-    currencyPrefix: {
-      fontFamily: FONTS.mono,
-      fontSize: 20,
-      fontWeight: "bold",
-      color: COLORS.textMuted,
-      marginRight: 6,
-    },
-    amountBigInput: {
-      fontFamily: FONTS.mono,
-      fontSize: 34,
-      fontWeight: "bold",
-      color: COLORS.text,
-      minWidth: 120,
-      textAlign: "center",
-      padding: 0,
-    },
-    amountCardFooter: {
-      width: "100%",
-      borderTopWidth: 1.5,
-      borderColor: COLORS.borderMuted,
-      borderStyle: "dashed",
-      paddingTop: 8,
-      marginTop: 8,
-      alignItems: "center",
-    },
-    amountFooterHint: {
-      fontFamily: FONTS.mono,
-      fontSize: 9,
-      color: COLORS.textMuted,
-    },
-    amountErrorHint: {
-      fontFamily: FONTS.mono,
-      fontSize: 10,
-      fontWeight: "bold",
-      color: COLORS.danger,
     },
     fieldBlock: {
       marginBottom: 15,
@@ -453,76 +256,6 @@ const getStyles = () =>
       borderColor: COLORS.border,
       borderRadius: SHAPES.chipRadius,
       backgroundColor: COLORS.secondary,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    modalOverlay: {
-      flex: 1,
-      backgroundColor: "rgba(0,0,0,0.55)",
-      justifyContent: "center",
-      alignItems: "center",
-      padding: 18,
-    },
-    popupCard: {
-      width: "100%",
-      maxWidth: 350,
-      borderWidth: SHAPES.borderWidth,
-      borderColor: COLORS.border,
-      borderRadius: SHAPES.cardRadius,
-      backgroundColor: COLORS.card,
-      padding: 16,
-    },
-    popupHeader: {
-      borderBottomWidth: 1.5,
-      borderColor: COLORS.borderMuted,
-      borderStyle: "dashed",
-      paddingBottom: 10,
-      marginBottom: 12,
-    },
-    popupTitle: {
-      fontFamily: FONTS.mono,
-      fontSize: 13,
-      fontWeight: "bold",
-      color: COLORS.text,
-    },
-    popupSubtitle: {
-      fontFamily: FONTS.mono,
-      fontSize: 9,
-      color: COLORS.textMuted,
-      marginTop: 2,
-    },
-    categoryGrid: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      justifyContent: "space-between",
-      gap: 8,
-    },
-    catCard: {
-      width: "48.5%",
-      borderWidth: SHAPES.borderWidth,
-      borderColor: COLORS.borderMuted,
-      borderRadius: SHAPES.inputRadius,
-      backgroundColor: COLORS.card,
-      padding: 8,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-    },
-    catCardSelected: {
-      borderColor: COLORS.primary,
-      backgroundColor: COLORS.secondary,
-    },
-    catCardTitle: {
-      fontFamily: FONTS.mono,
-      fontSize: 10,
-      fontWeight: "bold",
-      color: COLORS.text,
-    },
-    checkBadge: {
-      width: 16,
-      height: 16,
-      borderRadius: 8,
-      backgroundColor: COLORS.primary,
       alignItems: "center",
       justifyContent: "center",
     },

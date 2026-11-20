@@ -10,22 +10,20 @@ const Transaction = require("../models/Transaction");
 const logger = require("./logger");
 
 // ============================================================================
-// STRICT MALAYSIAN FINANCE & E-WALLET PACKAGE WHITELIST
+// STRICT MALAYSIAN FINANCE & E-WALLET PACKAGE WHITELIST (Google Play Verified)
 // Add any new banking / e-wallet Android package name here in the future.
 // ============================================================================
 const ALLOWED_FINANCE_PACKAGES = [
   "my.com.tngdigital.ewallet", // Touch 'n Go eWallet
   "com.maybank2u.life", // MAE by Maybank2u
   "com.grabtaxi.passenger", // Grab / GrabPay
-  "com.cimbmalaysia.clicks", // CIMB Clicks
-  "com.cimbmalaysia.cimbclicks", // CIMB Clicks / OCTO
-  "com.pbbank.PBeM", // Public Bank PB engage
-  "com.pbbank.mypb", // Public Bank MyPB
+  "com.cimb.cimbocto", // CIMB OCTO MY
+  "com.pbb.mypb", // MyPB by Public Bank
   "com.rhbgroup.rhbmobilebanking", // RHB Mobile Banking
   "my.com.hongleongconnect.mobileconnect", // HLB Connect
-  "my.com.boost", // Boost eWallet
+  "my.com.myboost", // Boost eWallet
   "com.shopee.my", // Shopee / ShopeePay
-  "com.gxbank.app", // GXBank
+  "my.com.gxbank.app", // GXBank
 ];
 
 // ============================================================================

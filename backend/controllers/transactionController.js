@@ -499,7 +499,10 @@ exports.autoCaptureNotification = async (req, res) => {
     }
 
     // STEP 4: Create verified transaction with source: "NOTIFICATION"
-    const now = new Date();
+    const rawTxTime = req.body?.transactionTime || req.query?.transactionTime;
+    const parsedTxTime = rawTxTime && !isNaN(Number(rawTxTime)) ? new Date(Number(rawTxTime)) : new Date();
+    const txDate = isNaN(parsedTxTime.getTime()) ? new Date() : parsedTxTime;
+
     const newTx = await Transaction.create({
       userId,
       amount: parsed.amount,
@@ -508,7 +511,7 @@ exports.autoCaptureNotification = async (req, res) => {
       budgetType: parsed.budgetType,
       merchantName: parsed.merchantName,
       description: `Auto-captured via ${platform === "IOS_27_SHORTCUT" ? "iOS 27 Shortcut" : parsed.sourceApp}`,
-      date: now,
+      date: txDate,
       source: "NOTIFICATION",
       status: "VERIFIED",
       confidenceScore: 0.98,
@@ -526,7 +529,7 @@ exports.autoCaptureNotification = async (req, res) => {
       await Notification.create({
         userId,
         tag: "TXN",
-        title: `Ka-Ching! Auto-Captured RM ${parsed.amount.toFixed(2)}`,
+        title: `Auto-Captured RM ${parsed.amount.toFixed(2)}`,
         message: `${parsed.merchantName} (${formattedCategory}) was automatically logged via ${viaLabel}.`,
         isRead: false,
       });

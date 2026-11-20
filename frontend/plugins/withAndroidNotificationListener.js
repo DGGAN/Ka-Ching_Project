@@ -10,6 +10,7 @@ const path = require("path");
 
 const KACHING_LISTENER_JAVA = `package com.dggan.kaching;
 
+import android.app.ActivityManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -37,6 +38,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -51,18 +53,18 @@ public class KaChingNotificationListener extends NotificationListenerService {
 
     // Strict Whitelist: ONLY capture notifications from these Malaysian eWallets & Banking apps
     private static final String[] ALLOWED_FINANCE_PACKAGES = new String[]{
+    // Strict Whitelist: ONLY capture notifications from these 10 Google-Play-verified Malaysian eWallets & Banking apps
+    private static final String[] ALLOWED_FINANCE_PACKAGES = new String[]{
         "my.com.tngdigital.ewallet",             // Touch 'n Go eWallet
         "com.maybank2u.life",                    // MAE by Maybank2u
         "com.grabtaxi.passenger",                // Grab / GrabPay
-        "com.cimbmalaysia.clicks",               // CIMB Clicks
-        "com.cimbmalaysia.cimbclicks",           // CIMB Clicks / OCTO
-        "com.pbbank.PBeM",                       // Public Bank PB engage
-        "com.pbbank.mypb",                       // Public Bank MyPB
+        "com.cimb.cimbocto",                     // CIMB OCTO MY
+        "com.pbb.mypb",                          // MyPB by Public Bank
         "com.rhbgroup.rhbmobilebanking",         // RHB Mobile Banking
         "my.com.hongleongconnect.mobileconnect", // HLB Connect
-        "my.com.boost",                          // Boost eWallet
+        "my.com.myboost",                        // Boost eWallet
         "com.shopee.my",                         // Shopee / ShopeePay
-        "com.gxbank.app"                         // GXBank
+        "my.com.gxbank.app"                      // GXBank
     };
 
     public static KaChingNotificationListener instance = null;
@@ -236,23 +238,29 @@ public class KaChingNotificationListener extends NotificationListenerService {
             final String finalTitle = title.isEmpty() ? "Payment Notification" : title;
             final String finalText = text.isEmpty() ? combined : text;
             final String finalPkg = pkg;
+            final long originalPostTimeMs = sbn.getPostTime() > 0 ? sbn.getPostTime() : System.currentTimeMillis();
 
-            // Briefly hold a partial WakeLock so Xiaomi/Android doesn't suspend the background socket before POST completes
+            // Hold a partial WakeLock so Android/Xiaomi keeps CPU awake while the background POST completes
             android.os.PowerManager.WakeLock wakeLock = null;
             try {
                 android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
                 if (pm != null) {
                     wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "KaChing::AutoCapturePost");
-                    wakeLock.acquire(15000L);
+                    wakeLock.acquire(25000L);
                 }
             } catch (Exception ignored) {}
 
             final android.os.PowerManager.WakeLock finalWakeLock = wakeLock;
             new Thread(() -> {
                 try {
-                    boolean ok = postToRenderBackend(finalUserId, finalTitle, finalText, finalPkg);
+                    boolean ok = postToRenderBackend(finalUserId, finalTitle, finalText, finalPkg, originalPostTimeMs, false);
                     if (!ok) {
-                        enqueueFailedNotification(finalUserId, finalTitle, finalText, finalPkg);
+                        // Retry once after 3s before deferring to offline queue
+                        try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
+                        ok = postToRenderBackend(finalUserId, finalTitle, finalText, finalPkg, originalPostTimeMs, false);
+                    }
+                    if (!ok) {
+                        enqueueFailedNotification(finalUserId, finalTitle, finalText, finalPkg, originalPostTimeMs);
                     }
                 } finally {
                     if (finalWakeLock != null && finalWakeLock.isHeld()) {
@@ -265,7 +273,24 @@ public class KaChingNotificationListener extends NotificationListenerService {
         }
     }
 
-    private synchronized void enqueueFailedNotification(String userId, String title, String text, String packageName) {
+    private boolean isAppInForeground() {
+        try {
+            ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            if (am == null) return false;
+            List<ActivityManager.RunningAppProcessInfo> procs = am.getRunningAppProcesses();
+            if (procs == null) return false;
+            String myPkg = getPackageName();
+            for (ActivityManager.RunningAppProcessInfo proc : procs) {
+                if (proc.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+                    && myPkg.equals(proc.processName)) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    private synchronized void enqueueFailedNotification(String userId, String title, String text, String packageName, long postTimeMs) {
         try {
             SharedPreferences prefs = getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
             String raw = prefs.getString(QUEUE_KEY, "[]");
@@ -276,6 +301,7 @@ public class KaChingNotificationListener extends NotificationListenerService {
             item.put("title", title);
             item.put("text", text);
             item.put("packageName", packageName);
+            item.put("transactionTime", postTimeMs);
 
             JSONArray nextArr = new JSONArray();
             int start = Math.max(0, arr.length() - 19);
@@ -310,9 +336,11 @@ public class KaChingNotificationListener extends NotificationListenerService {
                     String t = item.optString("title", "Payment Notification");
                     String txt = item.optString("text", "");
                     String p = item.optString("packageName", "");
-                    boolean sent = postToRenderBackend(uid, t, txt, p);
+                    long txTime = item.optLong("transactionTime", System.currentTimeMillis());
+                    // isFromQueue=true prevents spamming multiple OS banners when flushing offline backlog
+                    boolean sent = postToRenderBackend(uid, t, txt, p, txTime, true);
                     if (!sent) {
-                        enqueueFailedNotification(uid, t, txt, p);
+                        enqueueFailedNotification(uid, t, txt, p, txTime);
                     }
                 }
             } catch (Exception e) {
@@ -321,7 +349,7 @@ public class KaChingNotificationListener extends NotificationListenerService {
         }).start();
     }
 
-    private boolean postToRenderBackend(String userId, String title, String text, String packageName) {
+    private boolean postToRenderBackend(String userId, String title, String text, String packageName, long postTimeMs, boolean isFromQueue) {
         HttpURLConnection conn = null;
         try {
             URL url = new URL(BACKEND_URL);
@@ -338,6 +366,7 @@ public class KaChingNotificationListener extends NotificationListenerService {
             payload.put("title", title);
             payload.put("text", text);
             payload.put("packageName", packageName);
+            payload.put("transactionTime", postTimeMs);
             payload.put("platform", "ANDROID_LISTENER");
 
             byte[] input = payload.toString().getBytes(StandardCharsets.UTF_8);
@@ -348,7 +377,8 @@ public class KaChingNotificationListener extends NotificationListenerService {
             int code = conn.getResponseCode();
             Log.i(TAG, "POST /transactions/auto-capture response: " + code);
 
-            if (code == 201) {
+            // Only show delayed OS banner for LIVE background captures when user is NOT inside Ka-Ching!
+            if (code == 201 && !isFromQueue && !isAppInForeground()) {
                 try (BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
                     StringBuilder sb = new StringBuilder();
                     String line;
@@ -367,7 +397,11 @@ public class KaChingNotificationListener extends NotificationListenerService {
 
                         // Wait 3.5 seconds so it does not collide with TNG/MAE's own payment banner & sound
                         new Handler(Looper.getMainLooper()).postDelayed(
-                            () -> showDelayedAutoCaptureBanner(bannerTitle, bannerBody),
+                            () -> {
+                                if (!isAppInForeground()) {
+                                    showDelayedAutoCaptureBanner(bannerTitle, bannerBody);
+                                }
+                            },
                             3500
                         );
                     }
@@ -439,7 +473,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.service.notification.NotificationListenerService;
 
@@ -495,6 +531,55 @@ public class KaChingAutoCaptureModule extends ReactContextBaseJavaModule {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             reactContext.startActivity(intent);
         } catch (Exception ignored) {}
+    }
+
+    @ReactMethod
+    public void isBatteryOptimizationIgnored(Promise promise) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PowerManager pm = (PowerManager) reactContext.getSystemService(Context.POWER_SERVICE);
+                boolean ignoring = pm != null && pm.isIgnoringBatteryOptimizations(reactContext.getPackageName());
+                promise.resolve(ignoring);
+            } else {
+                promise.resolve(true);
+            }
+        } catch (Exception e) {
+            promise.resolve(false);
+        }
+    }
+
+    @ReactMethod
+    public void requestIgnoreBatteryOptimizations() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                intent.setData(Uri.parse("package:" + reactContext.getPackageName()));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                reactContext.startActivity(intent);
+                return;
+            }
+        } catch (Exception ignored) {}
+        openAppSettings();
+    }
+
+    @ReactMethod
+    public void openAppSettings() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            intent.setData(Uri.parse("package:" + reactContext.getPackageName()));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            reactContext.startActivity(intent);
+        } catch (Exception ignored) {}
+    }
+
+    @ReactMethod
+    public void getDeviceManufacturer(Promise promise) {
+        try {
+            String manufacturer = Build.MANUFACTURER != null ? Build.MANUFACTURER : "Android";
+            promise.resolve(manufacturer);
+        } catch (Exception e) {
+            promise.resolve("Android");
+        }
     }
 
     @ReactMethod
@@ -603,26 +688,31 @@ module.exports = function withAndroidNotificationListener(config) {
     if (!manifestRoot["uses-permission"]) {
       manifestRoot["uses-permission"] = [];
     }
-    const hasQueryAll = manifestRoot["uses-permission"].some((p) => p.$?.["android:name"] === "android.permission.QUERY_ALL_PACKAGES");
-    if (!hasQueryAll) {
-      manifestRoot["uses-permission"].push({
-        $: { "android:name": "android.permission.QUERY_ALL_PACKAGES" },
-      });
+    const requiredPermissions = [
+      "android.permission.QUERY_ALL_PACKAGES",
+      "android.permission.WAKE_LOCK",
+      "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+    ];
+    for (const permName of requiredPermissions) {
+      const hasPerm = manifestRoot["uses-permission"].some((p) => p.$?.["android:name"] === permName);
+      if (!hasPerm) {
+        manifestRoot["uses-permission"].push({
+          $: { "android:name": permName },
+        });
+      }
     }
 
     const financePackages = [
       "my.com.tngdigital.ewallet",
       "com.maybank2u.life",
       "com.grabtaxi.passenger",
-      "com.cimbmalaysia.clicks",
-      "com.cimbmalaysia.cimbclicks",
-      "com.pbbank.PBeM",
-      "com.pbbank.mypb",
+      "com.cimb.cimbocto",
+      "com.pbb.mypb",
       "com.rhbgroup.rhbmobilebanking",
       "my.com.hongleongconnect.mobileconnect",
-      "my.com.boost",
+      "my.com.myboost",
       "com.shopee.my",
-      "com.gxbank.app",
+      "my.com.gxbank.app",
     ];
     if (!manifestRoot.queries) {
       manifestRoot.queries = [{ package: [] }];

@@ -15,11 +15,31 @@ import { playUiSound } from "../../../utils/soundEffects";
 import {
   checkAndroidNotificationListenerPermission,
   openAndroidNotificationListenerSettings,
+  checkBatteryOptimizationIgnored,
+  requestIgnoreBatteryOptimizations,
+  openAndroidAppDetailsSettings,
+  getAndroidDeviceManufacturer,
   syncAutoCaptureUserToNative,
 } from "../../../services/autoCaptureService";
 import WireButton from "../../../components/shared/WireButton";
 import FloatingToast from "../../../components/shared/FloatingToast";
 import { useFloatingToast } from "../../../components/shared/useFloatingToast";
+
+const SUPPORTED_MALAYSIAN_APPS = [
+  "Touch 'n Go eWallet",
+  "MAE by Maybank2u",
+  "Grab / GrabPay",
+  "CIMB OCTO MY",
+  "MyPB (Public Bank)",
+  "RHB Mobile Banking",
+  "HLB Connect",
+  "Boost eWallet",
+  "Shopee / ShopeePay",
+  "GXBank",
+];
+
+// Brands whose Android ROMs require an explicit "Autostart / Auto-launch" toggle
+const AUTOSTART_BRAND_REGEX = /xiaomi|redmi|poco|oppo|realme|vivo|iqoo|oneplus|huawei|honor/i;
 
 export default function AutoCaptureModal({ visible = false, onClose, user, autoCaptureEnabled = false, onStatusChanged }) {
   const styles = getStyles();
@@ -32,11 +52,19 @@ export default function AutoCaptureModal({ visible = false, onClose, user, autoC
   const [activeGuideTab, setActiveGuideTab] = useState(Platform.OS === "ios" ? "ios" : "android");
   const [copiedField, setCopiedField] = useState(null);
   const [androidListenerStatus, setAndroidListenerStatus] = useState("unavailable");
+  const [batteryUnrestricted, setBatteryUnrestricted] = useState(false);
+  const [deviceBrand, setDeviceBrand] = useState("");
   const [showRestrictedHelp, setShowRestrictedHelp] = useState(false);
 
   const refreshAndroidListenerStatus = async () => {
-    const status = await checkAndroidNotificationListenerPermission();
+    const [status, batteryOk, brand] = await Promise.all([
+      checkAndroidNotificationListenerPermission(),
+      checkBatteryOptimizationIgnored(),
+      getAndroidDeviceManufacturer(),
+    ]);
     setAndroidListenerStatus(status);
+    setBatteryUnrestricted(Boolean(batteryOk));
+    setDeviceBrand(brand || "");
     if (user?.id) {
       await syncAutoCaptureUserToNative(user.id, Boolean(autoCaptureEnabled));
     }
@@ -147,8 +175,29 @@ export default function AutoCaptureModal({ visible = false, onClose, user, autoC
     await openAndroidNotificationListenerSettings();
   };
 
+  // 4. Open Android Battery Optimization Exemption Prompt
+  const handleRequestBatteryUnrestricted = async () => {
+    playUiSound("pop");
+    if (Platform.OS === "web") {
+      notify("info", "On your Android phone APK, this opens Battery Optimization -> No Restrictions.");
+      return;
+    }
+    await requestIgnoreBatteryOptimizations();
+  };
+
+  // 5. Open App Info Settings (for Xiaomi/OPPO/Vivo Autostart & Restricted Settings)
+  const handleOpenAppInfoSettings = async () => {
+    playUiSound("pop");
+    if (Platform.OS === "web") {
+      notify("info", "On your Android phone APK, this opens Ka-Ching! App Info settings.");
+      return;
+    }
+    await openAndroidAppDetailsSettings();
+  };
+
   const isAndroidAccessGranted = androidListenerStatus === "authorized";
-  const isFullyReadyOnAndroid = enabled && isAndroidAccessGranted;
+  const needsBrandAutostart = AUTOSTART_BRAND_REGEX.test(deviceBrand);
+  const isFullyReadyOnAndroid = enabled && isAndroidAccessGranted && batteryUnrestricted;
 
   return (
     <Modal
@@ -225,126 +274,197 @@ export default function AutoCaptureModal({ visible = false, onClose, user, autoC
               </View>
 
               <Text style={styles.stepDescription}>
-                Only notifications containing an <Text style={{ fontWeight: "bold" }}>RM / MYR</Text> payment amount from banking & eWallet apps are
-                recorded. Personal chats are ignored.
+                Only notifications containing an <Text style={{ fontWeight: "bold" }}>RM / MYR</Text> payment amount from supported apps below are
+                recorded. Personal chats are strictly ignored.
               </Text>
             </View>
 
-            {/* Platform Switcher Tabs */}
-            <View style={styles.platformTabsRow}>
-              <TouchableOpacity
-                style={[styles.platformTabBtn, activeGuideTab === "android" && styles.platformTabBtnActive]}
-                onPress={() => {
-                  playUiSound("tab");
-                  setActiveGuideTab("android");
-                }}
-              >
-                <Zap size={13} color={activeGuideTab === "android" ? COLORS.primaryText : COLORS.text} />
-                <Text style={[styles.platformTabText, activeGuideTab === "android" && styles.platformTabTextActive]}>ANDROID PHONE</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.platformTabBtn, activeGuideTab === "ios" && styles.platformTabBtnActive]}
-                onPress={() => {
-                  playUiSound("tab");
-                  setActiveGuideTab("ios");
-                }}
-              >
-                <Smartphone size={13} color={activeGuideTab === "ios" ? COLORS.primaryText : COLORS.text} />
-                <Text style={[styles.platformTabText, activeGuideTab === "ios" && styles.platformTabTextActive]}>iPHONE (iOS)</Text>
-              </TouchableOpacity>
+            {/* Explicit Supported Malaysian eWallet & Banking Apps List */}
+            <View style={styles.supportedAppsBox}>
+              <Text style={styles.supportedAppsTitle}>CURRENTLY SUPPORTED APPS ({SUPPORTED_MALAYSIAN_APPS.length})</Text>
+              <View style={styles.supportedChipsWrap}>
+                {SUPPORTED_MALAYSIAN_APPS.map((appName) => (
+                  <View key={appName} style={styles.supportedChip}>
+                    <Text style={styles.supportedChipText}>{appName}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
 
-            {/* STEP 2: Phone OS Setup */}
+            {/* Platform Switcher Tabs */}
+            {/* STEP 2, 3 & Optional STEP 4: Phone OS Setup */}
             {activeGuideTab === "android" ? (
-              <View style={[styles.stepBox, isAndroidAccessGranted ? styles.stepBoxReady : styles.stepBoxNeutral]}>
-                <View style={styles.stepBadgeRow}>
-                  <View
-                    style={[
-                      styles.stepCircle,
-                      {
-                        backgroundColor: isAndroidAccessGranted ? "#15803D" : COLORS.primary,
-                      },
-                    ]}
-                  >
-                    <Text
+              <View>
+                {/* STEP 2: Notification Access */}
+                <View style={[styles.stepBox, isAndroidAccessGranted ? styles.stepBoxReady : styles.stepBoxNeutral]}>
+                  <View style={styles.stepBadgeRow}>
+                    <View
                       style={[
-                        styles.stepCircleText,
+                        styles.stepCircle,
                         {
-                          color: isAndroidAccessGranted ? "#FFFFFF" : COLORS.primaryText,
+                          backgroundColor: isAndroidAccessGranted ? "#15803D" : COLORS.primary,
                         },
                       ]}
                     >
-                      2
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.stepHeading}>STEP 2: ALLOW ANDROID NOTIFICATION ACCESS</Text>
-                    <Text
-                      style={[
-                        styles.stepStatusSub,
-                        {
-                          color: isAndroidAccessGranted ? "#15803D" : COLORS.textMuted,
-                        },
-                      ]}
-                    >
-                      {isAndroidAccessGranted ? "✓ System Permission Granted" : "One-time phone permission required"}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.numberedListBox}>
-                  <Text style={styles.numberedItem}>
-                    <Text style={{ fontWeight: "bold" }}>1.</Text> Tap the <Text style={{ fontWeight: "bold" }}>Open Notification Access</Text> button
-                    below.
-                  </Text>
-                  <Text style={styles.numberedItem}>
-                    <Text style={{ fontWeight: "bold" }}>2.</Text> Find <Text style={{ fontWeight: "bold" }}>Ka-Ching!</Text> in the list and switch
-                    it <Text style={{ fontWeight: "bold" }}>ON</Text>.
-                  </Text>
-                  <Text style={[styles.numberedItem, { marginBottom: 0 }]}>
-                    <Text style={{ fontWeight: "bold" }}>3.</Text> Done! Any payment or transfer you make in{" "}
-                    <Text style={{ fontWeight: "bold" }}>Touch 'n Go eWallet, MAE, or GrabPay</Text> will be logged automatically with an{" "}
-                    <Text style={{ fontWeight: "bold", color: "#15803D" }}>AUTO</Text> badge.
-                  </Text>
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.primaryActionBtn, isAndroidAccessGranted && styles.primaryActionBtnDone]}
-                  onPress={handleOpenAndroidSettings}
-                >
-                  <ExternalLink size={14} color={isAndroidAccessGranted ? "#15803D" : COLORS.primaryText} />
-                  <Text style={[styles.primaryActionBtnText, isAndroidAccessGranted && { color: "#15803D" }]}>
-                    {isAndroidAccessGranted ? "NOTIFICATION ACCESS GRANTED (VIEW SETTINGS)" : "OPEN ANDROID NOTIFICATION ACCESS"}
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Collapsible Help for Android 13/14/15 "Restricted Setting" */}
-                <TouchableOpacity
-                  style={styles.helpAccordionHeader}
-                  onPress={() => {
-                    playUiSound("pop");
-                    setShowRestrictedHelp(!showRestrictedHelp);
-                  }}
-                >
-                  <HelpCircle size={13} color={COLORS.textMuted} />
-                  <Text style={styles.helpAccordionTitle}>Switch greyed out or says "Restricted Setting"?</Text>
-                  {showRestrictedHelp ? <ChevronUp size={14} color={COLORS.textMuted} /> : <ChevronDown size={14} color={COLORS.textMuted} />}
-                </TouchableOpacity>
-
-                {showRestrictedHelp && (
-                  <View style={styles.helpAccordionBody}>
-                    <Text style={styles.helpAccordionText}>
-                      On Android 13+, APK apps require a 1-time unlock:{"\n"}
-                      1. Open phone{" "}
-                      <Text style={{ fontWeight: "bold" }}>
-                        Settings {"->"} Apps {"->"} Ka-Ching!
+                      <Text
+                        style={[
+                          styles.stepCircleText,
+                          {
+                            color: isAndroidAccessGranted ? "#FFFFFF" : COLORS.primaryText,
+                          },
+                        ]}
+                      >
+                        2
                       </Text>
-                      {"\n"}
-                      2. Tap <Text style={{ fontWeight: "bold" }}>"Allow restricted settings"</Text> (top-right ⋮ menu or bottom of page) and turn ON{" "}
-                      <Text style={{ fontWeight: "bold" }}>"Autostart"</Text>.{"\n"}
-                      3. Return here and enable Notification Access.
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.stepHeading}>STEP 2: ALLOW NOTIFICATION ACCESS</Text>
+                      <Text
+                        style={[
+                          styles.stepStatusSub,
+                          {
+                            color: isAndroidAccessGranted ? "#15803D" : COLORS.textMuted,
+                          },
+                        ]}
+                      >
+                        {isAndroidAccessGranted ? "✓ Granted — Ka-Ching! can read payment alerts" : "Required so Ka-Ching! can detect eWallet alerts"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.numberedListBox}>
+                    <Text style={styles.numberedItem}>
+                      <Text style={{ fontWeight: "bold" }}>1.</Text> Tap <Text style={{ fontWeight: "bold" }}>Open Notification Access</Text> below.
                     </Text>
+                    <Text style={[styles.numberedItem, { marginBottom: 0 }]}>
+                      <Text style={{ fontWeight: "bold" }}>2.</Text> Find <Text style={{ fontWeight: "bold" }}>Ka-Ching!</Text> and switch it{" "}
+                      <Text style={{ fontWeight: "bold" }}>ON</Text>.
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={[styles.primaryActionBtn, isAndroidAccessGranted && styles.primaryActionBtnDone]}
+                    onPress={handleOpenAndroidSettings}
+                  >
+                    <ExternalLink size={14} color={isAndroidAccessGranted ? "#15803D" : COLORS.primaryText} />
+                    <Text style={[styles.primaryActionBtnText, isAndroidAccessGranted && { color: "#15803D" }]}>
+                      {isAndroidAccessGranted ? "NOTIFICATION ACCESS GRANTED (VIEW)" : "OPEN NOTIFICATION ACCESS"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Collapsible Help for Android 13/14/15 "Restricted Setting" */}
+                  <TouchableOpacity
+                    style={styles.helpAccordionHeader}
+                    onPress={() => {
+                      playUiSound("pop");
+                      setShowRestrictedHelp(!showRestrictedHelp);
+                    }}
+                  >
+                    <HelpCircle size={13} color={COLORS.textMuted} />
+                    <Text style={styles.helpAccordionTitle}>Switch greyed out or says "Restricted Setting"?</Text>
+                    {showRestrictedHelp ? <ChevronUp size={14} color={COLORS.textMuted} /> : <ChevronDown size={14} color={COLORS.textMuted} />}
+                  </TouchableOpacity>
+
+                  {showRestrictedHelp && (
+                    <View style={styles.helpAccordionBody}>
+                      <Text style={styles.helpAccordionText}>
+                        On Android 13+, sideloaded APK apps require a 1-time unlock:{"\n"}
+                        1. Tap{" "}
+                        <Text
+                          style={{
+                            fontWeight: "bold",
+                            textDecorationLine: "underline",
+                          }}
+                          onPress={handleOpenAppInfoSettings}
+                        >
+                          Open Ka-Ching! App Info
+                        </Text>
+                        .{"\n"}
+                        2. Tap <Text style={{ fontWeight: "bold" }}>"Allow restricted settings"</Text> (top-right ⋮ menu or bottom of page).{"\n"}
+                        3. Return here and enable Notification Access.
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* STEP 3: Battery Optimization ("No restrictions") — Auto-verified via Android API */}
+                <View style={[styles.stepBox, batteryUnrestricted ? styles.stepBoxReady : styles.stepBoxNeutral]}>
+                  <View style={styles.stepBadgeRow}>
+                    <View
+                      style={[
+                        styles.stepCircle,
+                        {
+                          backgroundColor: batteryUnrestricted ? "#15803D" : COLORS.primary,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.stepCircleText,
+                          {
+                            color: batteryUnrestricted ? "#FFFFFF" : COLORS.primaryText,
+                          },
+                        ]}
+                      >
+                        3
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.stepHeading}>STEP 3: ALLOW BACKGROUND BATTERY</Text>
+                      <Text
+                        style={[
+                          styles.stepStatusSub,
+                          {
+                            color: batteryUnrestricted ? "#15803D" : COLORS.textMuted,
+                          },
+                        ]}
+                      >
+                        {batteryUnrestricted
+                          ? "✓ Unrestricted — Instant background capture active"
+                          : "Required so Android won't delay logging until you open the app"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.stepDescription}>
+                    Set Battery Saver to <Text style={{ fontWeight: "bold" }}>No restrictions / Unrestricted</Text> so Ka-Ching! logs payments
+                    instantly even when closed.
+                  </Text>
+
+                  <TouchableOpacity
+                    style={[styles.primaryActionBtn, { marginTop: 8 }, batteryUnrestricted && styles.primaryActionBtnDone]}
+                    onPress={handleRequestBatteryUnrestricted}
+                  >
+                    <ExternalLink size={14} color={batteryUnrestricted ? "#15803D" : COLORS.primaryText} />
+                    <Text style={[styles.primaryActionBtnText, batteryUnrestricted && { color: "#15803D" }]}>
+                      {batteryUnrestricted ? "BATTERY UNRESTRICTED (GRANTED)" : "ALLOW UNRESTRICTED BATTERY"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* STEP 4 (Conditional): Only shown on Xiaomi / Redmi / OPPO / Vivo / Huawei */}
+                {needsBrandAutostart && (
+                  <View style={[styles.stepBox, styles.stepBoxNeutral]}>
+                    <View style={styles.stepBadgeRow}>
+                      <View style={[styles.stepCircle, { backgroundColor: "#D97706" }]}>
+                        <Text style={styles.stepCircleText}>4</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.stepHeading}>STEP 4 ({deviceBrand.toUpperCase()}): ENABLE AUTOSTART</Text>
+                        <Text style={styles.stepStatusSub}>Recommended on {deviceBrand} phones so background capture stays awake</Text>
+                      </View>
+                    </View>
+
+                    <Text style={styles.stepDescription}>
+                      Open App Info below and turn ON <Text style={{ fontWeight: "bold" }}>Background Autostart</Text> (and confirm Battery Saver is
+                      set to <Text style={{ fontWeight: "bold" }}>No restrictions</Text>
+                      ).
+                    </Text>
+
+                    <TouchableOpacity style={[styles.primaryActionBtn, { marginTop: 8 }]} onPress={handleOpenAppInfoSettings}>
+                      <ExternalLink size={14} color={COLORS.primaryText} />
+                      <Text style={styles.primaryActionBtnText}>OPEN {deviceBrand.toUpperCase()} APP INFO SETTINGS</Text>
+                    </TouchableOpacity>
                   </View>
                 )}
 
@@ -372,8 +492,8 @@ export default function AutoCaptureModal({ visible = false, onClose, user, autoC
                     ]}
                   >
                     {isFullyReadyOnAndroid
-                      ? "ALL SET! Open Touch 'n Go eWallet or MAE and make any payment or transfer — Ka-Ching! will capture it automatically."
-                      : "Complete Step 1 and Step 2 above to start capturing live eWallet & bank notifications."}
+                      ? "ALL SET! Payments from any of the 10 supported apps above will be captured automatically in real time."
+                      : "Complete Steps 1, 2, and 3 above until all turn green for instant background auto-capture."}
                   </Text>
                 </View>
               </View>
@@ -567,6 +687,42 @@ const getStyles = () =>
       color: COLORS.textMuted,
       lineHeight: 12,
       marginTop: 7,
+    },
+    supportedAppsBox: {
+      borderWidth: 1,
+      borderColor: COLORS.borderMuted,
+      borderStyle: "dashed",
+      borderRadius: SHAPES.inputRadius,
+      backgroundColor: COLORS.secondary,
+      padding: 9,
+      marginBottom: 10,
+    },
+    supportedAppsTitle: {
+      fontFamily: FONTS.mono,
+      fontSize: 8,
+      fontWeight: "bold",
+      color: COLORS.text,
+      marginBottom: 6,
+      letterSpacing: 0.5,
+    },
+    supportedChipsWrap: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 5,
+    },
+    supportedChip: {
+      borderWidth: 1,
+      borderColor: COLORS.border,
+      borderRadius: 5,
+      backgroundColor: COLORS.card,
+      paddingHorizontal: 6,
+      paddingVertical: 3,
+    },
+    supportedChipText: {
+      fontFamily: FONTS.mono,
+      fontSize: 7.5,
+      fontWeight: "bold",
+      color: COLORS.text,
     },
     togglePillBtn: {
       paddingHorizontal: 11,

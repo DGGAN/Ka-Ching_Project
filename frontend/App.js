@@ -277,7 +277,7 @@ export default function App() {
     if (activeTab === "budget") return "Budget Planner";
     if (activeTab === "insights") return "Smart Insights";
     if (activeTab === "notifications") return "Notifications";
-    if (activeTab === "profile") return "Profile & Theme";
+    if (activeTab === "profile") return "Profile";
     return "Ka-Ching!";
   };
 

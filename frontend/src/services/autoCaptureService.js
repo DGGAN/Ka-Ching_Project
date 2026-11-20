@@ -1,8 +1,8 @@
 /**
  * @file frontend/src/services/autoCaptureService.js
  * @layer Frontend Native Service (Android System Notification Listener Bridge)
- * @description Bridges Ka-Ching!'s built-in Android KaChingAutoCapture native module to check Notification Access permission, open Android's Notification Access settings screen, sync the logged-in userId to native SharedPreferences, and scan active status bar notifications on app resume.
- * @exports checkAndroidNotificationListenerPermission, openAndroidNotificationListenerSettings, syncAutoCaptureUserToNative, scanActiveStatusBarNotifications
+ * @description Bridges Ka-Ching!'s built-in Android KaChingAutoCapture native module to check Notification Access & Battery Optimization status, detect device manufacturer, open system settings, and sync active userId.
+ * @exports checkAndroidNotificationListenerPermission, openAndroidNotificationListenerSettings, checkBatteryOptimizationIgnored, requestIgnoreBatteryOptimizations, openAndroidAppDetailsSettings, getAndroidDeviceManufacturer, syncAutoCaptureUserToNative, scanActiveStatusBarNotifications
  */
 
 import { Platform, NativeModules, Linking } from "react-native";
@@ -43,6 +43,78 @@ export async function openAndroidNotificationListenerSettings() {
   } catch (e) {
     await Linking.openSettings().catch(() => {});
     return false;
+  }
+}
+
+/**
+ * 2.5. Check if Ka-Ching! is exempted from Android Battery Optimization ("No restrictions")
+ * @returns {Promise<boolean>}
+ */
+export async function checkBatteryOptimizationIgnored() {
+  if (Platform.OS !== "android") return true;
+  try {
+    const nativeMod = NativeModules?.KaChingAutoCapture;
+    if (nativeMod && typeof nativeMod.isBatteryOptimizationIgnored === "function") {
+      return Boolean(await nativeMod.isBatteryOptimizationIgnored());
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * 2.6. Trigger Android system dialog to set Battery Saver to "No restrictions" / Unrestricted
+ */
+export async function requestIgnoreBatteryOptimizations() {
+  if (Platform.OS !== "android") return false;
+  try {
+    const nativeMod = NativeModules?.KaChingAutoCapture;
+    if (nativeMod && typeof nativeMod.requestIgnoreBatteryOptimizations === "function") {
+      nativeMod.requestIgnoreBatteryOptimizations();
+      return true;
+    }
+    await Linking.openSettings();
+    return true;
+  } catch (e) {
+    await Linking.openSettings().catch(() => {});
+    return false;
+  }
+}
+
+/**
+ * 2.7. Open Ka-Ching!'s App Info screen (for Xiaomi/OPPO/Vivo Autostart & Restricted Settings)
+ */
+export async function openAndroidAppDetailsSettings() {
+  if (Platform.OS !== "android") return false;
+  try {
+    const nativeMod = NativeModules?.KaChingAutoCapture;
+    if (nativeMod && typeof nativeMod.openAppSettings === "function") {
+      nativeMod.openAppSettings();
+      return true;
+    }
+    await Linking.openSettings();
+    return true;
+  } catch (e) {
+    await Linking.openSettings().catch(() => {});
+    return false;
+  }
+}
+
+/**
+ * 2.8. Detect Android phone brand (e.g. Xiaomi, Samsung, OPPO, Vivo, Google)
+ * @returns {Promise<string>}
+ */
+export async function getAndroidDeviceManufacturer() {
+  if (Platform.OS !== "android") return "";
+  try {
+    const nativeMod = NativeModules?.KaChingAutoCapture;
+    if (nativeMod && typeof nativeMod.getDeviceManufacturer === "function") {
+      return String(await nativeMod.getDeviceManufacturer()) || "Android";
+    }
+    return "Android";
+  } catch (e) {
+    return "Android";
   }
 }
 

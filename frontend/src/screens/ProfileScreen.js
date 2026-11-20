@@ -8,7 +8,7 @@
 import React, { useState } from "react";
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LogOut, ShieldCheck, FileText } from "lucide-react-native";
+import { LogOut } from "lucide-react-native";
 import { COLORS, SHAPES, FONTS } from "../theme/colors";
 import { playUiSound } from "../utils/soundEffects";
 import FloatingToast from "../components/shared/FloatingToast";
@@ -19,6 +19,7 @@ import { useProfileSettings } from "../features/profile/hooks/useProfileSettings
 import ProfileIdentityCard from "../features/profile/components/ProfileIdentityCard";
 import AccountSecurityCard from "../features/profile/components/AccountSecurityCard";
 import PreferencesCard from "../features/profile/components/PreferencesCard";
+import LegalLinksCard from "../features/profile/components/LegalLinksCard";
 import AutoCaptureModal from "../features/profile/components/AutoCaptureModal";
 
 export default function ProfileScreen({ user, activeThemeKey, onChangeTheme, onUserUpdated, onLogout }) {
@@ -147,32 +148,8 @@ export default function ProfileScreen({ user, activeThemeKey, onChangeTheme, onU
           onToggleNotifications={handleToggleNotifications}
         />
 
-        {/* 4. Legal & PDPA 2010 Privacy Links Row */}
-        <View style={styles.legalLinksRow}>
-          <TouchableOpacity
-            style={styles.legalLinkBtn}
-            activeOpacity={0.8}
-            onPress={() => {
-              playUiSound("pop");
-              setLegalModalTab("privacy");
-            }}
-          >
-            <ShieldCheck size={13} color={COLORS.primary} strokeWidth={2.5} />
-            <Text style={styles.legalLinkBtnText}>PRIVACY POLICY (PDPA)</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.legalLinkBtn}
-            activeOpacity={0.8}
-            onPress={() => {
-              playUiSound("pop");
-              setLegalModalTab("terms");
-            }}
-          >
-            <FileText size={13} color={COLORS.primary} strokeWidth={2.5} />
-            <Text style={styles.legalLinkBtnText}>TERMS OF SERVICE</Text>
-          </TouchableOpacity>
-        </View>
+        {/* 4. Legal & PDPA 2010 Privacy Links Card */}
+        <LegalLinksCard onOpenLegalModal={(tab) => setLegalModalTab(tab)} />
 
         {/* 5. Sign Out Button */}
         <TouchableOpacity style={styles.logoutBtn} activeOpacity={0.85} onPress={handlePressLogout}>
@@ -202,30 +179,6 @@ const getStyles = () =>
       paddingHorizontal: 16,
       paddingTop: 12,
       paddingBottom: 36,
-    },
-    legalLinksRow: {
-      flexDirection: "row",
-      gap: 8,
-      marginBottom: 10,
-    },
-    legalLinkBtn: {
-      flex: 1,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 6,
-      borderWidth: 1.5,
-      borderColor: COLORS.border,
-      borderRadius: SHAPES.buttonRadius,
-      backgroundColor: COLORS.card,
-      paddingVertical: 10,
-      paddingHorizontal: 8,
-    },
-    legalLinkBtnText: {
-      fontFamily: FONTS.mono,
-      fontSize: 8.5,
-      fontWeight: "bold",
-      color: COLORS.text,
     },
     logoutBtn: {
       flexDirection: "row",
