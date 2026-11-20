@@ -2,7 +2,7 @@
  * @file frontend/src/features/notifications/services/notificationService.js
  * @layer Feature Service (Notifications API Communication)
  * @description Encapsulates all REST API requests for fetching, marking as read, bulk clearing, and deleting user notifications.
- * @exports fetchNotificationsApi, markNotificationReadApi, markAllNotificationsReadApi, deleteNotificationApi
+ * @exports fetchNotificationsApi, markNotificationReadApi, markAllNotificationsReadApi, deleteNotificationApi, clearAllNotificationsApi
  */
 
 import apiClient from "../../../api/apiClient";
@@ -42,4 +42,23 @@ export async function markAllNotificationsReadApi(userId) {
 export async function deleteNotificationApi(id) {
   const res = await apiClient.delete(`/notifications/${id}`);
   return res.data;
+}
+
+/**
+ * Permanently clear all notifications for a user via POST /notifications/clear-all
+ * (Falls back to individual deletes if the backend deployment has not updated yet)
+ * @param {string} userId
+ * @param {string[]} fallbackIds - Optional array of notification MongoDB _id strings
+ */
+export async function clearAllNotificationsApi(userId, fallbackIds = []) {
+  try {
+    const res = await apiClient.post("/notifications/clear-all", { userId });
+    return res.data;
+  } catch (err) {
+    if (err.response?.status === 404 && Array.isArray(fallbackIds) && fallbackIds.length > 0) {
+      await Promise.all(fallbackIds.map((id) => apiClient.delete(`/notifications/${id}`)));
+      return { deletedCount: fallbackIds.length };
+    }
+    throw err;
+  }
 }

@@ -1,12 +1,12 @@
 /**
  * @file frontend/src/components/shared/TopHeader.js
  * @layer Shared Navigation Component
- * @description Renders the top bar with SafeArea top inset protection, Back button ("pop" sound), Notification Bell ("bell" sound), and Profile icon ("profile" sound).
+ * @description Renders the top bar with SafeArea top inset protection, Back button, animated Notification Bell & unread badge pop (on count increase), and Profile icon.
  * @exports default TopHeader
  */
 
-import React from "react";
-import { View, Text, Image, TouchableOpacity, StyleSheet, Platform, StatusBar } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { View, Text, Image, TouchableOpacity, Animated, StyleSheet, Platform, StatusBar } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Bell, User, ArrowLeft } from "lucide-react-native";
 import { COLORS, SHAPES, FONTS } from "../../theme/colors";
@@ -33,6 +33,63 @@ export default function TopHeader({
   const isNotifActive = activeTab === "notifications";
   const isProfileActive = activeTab === "profile";
 
+  // Track previous unread count so animation fires ONLY when count increases (e.g. 0->1 or 1->2)
+  const prevUnreadRef = useRef(unreadCount);
+  const bellShakeAnim = useRef(new Animated.Value(0)).current;
+  const badgeScaleAnim = useRef(new Animated.Value(1)).current;
+  const badgeTextSlideAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const useNative = Platform.OS !== "web";
+
+    if (unreadCount > prevUnreadRef.current) {
+      // Reset values before playing synchronized bell shake + badge pop-in animation
+      bellShakeAnim.setValue(0);
+      badgeScaleAnim.setValue(0.65);
+      badgeTextSlideAnim.setValue(-6);
+
+      Animated.parallel([
+        // 1. Subtle playful bell ring shake
+        Animated.sequence([
+          Animated.timing(bellShakeAnim, { toValue: 1, duration: 75, useNativeDriver: useNative }),
+          Animated.timing(bellShakeAnim, { toValue: -1, duration: 75, useNativeDriver: useNative }),
+          Animated.timing(bellShakeAnim, { toValue: 0.7, duration: 70, useNativeDriver: useNative }),
+          Animated.timing(bellShakeAnim, { toValue: -0.7, duration: 70, useNativeDriver: useNative }),
+          Animated.timing(bellShakeAnim, { toValue: 0.3, duration: 60, useNativeDriver: useNative }),
+          Animated.timing(bellShakeAnim, { toValue: 0, duration: 60, useNativeDriver: useNative }),
+        ]),
+        // 2. Red badge spring bounce (0.65 -> 1.32 -> 1.0)
+        Animated.sequence([
+          Animated.spring(badgeScaleAnim, {
+            toValue: 1.32,
+            friction: 4,
+            tension: 180,
+            useNativeDriver: useNative,
+          }),
+          Animated.spring(badgeScaleAnim, {
+            toValue: 1,
+            friction: 5,
+            tension: 140,
+            useNativeDriver: useNative,
+          }),
+        ]),
+        // 3. Digit drop-in flip feel (-6px -> 0px)
+        Animated.timing(badgeTextSlideAnim, {
+          toValue: 0,
+          duration: 220,
+          useNativeDriver: useNative,
+        }),
+      ]).start();
+    }
+
+    prevUnreadRef.current = unreadCount;
+  }, [unreadCount]);
+
+  const bellRotation = bellShakeAnim.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: ["-18deg", "0deg", "18deg"],
+  });
+
   return (
     <View style={styles.headerContainer}>
       <View style={styles.leftRow}>
@@ -52,11 +109,15 @@ export default function TopHeader({
 
       <View style={styles.rightActionsRow}>
         <TouchableOpacity style={[styles.iconBtn, isNotifActive && styles.iconBtnActive]} onPress={handleBell} activeOpacity={0.75}>
-          <Bell size={16} color={isNotifActive ? COLORS.primaryText : COLORS.text} strokeWidth={2.3} />
+          <Animated.View style={{ transform: [{ rotate: bellRotation }] }}>
+            <Bell size={16} color={isNotifActive ? COLORS.primaryText : COLORS.text} strokeWidth={2.3} />
+          </Animated.View>
           {unreadCount > 0 && (
-            <View style={styles.unreadBadge}>
-              <Text style={styles.unreadBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
-            </View>
+            <Animated.View style={[styles.unreadBadge, { transform: [{ scale: badgeScaleAnim }] }]}>
+              <Animated.Text style={[styles.unreadBadgeText, { transform: [{ translateY: badgeTextSlideAnim }] }]}>
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </Animated.Text>
+            </Animated.View>
           )}
         </TouchableOpacity>
 
@@ -151,6 +212,7 @@ const getStyles = (topInsetPadding) =>
       alignItems: "center",
       justifyContent: "center",
       paddingHorizontal: 3,
+      overflow: "hidden",
     },
     unreadBadgeText: {
       fontFamily: FONTS.mono,

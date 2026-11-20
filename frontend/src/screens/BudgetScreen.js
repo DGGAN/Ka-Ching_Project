@@ -1,7 +1,7 @@
 /**
  * @file frontend/src/screens/BudgetScreen.js
  * @layer Screen (Top-Level Page Skeleton)
- * @description Assembles the Monthly Budget Planner screen with Current-First month bar, saved historical setup inspection, and concise preset apply button.
+ * @description Assembles the Monthly Budget Planner screen with Current-First month bar, saved historical setup inspection, synchronous anti-double-tap lock, and smart active-plan detection.
  * @exports default BudgetScreen
  */
 
@@ -15,6 +15,7 @@ import WireInput from "../components/shared/WireInput";
 import WireButton from "../components/shared/WireButton";
 import FloatingToast from "../components/shared/FloatingToast";
 import { useFloatingToast } from "../components/shared/useFloatingToast";
+import { useActionLock } from "../components/shared/useActionLock";
 
 import { useBudgetData } from "../features/budget/hooks/useBudgetData";
 import BudgetMonthSelector from "../features/budget/components/BudgetMonthSelector";
@@ -26,6 +27,7 @@ import BudgetHowItWorksModal from "../features/budget/components/BudgetHowItWork
 export default function BudgetScreen({ user, onBudgetUpdated }) {
   const styles = getStyles();
   const { toast, slideAnim, showToast } = useFloatingToast();
+  const { isLocked, runLocked } = useActionLock(700);
 
   const {
     visibleMonths,
@@ -70,6 +72,42 @@ export default function BudgetScreen({ user, onBudgetUpdated }) {
   } = useBudgetData(user, showToast);
 
   const safePresetName = (activePreset?.name || "BALANCED").toUpperCase();
+  const isBusy = saving || isLocked;
+
+  // Detect if the selected Smart Plan already matches the exact saved numbers for this month.
+  // If new income later changes recommendedLimit/recommendedSavings, this automatically unlocks!
+  const isExactCurrentSmartPlan =
+    Number(activeLimit) > 0 &&
+    Math.round(Number(activeLimit)) === Math.round(Number(recommendedLimit)) &&
+    Math.round(Number(activeSavings || 0)) === Math.round(Number(recommendedSavings || 0));
+
+  // Detect if Custom Budget inputs are identical to the currently saved budget
+  const parsedCustomLimit = Number(monthlyLimitInput);
+  const parsedCustomSavings = Number(savingsTargetInput || 0);
+  const isExactCurrentCustomPlan =
+    Number(activeLimit) > 0 &&
+    !isNaN(parsedCustomLimit) &&
+    Math.round(parsedCustomLimit) === Math.round(Number(activeLimit)) &&
+    !isNaN(parsedCustomSavings) &&
+    Math.round(parsedCustomSavings) === Math.round(Number(activeSavings || 0));
+
+  const handleApplySmartPlan = () => {
+    if (isExactCurrentSmartPlan || isBusy) return;
+    runLocked(async () => {
+      playUiSound("pop");
+      await handleSaveBudget(recommendedLimit, recommendedSavings, false);
+      if (onBudgetUpdated) onBudgetUpdated();
+    });
+  };
+
+  const handleApplyCustomPlan = () => {
+    if (isExactCurrentCustomPlan || isBusy) return;
+    runLocked(async () => {
+      playUiSound("pop");
+      await handleSaveBudget(monthlyLimitInput, savingsTargetInput, true);
+      if (onBudgetUpdated) onBudgetUpdated();
+    });
+  };
 
   return (
     <View
@@ -149,7 +187,7 @@ export default function BudgetScreen({ user, onBudgetUpdated }) {
               <TouchableOpacity
                 style={[styles.modeTabBtn, activeMode === "smart" && styles.modeTabBtnActive]}
                 onPress={() => {
-                  playUiSound("tab");
+                  playUiSound("pop");
                   setActiveMode("smart");
                 }}
               >
@@ -160,7 +198,7 @@ export default function BudgetScreen({ user, onBudgetUpdated }) {
               <TouchableOpacity
                 style={[styles.modeTabBtn, activeMode === "custom" && styles.modeTabBtnActive]}
                 onPress={() => {
-                  playUiSound("tab");
+                  playUiSound("pop");
                   setActiveMode("custom");
                 }}
               >
@@ -200,15 +238,21 @@ export default function BudgetScreen({ user, onBudgetUpdated }) {
                   activeMonthLabel={activeMonthObj?.label || ""}
                 />
 
-                <WireButton
-                  label={saving ? "APPLYING..." : `APPLY ${safePresetName} PLAN`}
-                  onPress={async () => {
-                    await handleSaveBudget(recommendedLimit, recommendedSavings, false);
-                    if (onBudgetUpdated) onBudgetUpdated();
-                  }}
-                  disabled={saving}
-                  style={{ marginTop: 12 }}
-                />
+                {isExactCurrentSmartPlan ? (
+                  <View style={styles.currentPlanLockedBox}>
+                    <Text style={styles.currentPlanLockedText}>✓ CURRENT ACTIVE PLAN ({safePresetName})</Text>
+                    <Text style={styles.currentPlanLockedSub}>
+                      Already applied for {activeMonthObj?.label}. Switch ratio or add income to update.
+                    </Text>
+                  </View>
+                ) : (
+                  <WireButton
+                    label={isBusy ? "APPLYING..." : `APPLY ${safePresetName} PLAN`}
+                    onPress={handleApplySmartPlan}
+                    disabled={isBusy}
+                    style={{ marginTop: 12 }}
+                  />
+                )}
               </WireBox>
             ) : (
               <WireBox style={styles.plannerCard}>
@@ -231,14 +275,14 @@ export default function BudgetScreen({ user, onBudgetUpdated }) {
                   keyboardType="numeric"
                 />
 
-                <WireButton
-                  label={saving ? "SAVING..." : "SAVE CUSTOM BUDGET"}
-                  onPress={async () => {
-                    await handleSaveBudget(monthlyLimitInput, savingsTargetInput, true);
-                    if (onBudgetUpdated) onBudgetUpdated();
-                  }}
-                  disabled={saving}
-                />
+                {isExactCurrentCustomPlan ? (
+                  <View style={styles.currentPlanLockedBox}>
+                    <Text style={styles.currentPlanLockedText}>✓ CURRENT BUDGET SAVED</Text>
+                    <Text style={styles.currentPlanLockedSub}>Edit the limit or savings goal above to save a new target.</Text>
+                  </View>
+                ) : (
+                  <WireButton label={isBusy ? "SAVING..." : "SAVE CUSTOM BUDGET"} onPress={handleApplyCustomPlan} disabled={isBusy} />
+                )}
               </WireBox>
             )}
           </>
@@ -300,6 +344,30 @@ const getStyles = () =>
       fontFamily: FONTS.mono,
       fontSize: 8.5,
       color: COLORS.textMuted,
+      marginTop: 2,
+    },
+    currentPlanLockedBox: {
+      marginTop: 12,
+      borderWidth: 1.5,
+      borderColor: "#15803D",
+      borderRadius: SHAPES.buttonRadius,
+      backgroundColor: "#F0FDF4",
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      alignItems: "center",
+    },
+    currentPlanLockedText: {
+      fontFamily: FONTS.mono,
+      fontSize: 10,
+      fontWeight: "bold",
+      color: "#15803D",
+      letterSpacing: 0.5,
+    },
+    currentPlanLockedSub: {
+      fontFamily: FONTS.mono,
+      fontSize: 7.8,
+      color: "#166534",
+      textAlign: "center",
       marginTop: 2,
     },
     lockedArchiveCard: {

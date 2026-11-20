@@ -1,7 +1,7 @@
 /**
  * @file frontend/src/features/transactions/hooks/useTransactions.js
  * @layer Hook (Transactions State, Filtering, Edit & Delete with "edit" & "delete" Sounds)
- * @description Manages paginated transactions, multi-category filter, standalone edit calendar, and plays "edit" on update and "delete" on removal.
+ * @description Manages paginated transactions, multi-category filter, standalone edit calendar, filter reset, and plays "edit" on update and "delete" on removal.
  * @exports useTransactions
  */
 
@@ -130,6 +130,15 @@ export function useTransactions(user, showToast) {
       }
       return [...prev, catKey];
     });
+  };
+
+  // Reset all search, type, category, and time filters back to default current month view
+  const handleResetFilters = () => {
+    playUiSound("pop");
+    setSearchQuery("");
+    setSelectedType("ALL");
+    setSelectedCategories([]);
+    setTimeFilter(currentMonthKey);
   };
 
   const dynamicMonthOptions = [...getSixMonthWindow(allDatesForWindow)].reverse();
@@ -263,6 +272,7 @@ export function useTransactions(user, showToast) {
     hasCustomFilters,
     handleLoadMore,
     toggleCategoryFilter,
+    handleResetFilters,
     confirmDeleteTransaction,
     openEditModal,
     handleSaveEdit,

@@ -135,7 +135,13 @@ export default function AddTransactionScreen({ user, onTransactionSaved }) {
         <WireInput label="Description (Optional)" placeholder="Add a note..." value={description} onChangeText={setDescription} />
 
         {/* 7. Save Transaction Submit Button */}
-        <WireButton label={saving ? "SAVING..." : "SAVE TRANSACTION"} onPress={handleSaveTransaction} variant="filled" style={{ marginTop: 8 }} />
+        <WireButton
+          label={saving ? "SAVING..." : "SAVE TRANSACTION"}
+          onPress={handleSaveTransaction}
+          disabled={saving}
+          variant="filled"
+          style={{ marginTop: 8 }}
+        />
 
         {/* Modal 1: 2-Column Category Picker Modal */}
         <CategoryPickerModal

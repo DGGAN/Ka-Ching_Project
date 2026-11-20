@@ -30,9 +30,11 @@ export default function NotificationsScreen({ user, onUnreadChange }) {
     activeTagFilter,
     setActiveTagFilter,
     loading,
+    clearingAll,
     handleMarkAsRead,
     handleMarkAllAsRead,
     handleDelete,
+    handleClearAll,
   } = useNotifications(user, onUnreadChange, showToast);
 
   return (
@@ -45,13 +47,15 @@ export default function NotificationsScreen({ user, onUnreadChange }) {
     >
       <FloatingToast toast={toast} slideAnim={slideAnim} />
 
-      {/* Top Action Bar with Unread Summary, Mark All Read & Tag Filter Chips */}
+      {/* Top Action Bar with Unread Summary, Mark All Read, Clear All & Tag Filter Chips */}
       <NotificationHeaderBar
         unreadCount={unreadCount}
         totalCount={notifications.length}
         activeTagFilter={activeTagFilter}
         onSelectTagFilter={setActiveTagFilter}
         onMarkAllAsRead={handleMarkAllAsRead}
+        onClearAll={handleClearAll}
+        clearingAll={clearingAll}
       />
 
       {/* Main Notification List or Empty State */}

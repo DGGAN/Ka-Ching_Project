@@ -2,7 +2,7 @@
  * @file backend/controllers/notificationController.js
  * @layer Backend Controller (In-App Notifications & Real-Time Budget Alert Synchronization)
  * @description Manages fetching, marking as read, bulk clearing, and deleting user notifications, while automatically triggering smart-merged OCR notifications, large-expense TXN, GOAL, and 80%/100% budget overrun ALERT notifications without spamming.
- * @exports getNotifications, markAsRead, markAllAsRead, deleteNotification, evaluateAndSyncBudgetAlert, triggerTransactionNotifications, triggerBudgetGoalNotification
+ * @exports getNotifications, markAsRead, markAllAsRead, clearAllNotifications, deleteNotification, evaluateAndSyncBudgetAlert, triggerTransactionNotifications, triggerBudgetGoalNotification
  */
 
 // Import Notification, Transaction, Budget models, and clean logger
@@ -14,22 +14,18 @@ const logger = require("../utils/logger");
 // 1. Fetch the latest 50 notifications for a user (GET /api/notifications/:userId)
 exports.getNotifications = async (req, res) => {
   try {
-    // Step 1: Extract userId from route parameters
     const { userId } = req.params;
 
-    // Validation 1: Ensure userId parameter is provided
     if (!userId) {
       return res.status(400).json({
         message: "userId parameter is required.",
       });
     }
 
-    // Step 2: Query latest 50 notifications sorted newest-first
     const notifications = await Notification.find({ userId }).sort({ createdAt: -1 }).limit(50);
 
     logger.debug("NOTIF_FETCH", `Fetched ${notifications.length} notifications for userId=${userId}`);
 
-    // Step 3: Return notifications list
     res.status(200).json({
       message: "Notifications fetched successfully.",
       data: notifications,
@@ -46,20 +42,16 @@ exports.getNotifications = async (req, res) => {
 // 2. Mark a single notification as read (PUT /api/notifications/:id/read)
 exports.markAsRead = async (req, res) => {
   try {
-    // Step 1: Extract notification ID from route parameters
     const { id } = req.params;
 
-    // Validation 1: Ensure notification ID is provided
     if (!id) {
       return res.status(400).json({
         message: "Notification ID is required.",
       });
     }
 
-    // Step 2: Update isRead flag to true in MongoDB using returnDocument: 'after'
     const notification = await Notification.findByIdAndUpdate(id, { isRead: true }, { returnDocument: "after" });
 
-    // Validation 2: Check if the notification document exists
     if (!notification) {
       return res.status(404).json({
         message: "Notification not found.",
@@ -68,7 +60,6 @@ exports.markAsRead = async (req, res) => {
 
     logger.debug("NOTIF_READ", `Marked notification ${id} as read`);
 
-    // Step 3: Return updated notification document
     res.status(200).json({
       message: "Notification marked as read.",
       data: notification,
@@ -85,22 +76,18 @@ exports.markAsRead = async (req, res) => {
 // 3. Mark all unread notifications for a user as read (POST /api/notifications/read-all)
 exports.markAllAsRead = async (req, res) => {
   try {
-    // Step 1: Extract userId from request body
     const { userId } = req.body;
 
-    // Validation 1: Ensure userId is provided in request body
     if (!userId) {
       return res.status(400).json({
         message: "userId is required to mark all notifications as read.",
       });
     }
 
-    // Step 2: Update all unread notifications for this user in bulk
     await Notification.updateMany({ userId, isRead: false }, { isRead: true });
 
     logger.info("NOTIF_READ_ALL", `Marked all unread notifications as read for userId=${userId}`);
 
-    // Step 3: Return confirmation response
     res.status(200).json({
       message: "All notifications marked as read.",
     });
@@ -113,23 +100,47 @@ exports.markAllAsRead = async (req, res) => {
   }
 };
 
+// 3.5. Permanently clear all notifications for a user (POST /api/notifications/clear-all)
+exports.clearAllNotifications = async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        message: "userId is required to clear all notifications.",
+      });
+    }
+
+    const result = await Notification.deleteMany({ userId });
+
+    logger.info("NOTIF_CLEAR_ALL", `Cleared ${result.deletedCount || 0} notifications for userId=${userId}`);
+
+    res.status(200).json({
+      message: "All notifications cleared successfully.",
+      deletedCount: result.deletedCount || 0,
+    });
+  } catch (error) {
+    logger.error("NOTIF_CLEAR_ALL", "Failed to clear all notifications", error);
+    res.status(500).json({
+      message: "Failed to clear all notifications.",
+      error: error.message,
+    });
+  }
+};
+
 // 4. Permanently delete a single notification by ID (DELETE /api/notifications/:id)
 exports.deleteNotification = async (req, res) => {
   try {
-    // Step 1: Extract notification ID from route parameters
     const { id } = req.params;
 
-    // Validation 1: Ensure notification ID is provided
     if (!id) {
       return res.status(400).json({
         message: "Notification ID is required.",
       });
     }
 
-    // Step 2: Delete notification from MongoDB
     const deleted = await Notification.findByIdAndDelete(id);
 
-    // Validation 2: Ensure notification existed
     if (!deleted) {
       return res.status(404).json({
         message: "Notification not found.",
@@ -138,7 +149,6 @@ exports.deleteNotification = async (req, res) => {
 
     logger.debug("NOTIF_DELETE", `Deleted notification ${id} ("${deleted.title}")`);
 
-    // Step 3: Return success response
     res.status(200).json({
       message: "Notification deleted successfully.",
     });
@@ -207,7 +217,6 @@ const evaluateAndSyncBudgetAlert = async (userId) => {
 
     const existingAlert = await Notification.findOne({ userId, tag: "ALERT" }).sort({ createdAt: -1 });
 
-    // If the exact same 80%+ alert was already generated, do NOT re-trigger unread spam
     if (existingAlert && existingAlert.title === nextTitle && existingAlert.message === nextMessage) {
       return;
     }
@@ -237,7 +246,6 @@ exports.evaluateAndSyncBudgetAlert = evaluateAndSyncBudgetAlert;
 // 6. Internal Helper: Upsert unread OCR notification (prevents batch spam), create Large Expense TXN card, and sync Budget ALERT
 exports.triggerTransactionNotifications = async (savedTx, isUpdate = false) => {
   try {
-    // Validation 1: Ensure valid transaction document with userId
     if (!savedTx || !savedTx.userId) return;
 
     const isOcr = savedTx.source === "OCR";
@@ -245,10 +253,8 @@ exports.triggerTransactionNotifications = async (savedTx, isUpdate = false) => {
     const amtFormatted = amtNum.toFixed(2);
     const merchant = savedTx.merchantName || "Merchant";
 
-    // Step 1: Only trigger OCR or Large Expense TXN notification on new creation
     if (!isUpdate) {
       if (isOcr) {
-        // Check if there is already an unread OCR notification to merge into (prevents multi-receipt batch spam)
         const existingUnreadOcr = await Notification.findOne({
           userId: savedTx.userId,
           tag: "OCR",
@@ -259,7 +265,6 @@ exports.triggerTransactionNotifications = async (savedTx, isUpdate = false) => {
         let nextMessage = `Verified OCR expense of RM ${amtFormatted} at ${merchant} has been added to your records.`;
 
         if (existingUnreadOcr) {
-          // Extract previous count and cumulative RM total from existing unread OCR notification
           const batchMatch = existingUnreadOcr.title.match(/^(\d+)\s+Receipts\s+Scanned\s+\(RM\s+([0-9.]+)\s+Total\)/i);
           const singleAmtMatch = existingUnreadOcr.message.match(/RM\s+([0-9.]+)/i);
 
@@ -294,7 +299,6 @@ exports.triggerTransactionNotifications = async (savedTx, isUpdate = false) => {
       }
     }
 
-    // Step 2: Re-evaluate and update the monthly budget ALERT status
     await evaluateAndSyncBudgetAlert(savedTx.userId);
   } catch (error) {
     logger.warn("NOTIF_TRIGGER", "Auto-notification trigger warning", error.message);
@@ -304,10 +308,8 @@ exports.triggerTransactionNotifications = async (savedTx, isUpdate = false) => {
 // 7. Internal Helper: Upsert GOAL notification and re-evaluate Budget ALERT when budget is changed
 exports.triggerBudgetGoalNotification = async (userId, monthlyLimit, savingsTarget, presetName = "Balanced") => {
   try {
-    // Validation 1: Ensure userId and monthlyLimit are valid
     if (!userId || monthlyLimit === undefined) return;
 
-    // Step 1: Update existing unread GOAL notification if present, otherwise create a new one
     await Notification.findOneAndUpdate(
       { userId, tag: "GOAL", isRead: false },
       {
@@ -320,7 +322,6 @@ exports.triggerBudgetGoalNotification = async (userId, monthlyLimit, savingsTarg
       { upsert: true, returnDocument: "after", sort: { createdAt: -1 } },
     );
 
-    // Step 2: Immediately re-check whether the new budget limit triggers or clears an 80%/100% ALERT
     await evaluateAndSyncBudgetAlert(userId);
   } catch (error) {
     logger.warn("NOTIF_TRIGGER", "Budget notification trigger warning", error.message);

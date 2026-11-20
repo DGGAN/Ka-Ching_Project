@@ -81,45 +81,58 @@ export default function LegalPolicyModal({ visible = false, initialTab = "privac
           <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
             {activeTab === "privacy" ? (
               <View style={styles.bodyBox}>
-                <Text style={styles.sectionTitle}>1. DATA MINIMIZATION & PDPA 2010</Text>
+                <Text style={styles.sectionTitle}>1. WHAT WE COLLECT (PDPA 2010)</Text>
                 <Text style={styles.bodyText}>
-                  Ka-Ching! collects only your username, email address, and financial records you choose to log. We comply with Malaysia's Personal
-                  Data Protection Act (PDPA 2010) and never sell your personal data.
+                  We follow Malaysia's Personal Data Protection Act (PDPA 2010). Ka-Ching! only collects your username, email address, and the
+                  expenses, income, or budgets you choose to record. We never sell or share your personal data with advertisers.
                 </Text>
 
-                <Text style={styles.sectionTitle}>2. SMART AUTO-CAPTURE PRIVACY</Text>
+                <Text style={styles.sectionTitle}>2. SMART AUTO-CAPTURE &amp; SUPPORTED APPS</Text>
                 <Text style={styles.bodyText}>
-                  When you explicitly opt in to Smart Auto-Capture, Ka-Ching! filters notifications strictly from whitelisted Malaysian eWallets &
-                  banks containing RM amounts. Personal messages (WhatsApp, Instagram, SMS) are ignored at the device level.
+                  Smart Auto-Capture is completely optional (OFF by default). Only when you turn it ON and grant phone permission will Ka-Ching! read
+                  payment alerts containing RM amounts from these 10 currently supported Malaysian apps:{"\n"}• Touch 'n Go eWallet, MAE by Maybank2u,
+                  Grab / GrabPay, CIMB OCTO MY, MyPB (Public Bank), RHB Mobile Banking, HLB Connect, Boost eWallet, Shopee / ShopeePay, and GXBank.
+                  {"\n"}
+                  Personal chats (WhatsApp, Instagram, SMS, calls) are strictly ignored on your device and never uploaded.
                 </Text>
 
-                <Text style={styles.sectionTitle}>3. OCR RECEIPT IMAGES</Text>
+                <Text style={styles.sectionTitle}>3. RECEIPT PHOTOS (RECEIPT SCANNER)</Text>
                 <Text style={styles.bodyText}>
-                  Receipt photos are processed solely to extract merchant names, dates, and RM totals into your private ledger.
+                  When you snap or upload a receipt photo, it is only used to read the store name, date, and total RM amount so you don't have to type
+                  it manually.
                 </Text>
 
-                <Text style={styles.sectionTitle}>4. YOUR CONTROL</Text>
+                <Text style={styles.sectionTitle}>4. YOUR RIGHTS &amp; CONTACT</Text>
                 <Text style={styles.bodyText}>
-                  You can toggle Auto-Capture OFF, mute push alerts, unbind Google OAuth, or delete any transaction anytime in Profile & Transaction
-                  History.
+                  You are always in control. You can turn off Auto-Capture, mute notifications, unlink Google Sign-In, or edit/delete your
+                  transactions anytime in the app. For data or privacy questions, email us at kaching.pfmapp@gmail.com.
                 </Text>
               </View>
             ) : (
               <View style={styles.bodyBox}>
-                <Text style={styles.sectionTitle}>1. PERSONAL FINANCE USE</Text>
+                <Text style={styles.sectionTitle}>1. USING KA-CHING!</Text>
                 <Text style={styles.bodyText}>
-                  Ka-Ching! is provided as a personal expense tracking, receipt scanning, and 50/30/20 budgeting companion.
+                  Ka-Ching! is a personal expense tracker designed to help you log daily spending, scan receipts, set monthly budgets, and view
+                  spending summaries in one place.
                 </Text>
 
-                <Text style={styles.sectionTitle}>2. AI & ANALYTICS DISCLAIMER</Text>
+                <Text style={styles.sectionTitle}>2. AUTOMATIC FEATURES &amp; ACCURACY</Text>
                 <Text style={styles.bodyText}>
-                  Automated merchant categorization and month-end linear regression spending forecasts are informational insights only and do not
-                  constitute licensed financial or investment advice.
+                  Receipt scanning, automatic category sorting, Smart Auto-Capture (currently supporting 10 Malaysian banking and eWallet apps), and
+                  monthly spending forecasts are automated tools for convenience. Please review your logged entries occasionally to make sure amounts
+                  and categories match your records.
                 </Text>
 
-                <Text style={styles.sectionTitle}>3. ACCOUNT SECURITY</Text>
+                <Text style={styles.sectionTitle}>3. NOT FINANCIAL ADVICE</Text>
                 <Text style={styles.bodyText}>
-                  You are responsible for safeguarding your login password and reviewing auto-captured or OCR-scanned entries for accuracy.
+                  Budget alerts, savings targets, and spending insights are for personal reference only and are not professional financial, tax, or
+                  investment advice.
+                </Text>
+
+                <Text style={styles.sectionTitle}>4. ACCOUNT SAFETY &amp; SUPPORT</Text>
+                <Text style={styles.bodyText}>
+                  Please keep your login password private. If you spot a bug or need help with your account, contact us anytime at
+                  kaching.pfmapp@gmail.com.
                 </Text>
               </View>
             )}

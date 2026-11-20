@@ -1,7 +1,7 @@
 /**
  * @file frontend/src/features/budget/components/BudgetPresetSelector.js
  * @layer Component (Presentational UI)
- * @description Renders the 3 allocation ratio cards (Balanced, Fast Saver, Student-Friendly) and the collapsible 1-line "Why?" recommendation box.
+ * @description Renders the 3 allocation ratio cards (Balanced, Fast Saver, Student-Friendly) and the collapsible 1-line "Why?" recommendation box with unified "pop" UI sounds.
  * @exports default BudgetPresetSelector
  */
 
@@ -35,18 +35,20 @@ export default function BudgetPresetSelector({
               <Text style={styles.aiTagPillText}>AI-ASSISTED</Text>
             </View>
           </View>
-          <Text style={styles.plannerSub}>Based on RM {Number(baselineIncome || 0).toFixed(0)} income & spending history</Text>
+          <Text style={styles.plannerSub}>Based on RM {Number(baselineIncome || 0).toFixed(0)} income &amp; spending history</Text>
         </View>
 
         <TouchableOpacity
-          style={styles.infoPillBtn}
+          style={styles.infoIconBtn}
+          activeOpacity={0.75}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel="How smart budgeting works"
           onPress={() => {
-            playUiSound("tab");
+            playUiSound("pop");
             if (onOpenHowItWorks) onOpenHowItWorks();
           }}
         >
-          <Info size={12} color={COLORS.primary} strokeWidth={2.5} />
-          <Text style={styles.infoPillText}>How it works</Text>
+          <Info size={14} color={COLORS.textMuted} strokeWidth={2.2} />
         </TouchableOpacity>
       </View>
 
@@ -59,7 +61,7 @@ export default function BudgetPresetSelector({
               key={p.id}
               style={[styles.presetMiniCard, isSelected && styles.presetMiniCardActive]}
               onPress={() => {
-                playUiSound("tab");
+                playUiSound("pop");
                 if (onSelectPreset) onSelectPreset(p.id);
               }}
               activeOpacity={0.8}
@@ -69,6 +71,7 @@ export default function BudgetPresetSelector({
                   <Text style={styles.suggestedCrownText}>★ SUGGESTED</Text>
                 </View>
               )}
+
               <Text style={[styles.presetRatioText, isSelected && { color: COLORS.primaryText }]}>{p.ratioLabel}</Text>
               <Text style={[styles.presetNameText, isSelected && { color: COLORS.primaryText }]} numberOfLines={1}>
                 {p.name}
@@ -78,7 +81,14 @@ export default function BudgetPresetSelector({
         })}
       </View>
 
-      <TouchableOpacity style={styles.whyRecommendBox} activeOpacity={0.8} onPress={onToggleWhyReasons}>
+      <TouchableOpacity
+        style={styles.whyRecommendBox}
+        activeOpacity={0.8}
+        onPress={() => {
+          playUiSound("pop");
+          if (onToggleWhyReasons) onToggleWhyReasons();
+        }}
+      >
         <View style={styles.whyHeaderRow}>
           <Sparkles size={12} color={COLORS.primary} strokeWidth={2.5} />
           <Text style={styles.whyHeaderTitle} numberOfLines={1}>
@@ -136,49 +146,47 @@ const getStyles = () =>
       color: COLORS.textMuted,
       marginTop: 2,
     },
-    infoPillBtn: {
-      flexDirection: "row",
+    infoIconBtn: {
+      width: 26,
+      height: 26,
+      borderRadius: 7,
+      borderWidth: 1,
+      borderColor: COLORS.borderMuted,
+      backgroundColor: COLORS.card,
       alignItems: "center",
-      gap: 4,
-      borderWidth: 1.5,
-      borderColor: COLORS.border,
-      borderRadius: SHAPES.chipRadius,
-      backgroundColor: COLORS.secondary,
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-    },
-    infoPillText: {
-      fontFamily: FONTS.mono,
-      fontSize: 8,
-      fontWeight: "bold",
-      color: COLORS.text,
+      justifyContent: "center",
     },
     presetCardsRow: {
       flexDirection: "row",
       gap: 8,
+      paddingTop: 8,
       marginBottom: 10,
     },
     presetMiniCard: {
       flex: 1,
+      minHeight: 58,
       borderWidth: 1.5,
       borderColor: COLORS.border,
       borderRadius: SHAPES.inputRadius,
       backgroundColor: COLORS.inputBg,
-      paddingVertical: 10,
+      paddingVertical: 11,
       paddingHorizontal: 6,
       alignItems: "center",
+      justifyContent: "center",
+      position: "relative",
     },
     presetMiniCardActive: {
       backgroundColor: COLORS.primary,
     },
     suggestedCrownBadge: {
+      position: "absolute",
+      top: -9,
       backgroundColor: "#FEF08A",
       borderWidth: 1,
       borderColor: "#121212",
       borderRadius: 4,
-      paddingHorizontal: 4,
+      paddingHorizontal: 5,
       paddingVertical: 1,
-      marginBottom: 4,
     },
     suggestedCrownText: {
       fontFamily: FONTS.mono,

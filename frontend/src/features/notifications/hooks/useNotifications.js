@@ -7,12 +7,19 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { playUiSound } from "../../../utils/soundEffects";
-import { fetchNotificationsApi, markNotificationReadApi, markAllNotificationsReadApi, deleteNotificationApi } from "../services/notificationService";
+import {
+  fetchNotificationsApi,
+  markNotificationReadApi,
+  markAllNotificationsReadApi,
+  deleteNotificationApi,
+  clearAllNotificationsApi,
+} from "../services/notificationService";
 
 export function useNotifications(user, onUnreadChange, showToast) {
   const [notifications, setNotifications] = useState([]);
   const [activeTagFilter, setActiveTagFilter] = useState("ALL");
   const [loading, setLoading] = useState(true);
+  const [clearingAll, setClearingAll] = useState(false);
 
   // Retrieve the user's notifications from the backend
   const fetchNotifications = useCallback(async () => {
@@ -90,6 +97,30 @@ export function useNotifications(user, onUnreadChange, showToast) {
     }
   };
 
+  // Clear all notifications from both the UI list and MongoDB
+  const handleClearAll = async () => {
+    if (!user?.id || clearingAll || notifications.length === 0) return;
+    const previousList = [...notifications];
+    const idsToDelete = previousList.map((n) => n._id).filter(Boolean);
+
+    try {
+      setClearingAll(true);
+      playUiSound("delete");
+      setNotifications([]);
+      await clearAllNotificationsApi(user.id, idsToDelete);
+      if (typeof showToast === "function") {
+        showToast("success", "All notifications cleared.");
+      }
+    } catch (error) {
+      setNotifications(previousList);
+      if (typeof showToast === "function") {
+        showToast("error", "Failed to clear all notifications.");
+      }
+    } finally {
+      setClearingAll(false);
+    }
+  };
+
   // Derived unread count and tag-filtered list
   const unreadCount = notifications.filter((n) => !n.isRead).length;
   const filteredNotifications = activeTagFilter === "ALL" ? notifications : notifications.filter((n) => n.tag === activeTagFilter);
@@ -101,9 +132,11 @@ export function useNotifications(user, onUnreadChange, showToast) {
     activeTagFilter,
     setActiveTagFilter,
     loading,
+    clearingAll,
     fetchNotifications,
     handleMarkAsRead,
     handleMarkAllAsRead,
     handleDelete,
+    handleClearAll,
   };
 }

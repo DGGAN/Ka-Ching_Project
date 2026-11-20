@@ -8,9 +8,11 @@
 import { useState } from "react";
 import { playUiSound } from "../../../utils/soundEffects";
 import { EXPENSE_CATEGORY_KEYS, INCOME_CATEGORY_KEYS, getCategoryMeta } from "../../../utils/categoryConfig";
+import { useActionLock } from "../../../components/shared/useActionLock";
 import { createTransactionApi } from "../services/addTransactionService";
 
 export function useAddTransactionForm(user, onTransactionSaved, showToast) {
+  const { isLocked, runLocked } = useActionLock(800);
   const [type, setType] = useState("EXPENSE");
   const [amount, setAmount] = useState("");
   const [amountHintError, setAmountHintError] = useState("");
@@ -81,35 +83,37 @@ export function useAddTransactionForm(user, onTransactionSaved, showToast) {
       return;
     }
 
-    try {
-      setSaving(true);
+    await runLocked(async () => {
+      try {
+        setSaving(true);
 
-      await createTransactionApi({
-        userId: user.id,
-        amount: Number(parsedAmount.toFixed(2)),
-        type,
-        category,
-        merchantName: merchant.trim(),
-        description: description.trim() ? description.trim() : null,
-        date: selectedDate.toISOString(),
-        source: "MANUAL",
-        status: "VERIFIED",
-        confidenceScore: 1.0,
-      });
+        await createTransactionApi({
+          userId: user.id,
+          amount: Number(parsedAmount.toFixed(2)),
+          type,
+          category,
+          merchantName: merchant.trim(),
+          description: description.trim() ? description.trim() : null,
+          date: selectedDate.toISOString(),
+          source: "MANUAL",
+          status: "VERIFIED",
+          confidenceScore: 1.0,
+        });
 
-      showToast("success", "Transaction saved successfully!");
-      setTimeout(() => {
-        if (typeof onTransactionSaved === "function") {
-          // Pass `type` ("EXPENSE" | "INCOME") so App.js plays "expense" or "income"
-          onTransactionSaved(type);
-        }
-      }, 450);
-    } catch (error) {
-      const backendMsg = error.response?.data?.message || "Failed to save transaction. Please try again.";
-      showToast("error", backendMsg);
-    } finally {
-      setSaving(false);
-    }
+        showToast("success", "Transaction saved successfully!");
+        setTimeout(() => {
+          if (typeof onTransactionSaved === "function") {
+            // Pass `type` ("EXPENSE" | "INCOME") so App.js plays "expense" or "income"
+            onTransactionSaved(type);
+          }
+        }, 450);
+      } catch (error) {
+        const backendMsg = error.response?.data?.message || "Failed to save transaction. Please try again.";
+        showToast("error", backendMsg);
+      } finally {
+        setSaving(false);
+      }
+    });
   };
 
   const activeCategoryKeys = type === "EXPENSE" ? EXPENSE_CATEGORY_KEYS : INCOME_CATEGORY_KEYS;
@@ -125,7 +129,7 @@ export function useAddTransactionForm(user, onTransactionSaved, showToast) {
     setMerchant,
     description,
     setDescription,
-    saving,
+    saving: saving || isLocked,
     showCategoryPopup,
     setShowCategoryPopup,
     selectedDate,

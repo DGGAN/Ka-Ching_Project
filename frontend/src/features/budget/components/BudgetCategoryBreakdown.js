@@ -46,7 +46,7 @@ export default function BudgetCategoryBreakdown({
         <TouchableOpacity
           style={[styles.bucketPill, activeBucketTab === "needs" && styles.bucketPillActive]}
           onPress={() => {
-            playUiSound("tab");
+            playUiSound("pop");
             onSelectBucketTab("needs");
           }}
         >
@@ -58,7 +58,7 @@ export default function BudgetCategoryBreakdown({
         <TouchableOpacity
           style={[styles.bucketPill, activeBucketTab === "wants" && styles.bucketPillActive]}
           onPress={() => {
-            playUiSound("tab");
+            playUiSound("pop");
             onSelectBucketTab("wants");
           }}
         >
@@ -70,7 +70,7 @@ export default function BudgetCategoryBreakdown({
         <TouchableOpacity
           style={[styles.bucketPill, activeBucketTab === "savings" && styles.bucketPillActive]}
           onPress={() => {
-            playUiSound("tab");
+            playUiSound("pop");
             onSelectBucketTab("savings");
           }}
         >

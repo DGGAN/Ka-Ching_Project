@@ -12,19 +12,25 @@ import { COLORS, SHAPES, FONTS } from "../../../theme/colors";
 export default function AmountHeroCard({ amount, amountHintError, onChangeAmount }) {
   const styles = getStyles();
 
+  // Auto-scale font size as digits grow so RM prefix and numbers never overflow the card
+  const digitCount = String(amount || "").length;
+  const dynamicFontSize = digitCount >= 9 ? 22 : digitCount >= 7 ? 26 : digitCount >= 5 ? 30 : 34;
+
   return (
     <View style={[styles.amountHeroCard, amountHintError ? { borderColor: COLORS.danger } : null]}>
       <Text style={styles.amountCardLabel}>AMOUNT (RM)</Text>
       <View style={styles.amountInputRow}>
         <Text style={styles.currencyPrefix}>RM</Text>
         <TextInput
-          style={styles.amountBigInput}
+          style={[styles.amountBigInput, { fontSize: dynamicFontSize }]}
           placeholder="0.00"
           placeholderTextColor={COLORS.textMuted}
           keyboardType="decimal-pad"
           value={amount}
           onChangeText={onChangeAmount}
           maxLength={10}
+          multiline={false}
+          numberOfLines={1}
         />
       </View>
       <View style={styles.amountCardFooter}>
@@ -57,9 +63,12 @@ const getStyles = () =>
       marginBottom: 6,
     },
     amountInputRow: {
+      width: "100%",
       flexDirection: "row",
-      alignItems: "baseline",
+      alignItems: "center",
       justifyContent: "center",
+      paddingHorizontal: 4,
+      overflow: "hidden",
     },
     currencyPrefix: {
       fontFamily: FONTS.mono,
@@ -67,13 +76,16 @@ const getStyles = () =>
       fontWeight: "bold",
       color: COLORS.textMuted,
       marginRight: 6,
+      flexShrink: 0,
     },
     amountBigInput: {
       fontFamily: FONTS.mono,
       fontSize: 34,
       fontWeight: "bold",
       color: COLORS.text,
-      minWidth: 120,
+      minWidth: 90,
+      maxWidth: "82%",
+      flexShrink: 1,
       textAlign: "center",
       padding: 0,
     },

@@ -29,7 +29,7 @@ export default function BudgetMonthSelector({ visibleMonths = [], activeMonthObj
             key={m.key}
             style={[styles.monthChip, isSelected && styles.monthChipActive]}
             onPress={() => {
-              playUiSound("tab");
+              playUiSound("pop");
               if (onSelectMonth) onSelectMonth(m.key);
             }}
           >

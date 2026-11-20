@@ -1,13 +1,13 @@
 /**
  * @file frontend/src/screens/AuthScreen.js
- * @layer Screen (Authentication Entry — 100% Original Design + Real Google OAuth + Forgot Password & Legal Policy Modals)
- * @description Assembles the exact original AuthScreen design using useAuthForm, GoogleColorfulIcon, SecretDevPersonasPanel, ForgotPasswordModal, and LegalPolicyModal.
+ * @layer Screen (Authentication Entry — Smooth Login/Register Toggle, Real Google OAuth & Pinned Bottom Legal Footer)
+ * @description Assembles the AuthScreen design using useAuthForm, GoogleColorfulIcon, SecretDevPersonasPanel, ForgotPasswordModal, AuthLegalNotice, and LegalPolicyModal.
  * @props {Function} onLoginSuccess - Callback invoked with authenticated user object
  * @exports default AuthScreen
  */
 
 import React, { useState } from "react";
-import { View, Text, Image, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
+import { View, Text, Image, TouchableOpacity, StyleSheet, ScrollView, LayoutAnimation, Platform, UIManager } from "react-native";
 import { COLORS, SHAPES, FONTS } from "../theme/colors";
 import { playUiSound } from "../utils/soundEffects";
 import WireInput from "../components/shared/WireInput";
@@ -21,6 +21,10 @@ import GoogleColorfulIcon from "../features/auth/components/GoogleColorfulIcon";
 import { SecretDevPersonasPanel } from "../features/auth/components/GoogleSignInModal";
 import ForgotPasswordModal from "../features/auth/components/ForgotPasswordModal";
 import AuthLegalNotice from "../features/auth/components/AuthLegalNotice";
+
+if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 export default function AuthScreen({ onLoginSuccess }) {
   const styles = getStyles();
@@ -46,6 +50,14 @@ export default function AuthScreen({ onLoginSuccess }) {
     handleRealUserGoogleLogin,
   } = useAuthForm(onLoginSuccess, showToast);
 
+  // Smoothly animate layout when switching between Login and Register
+  const handleToggleAuthMode = (nextRegistering) => {
+    if (nextRegistering === isRegistering) return;
+    playUiSound("tab");
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setIsRegistering(nextRegistering);
+  };
+
   return (
     <View
       style={{
@@ -69,6 +81,24 @@ export default function AuthScreen({ onLoginSuccess }) {
 
         {/* Form Input Section */}
         <View style={styles.formSection}>
+          {/* Smooth Segmented Mode Switcher (LOGIN / REGISTER) */}
+          <View style={styles.modeSwitchTrack}>
+            <TouchableOpacity
+              style={[styles.modeSwitchBtn, !isRegistering && styles.modeSwitchBtnActive]}
+              activeOpacity={0.85}
+              onPress={() => handleToggleAuthMode(false)}
+            >
+              <Text style={[styles.modeSwitchText, !isRegistering && styles.modeSwitchTextActive]}>LOGIN</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modeSwitchBtn, isRegistering && styles.modeSwitchBtnActive]}
+              activeOpacity={0.85}
+              onPress={() => handleToggleAuthMode(true)}
+            >
+              <Text style={[styles.modeSwitchText, isRegistering && styles.modeSwitchTextActive]}>REGISTER</Text>
+            </TouchableOpacity>
+          </View>
+
           {isRegistering && <WireInput label="Username" placeholder="tommy" value={username} onChangeText={setUsername} />}
 
           <WireInput label="Email Address" placeholder="tommy@example.com" value={email} onChangeText={setEmail} keyboardType="email-address" />
@@ -106,28 +136,17 @@ export default function AuthScreen({ onLoginSuccess }) {
             <Text style={styles.googleBlackBtnText}>{googleLoading ? "Signing in..." : "Continue with Google"}</Text>
           </TouchableOpacity>
 
-          {/* Clickable Terms of Service & Privacy Policy Agreement Notice */}
-          <AuthLegalNotice onOpenLegalModal={(tab) => setLegalModalTab(tab)} />
-
           {/* SECRET DEVELOPER PANEL: Completely invisible unless Logo is tapped 5 times */}
           <SecretDevPersonasPanel
             visible={showSecretDevPanel}
             onClose={() => setShowSecretDevPanel(false)}
             onSelectPersona={authenticateWithGoogleBackend}
           />
+        </View>
 
-          {/* Bottom row to switch between Login and Register modes */}
-          <View style={styles.bottomSwitchRow}>
-            <Text style={styles.switchHint}>{isRegistering ? "Already have an account?" : "No account yet?"}</Text>
-            <TouchableOpacity
-              onPress={() => {
-                playUiSound("pop");
-                setIsRegistering(!isRegistering);
-              }}
-            >
-              <Text style={styles.switchLink}>{isRegistering ? "Login here" : "Register here"}</Text>
-            </TouchableOpacity>
-          </View>
+        {/* Pinned Bottom Footer: Terms & Privacy Policy */}
+        <View style={styles.footerSection}>
+          <AuthLegalNotice onOpenLegalModal={(tab) => setLegalModalTab(tab)} />
         </View>
       </ScrollView>
 
@@ -154,12 +173,12 @@ const getStyles = () =>
     container: {
       flexGrow: 1,
       backgroundColor: COLORS.background,
-      paddingBottom: 30,
+      paddingBottom: 22,
     },
     headerSection: {
       alignItems: "center",
-      paddingTop: 45,
-      paddingBottom: 22,
+      paddingTop: 34,
+      paddingBottom: 18,
       paddingHorizontal: 24,
       borderBottomWidth: SHAPES.borderWidth,
       borderColor: COLORS.borderMuted,
@@ -206,7 +225,35 @@ const getStyles = () =>
     },
     formSection: {
       paddingHorizontal: 24,
-      paddingTop: 20,
+      paddingTop: 18,
+    },
+    modeSwitchTrack: {
+      flexDirection: "row",
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.border,
+      borderRadius: SHAPES.buttonRadius,
+      backgroundColor: COLORS.secondary,
+      padding: 3,
+      marginBottom: 16,
+    },
+    modeSwitchBtn: {
+      flex: 1,
+      paddingVertical: 8,
+      borderRadius: SHAPES.chipRadius,
+      alignItems: "center",
+    },
+    modeSwitchBtnActive: {
+      backgroundColor: COLORS.primary,
+    },
+    modeSwitchText: {
+      fontFamily: FONTS.mono,
+      fontSize: 10.5,
+      fontWeight: "bold",
+      color: COLORS.textMuted,
+      letterSpacing: 0.8,
+    },
+    modeSwitchTextActive: {
+      color: COLORS.primaryText,
     },
     forgotRow: {
       alignItems: "flex-end",
@@ -246,7 +293,7 @@ const getStyles = () =>
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      marginBottom: 12,
+      marginBottom: 8,
       position: "relative",
     },
     googleWhiteBadge: {
@@ -266,26 +313,12 @@ const getStyles = () =>
       fontWeight: "bold",
       letterSpacing: 0.5,
     },
-    bottomSwitchRow: {
-      flexDirection: "row",
-      justifyContent: "center",
-      alignItems: "center",
-      paddingTop: 16,
+    footerSection: {
+      marginTop: "auto",
+      marginHorizontal: 24,
+      paddingTop: 4,
       borderTopWidth: SHAPES.borderWidth,
       borderColor: COLORS.borderMuted,
       borderStyle: "dashed",
-    },
-    switchHint: {
-      fontFamily: FONTS.mono,
-      fontSize: 11,
-      color: COLORS.textMuted,
-      marginRight: 6,
-    },
-    switchLink: {
-      fontFamily: FONTS.mono,
-      fontSize: 11,
-      fontWeight: "bold",
-      color: COLORS.text,
-      textDecorationLine: "underline",
     },
   });

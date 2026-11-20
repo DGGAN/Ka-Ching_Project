@@ -9,6 +9,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { View, StatusBar, Animated, Platform, StyleSheet, AppState } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Updates from "expo-updates";
 
 // Import refactored theme configuration, API client, sound effects, OS push notifications, and shared navigation components
 import { COLORS, applyTheme, ACTIVE_THEME } from "./src/theme/colors";
@@ -41,6 +42,7 @@ export default function App() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [themeKey, setThemeKey] = useState(ACTIVE_THEME);
   const [themeRenderTick, setThemeRenderTick] = useState(0);
+  const [dataRefreshTick, setDataRefreshTick] = useState(0);
 
   // Track previous unread count AND the exact signature of the newest unread notification
   // so toggling the Bell icon NEVER re-fires the same notification banner or bell sound!
@@ -48,10 +50,16 @@ export default function App() {
   const lastNotifiedSignatureRef = useRef(null);
   const delayedAlertTimerRef = useRef(null);
   const appStateRef = useRef(AppState.currentState);
+  const activeTabRef = useRef(activeTab);
 
   // 2. Animated values for smooth screen fade and vertical slide transitions
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
+
+  // Keep activeTabRef synced for AppState foreground callbacks
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
 
   // 3. Load saved visual theme preference AND saved user session from AsyncStorage when app starts
   useEffect(() => {
@@ -74,6 +82,23 @@ export default function App() {
       }
     };
     loadSavedThemeAndUser();
+  }, []);
+
+  // 3.5. Automatically check, fetch, and reload EAS OTA updates on startup (Production/Preview APK only)
+  useEffect(() => {
+    if (__DEV__ || Platform.OS === "web") return;
+    const checkAndApplyOtaUpdate = async () => {
+      try {
+        const update = await Updates.checkForUpdateAsync();
+        if (update.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          await Updates.reloadAsync();
+        }
+      } catch (e) {
+        // Non-blocking: ignore if offline or running in Expo Go
+      }
+    };
+    checkAndApplyOtaUpdate();
   }, []);
 
   // 4. Trigger smooth fade-and-slide transition whenever activeTab changes
@@ -116,9 +141,12 @@ export default function App() {
       appStateRef.current = nextAppState;
       if (nextAppState === "active" && currentUser?.id) {
         syncNotificationStatusWithOS(currentUser, handleUserSyncedIfChanged);
-        // Refresh unread notifications and transactions list when returning from TNG / MAE
+        // Refresh unread notifications when returning from TNG / MAE
         fetchUnreadNotifications(currentUser.id);
-        setThemeRenderTick((t) => t + 1);
+        // ONLY refresh Home / Transactions lists — NEVER remount OCR Camera/Gallery or forms!
+        if (["home", "dashboard", "transactions"].includes(activeTabRef.current)) {
+          setDataRefreshTick((t) => t + 1);
+        }
       }
     });
 
@@ -169,11 +197,12 @@ export default function App() {
           }
 
           delayedAlertTimerRef.current = setTimeout(() => {
+            delayedAlertTimerRef.current = null;
             setUnreadCount(count);
             const currentlyInApp = (appStateRef.current || AppState.currentState) === "active";
 
             if (currentlyInApp) {
-              // Inside app: ONLY play subtle bell sound & update badge — NEVER pop an external OS banner!
+              // Inside app: ONLY play subtle bell sound & update badge together — NEVER pop an external OS banner!
               playUiSound("bell");
             } else if (newestUnread && currentUser?.isNotificationEnabled !== false) {
               // Outside app (e.g., still in TNG / MAE / home screen): fire external OS banner after 3.5s delay
@@ -190,6 +219,16 @@ export default function App() {
           return;
         } else if (newestSignature) {
           lastNotifiedSignatureRef.current = newestSignature;
+        }
+
+        // If a delayed badge+sound timer is still counting down, do NOT update the red badge early!
+        if (delayedAlertTimerRef.current && count >= prevUnreadCountRef.current) {
+          return;
+        }
+
+        if (delayedAlertTimerRef.current && count < prevUnreadCountRef.current) {
+          clearTimeout(delayedAlertTimerRef.current);
+          delayedAlertTimerRef.current = null;
         }
 
         prevUnreadCountRef.current = count;
@@ -286,7 +325,7 @@ export default function App() {
     if (activeTab === "home" || activeTab === "dashboard") {
       return (
         <DashboardScreen
-          key={`dash_${themeKey}_${themeRenderTick}`}
+          key={`dash_${themeKey}_${themeRenderTick}_${dataRefreshTick}`}
           user={currentUser}
           onNavigateToTransactions={() => {
             playUiSound("tab");
@@ -300,7 +339,7 @@ export default function App() {
       );
     }
     if (activeTab === "transactions") {
-      return <TransactionsScreen key={`tx_${themeKey}_${themeRenderTick}`} user={currentUser} />;
+      return <TransactionsScreen key={`tx_${themeKey}_${themeRenderTick}_${dataRefreshTick}`} user={currentUser} />;
     }
     if (activeTab === "add") {
       return (
@@ -364,6 +403,10 @@ export default function App() {
           key={`notif_${themeKey}_${themeRenderTick}`}
           user={currentUser}
           onUnreadChange={(newCount) => {
+            if (delayedAlertTimerRef.current) {
+              clearTimeout(delayedAlertTimerRef.current);
+              delayedAlertTimerRef.current = null;
+            }
             prevUnreadCountRef.current = newCount;
             setUnreadCount(newCount);
           }}
