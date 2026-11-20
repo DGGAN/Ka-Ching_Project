@@ -1,7 +1,7 @@
 /**
  * @file backend/routes/authRoutes.js
  * @layer Backend Express Router
- * @description Defines public authentication routes, mobile Google OAuth callback bridge, and JWT-protected profile/security routes.
+ * @description Defines public authentication routes, 2-step email OTP registration routes, mobile Google OAuth callback bridge, and JWT-protected profile/security routes.
  */
 
 const express = require("express");
@@ -9,8 +9,10 @@ const router = express.Router();
 const authController = require("../controllers/authController");
 const { protect } = require("../middleware/authMiddleware");
 
-// Public authentication routes
+// Public authentication & 2-step email verification registration routes
 router.post("/register", authController.register);
+router.post("/register-request-otp", authController.requestRegisterOtp);
+router.post("/register-verify-otp", authController.verifyRegisterOtp);
 router.post("/login", authController.login);
 router.post("/google", authController.googleAuth);
 router.get("/google/callback", authController.googleOAuthCallback);

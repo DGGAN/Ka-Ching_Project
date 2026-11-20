@@ -1,7 +1,7 @@
 /**
  * @file frontend/src/features/insights/components/InsightSummaryCard.js
  * @layer Component (Presentational UI — Section 1: AI Month-End Forecast Hero Card)
- * @description Renders the exact SMART SPENDING FORECAST Hero Card with Refresh button, Estimated Month-End Total, and 3 metric boxes.
+ * @description Renders the SMART SPENDING FORECAST Hero Card with Refresh button ("pop" sound), Estimated Month-End Total, and 3 metric boxes.
  * @exports default InsightSummaryCard
  */
 
@@ -9,6 +9,7 @@ import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Sparkles, RefreshCw } from "lucide-react-native";
 import { COLORS, SHAPES, FONTS } from "../../../theme/colors";
+import { playUiSound } from "../../../utils/soundEffects";
 
 export default function InsightSummaryCard({
   currentMonthLabel = "",
@@ -22,6 +23,13 @@ export default function InsightSummaryCard({
 }) {
   const styles = getStyles();
 
+  const handleRefreshPress = () => {
+    playUiSound("pop");
+    if (typeof onRefresh === "function") {
+      onRefresh();
+    }
+  };
+
   return (
     <View style={styles.forecastHeroCard}>
       <View style={styles.heroTopRow}>
@@ -30,7 +38,7 @@ export default function InsightSummaryCard({
           <Text style={styles.aiTagText}>SMART SPENDING FORECAST</Text>
         </View>
 
-        <TouchableOpacity style={styles.refreshBtn} onPress={onRefresh} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.refreshBtn} onPress={handleRefreshPress} activeOpacity={0.8}>
           <RefreshCw size={12} color="#FFFFFF" strokeWidth={2.5} />
           <Text style={styles.refreshBtnText}>REFRESH</Text>
         </TouchableOpacity>

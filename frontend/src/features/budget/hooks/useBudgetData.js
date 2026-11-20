@@ -174,7 +174,7 @@ export function useBudgetData(user, showToast) {
       }));
       setMonthlyLimitInput(String(parsedLimit));
       setSavingsTargetInput(String(parsedSavings));
-      playUiSound("success");
+      playUiSound("edit");
       showToast("success", "Monthly budget updated!");
     } catch (error) {
       showToast("error", error.response?.data?.message || "Failed to save budget.");

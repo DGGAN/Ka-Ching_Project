@@ -8,6 +8,7 @@
 import React from "react";
 import { View, Text, TextInput, StyleSheet } from "react-native";
 import { COLORS, SHAPES, FONTS } from "../../../theme/colors";
+import { playUiSound } from "../../../utils/soundEffects";
 
 export default function AmountHeroCard({ amount, amountHintError, onChangeAmount }) {
   const styles = getStyles();
@@ -15,6 +16,11 @@ export default function AmountHeroCard({ amount, amountHintError, onChangeAmount
   // Auto-scale font size as digits grow so RM prefix and numbers never overflow the card
   const digitCount = String(amount || "").length;
   const dynamicFontSize = digitCount >= 9 ? 22 : digitCount >= 7 ? 26 : digitCount >= 5 ? 30 : 34;
+
+  const handleTextChange = (text) => {
+    playUiSound("typing");
+    if (onChangeAmount) onChangeAmount(text);
+  };
 
   return (
     <View style={[styles.amountHeroCard, amountHintError ? { borderColor: COLORS.danger } : null]}>
@@ -27,7 +33,7 @@ export default function AmountHeroCard({ amount, amountHintError, onChangeAmount
           placeholderTextColor={COLORS.textMuted}
           keyboardType="decimal-pad"
           value={amount}
-          onChangeText={onChangeAmount}
+          onChangeText={handleTextChange}
           maxLength={10}
           multiline={false}
           numberOfLines={1}

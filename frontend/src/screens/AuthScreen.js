@@ -1,7 +1,7 @@
 /**
  * @file frontend/src/screens/AuthScreen.js
- * @layer Screen (Authentication Entry — Smooth Login/Register Toggle, Real Google OAuth & Pinned Bottom Legal Footer)
- * @description Assembles the AuthScreen design using useAuthForm, GoogleColorfulIcon, SecretDevPersonasPanel, ForgotPasswordModal, AuthLegalNotice, and LegalPolicyModal.
+ * @layer Screen (Authentication Entry — Smooth Login/Register Toggle, 2-Step Email OTP Registration, Real Google OAuth & Pinned Bottom Legal Footer)
+ * @description Assembles the AuthScreen design using useAuthForm, GoogleColorfulIcon, SecretDevPersonasPanel, RegisterOtpModal, ForgotPasswordModal, AuthLegalNotice, and LegalPolicyModal.
  * @props {Function} onLoginSuccess - Callback invoked with authenticated user object
  * @exports default AuthScreen
  */
@@ -19,6 +19,7 @@ import LegalPolicyModal from "../components/shared/LegalPolicyModal";
 import { useAuthForm } from "../features/auth/hooks/useAuthForm";
 import GoogleColorfulIcon from "../features/auth/components/GoogleColorfulIcon";
 import { SecretDevPersonasPanel } from "../features/auth/components/GoogleSignInModal";
+import RegisterOtpModal from "../features/auth/components/RegisterOtpModal";
 import ForgotPasswordModal from "../features/auth/components/ForgotPasswordModal";
 import AuthLegalNotice from "../features/auth/components/AuthLegalNotice";
 
@@ -41,7 +42,17 @@ export default function AuthScreen({ onLoginSuccess }) {
     setEmail,
     password,
     setPassword,
+    submitting,
     googleLoading,
+    showRegisterOtpModal,
+    setShowRegisterOtpModal,
+    registerOtpCode,
+    setRegisterOtpCode,
+    verifyingRegisterOtp,
+    resendingRegisterOtp,
+    registerResendCooldown,
+    handleVerifyRegisterOtp,
+    handleResendRegisterOtp,
     showSecretDevPanel,
     setShowSecretDevPanel,
     handleSecretLogoTap,
@@ -119,7 +130,12 @@ export default function AuthScreen({ onLoginSuccess }) {
             </View>
           )}
 
-          <WireButton label={isRegistering ? "Register Account" : "Login"} onPress={handleSubmit} variant="filled" />
+          <WireButton
+            label={submitting ? (isRegistering ? "Sending Verification Code..." : "Logging in...") : isRegistering ? "Register Account" : "Login"}
+            onPress={handleSubmit}
+            disabled={submitting}
+            variant="filled"
+          />
 
           {/* Dashed divider: OR CONTINUE WITH */}
           <View style={styles.dividerRow}>
@@ -149,6 +165,20 @@ export default function AuthScreen({ onLoginSuccess }) {
           <AuthLegalNotice onOpenLegalModal={(tab) => setLegalModalTab(tab)} />
         </View>
       </ScrollView>
+
+      {/* 2-Step Registration 6-Digit Email OTP Verification Modal */}
+      <RegisterOtpModal
+        visible={showRegisterOtpModal}
+        email={email.trim().toLowerCase()}
+        otpCode={registerOtpCode}
+        onChangeOtpCode={setRegisterOtpCode}
+        verifying={verifyingRegisterOtp}
+        resending={resendingRegisterOtp}
+        resendCooldown={registerResendCooldown}
+        onVerify={handleVerifyRegisterOtp}
+        onResend={handleResendRegisterOtp}
+        onClose={() => setShowRegisterOtpModal(false)}
+      />
 
       {/* Two-Step Forgot Password & 6-Digit OTP Recovery Modal */}
       <ForgotPasswordModal

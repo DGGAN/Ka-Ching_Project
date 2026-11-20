@@ -1,7 +1,7 @@
 /**
  * @file frontend/src/features/transactions/components/TransactionSearchBar.js
  * @layer Component (Presentational UI — 100% Original Design)
- * @description Renders the Search Input + Multi-Category Filter Button Row.
+ * @description Renders the Search Input (with throttled "typing" sound) + Multi-Category Filter Button Row.
  * @exports default TransactionSearchBar
  */
 
@@ -15,6 +15,13 @@ import { getCategoryTriggerLabel } from "../utils/transactionUtils";
 export default function TransactionSearchBar({ searchQuery, onChangeSearch, selectedCategories = [], onOpenCategoryModal }) {
   const styles = getStyles();
 
+  const handleSearchChange = (text) => {
+    playUiSound("typing");
+    if (typeof onChangeSearch === "function") {
+      onChangeSearch(text);
+    }
+  };
+
   return (
     <View style={styles.searchAndCatRow}>
       <View style={styles.searchBar}>
@@ -24,10 +31,17 @@ export default function TransactionSearchBar({ searchQuery, onChangeSearch, sele
           placeholder="Search merchant or notes..."
           placeholderTextColor={COLORS.textMuted}
           value={searchQuery}
-          onChangeText={onChangeSearch}
+          onChangeText={handleSearchChange}
         />
         {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => onChangeSearch("")}>
+          <TouchableOpacity
+            onPress={() => {
+              playUiSound("pop");
+              if (typeof onChangeSearch === "function") {
+                onChangeSearch("");
+              }
+            }}
+          >
             <X size={15} color={COLORS.textMuted} />
           </TouchableOpacity>
         )}

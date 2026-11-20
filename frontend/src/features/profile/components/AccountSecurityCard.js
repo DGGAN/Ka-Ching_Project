@@ -1,12 +1,12 @@
 /**
  * @file frontend/src/features/profile/components/AccountSecurityCard.js
- * @layer Feature Component (Account Security, Google Binding & Popup Password Modal)
- * @description Allows users to Bind/Unbind their Google Account and opens a clean popup Modal to Set or Change their login password.
+ * @layer Feature Component (Account Security, Real Google OAuth Binding & Popup Password Modal)
+ * @description Allows users to Bind Google via real Google OAuth 2.0, Unbind Google with a confirmation modal, and Set or Change their login password in a popup modal.
  * @exports default AccountSecurityCard
  */
 
-import React from "react";
-import { View, Text, TouchableOpacity, Modal, TextInput, StyleSheet } from "react-native";
+import React, { useState } from "react";
+import { View, Text, TouchableOpacity, Modal, StyleSheet } from "react-native";
 import { Lock, Link2, Unlink, KeyRound, Edit3, X } from "lucide-react-native";
 import { COLORS, SHAPES, FONTS } from "../../../theme/colors";
 import { playUiSound } from "../../../utils/soundEffects";
@@ -15,6 +15,7 @@ import WireInput from "../../../components/shared/WireInput";
 import WireButton from "../../../components/shared/WireButton";
 import FloatingToast from "../../../components/shared/FloatingToast";
 import { useFloatingToast } from "../../../components/shared/useFloatingToast";
+import GoogleColorfulIcon from "../../auth/components/GoogleColorfulIcon";
 
 export default function AccountSecurityCard({
   profileUser,
@@ -32,25 +33,42 @@ export default function AccountSecurityCard({
   showBindGoogleModal = false,
   onOpenBindGoogleModal,
   onCloseBindGoogleModal,
-  bindGoogleEmailInput,
-  onChangeBindGoogleEmail,
   bindingGoogle = false,
   onConfirmBindGoogle,
   onUnbindGoogle,
 }) {
   const styles = getStyles();
   const { toast: pwdToast, slideAnim: pwdSlideAnim, showToast: pwdNotify } = useFloatingToast();
-
   const { toast: googleToast, slideAnim: googleSlideAnim, showToast: googleNotify } = useFloatingToast();
+  const [showUnbindConfirm, setShowUnbindConfirm] = useState(false);
 
   const isGoogleLinked = Boolean(profileUser?.isGoogleLinked) || profileUser?.oauthProvider === "GOOGLE";
   const hasPassword = Boolean(profileUser?.hasPassword);
+
+  // Trigger safety check before showing unbind confirmation modal
+  const handlePressUnbindTrigger = () => {
+    playUiSound("pop");
+    if (!hasPassword) {
+      // Delegate to hook so it opens Set Password modal + shows safety warning toast
+      if (onUnbindGoogle) onUnbindGoogle();
+      return;
+    }
+    setShowUnbindConfirm(true);
+  };
+
+  // Confirmed unbind action
+  const handleConfirmUnbind = async () => {
+    setShowUnbindConfirm(false);
+    if (onUnbindGoogle) {
+      await onUnbindGoogle();
+    }
+  };
 
   return (
     <WireBox style={styles.card}>
       <View style={styles.headerRow}>
         <Lock size={14} color={COLORS.primary} strokeWidth={2.5} />
-        <Text style={styles.sectionTitle}>ACCOUNT SECURITY & LOGIN METHODS</Text>
+        <Text style={styles.sectionTitle}>ACCOUNT SECURITY &amp; LOGIN METHODS</Text>
       </View>
       <Text style={styles.sectionSub}>Manage Google OAuth binding and password login so you can sign in either way</Text>
 
@@ -66,15 +84,15 @@ export default function AccountSecurityCard({
         </View>
 
         {isGoogleLinked ? (
-          <TouchableOpacity style={styles.unbindBtn} onPress={onUnbindGoogle} disabled={bindingGoogle}>
-            <Text style={styles.unbindBtnText}>UNBIND</Text>
+          <TouchableOpacity style={styles.unbindBtn} onPress={handlePressUnbindTrigger} disabled={bindingGoogle}>
+            <Text style={styles.unbindBtnText}>{bindingGoogle ? "..." : "UNBIND"}</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
             style={styles.bindBtn}
             onPress={() => {
               playUiSound("pop");
-              onOpenBindGoogleModal();
+              if (onOpenBindGoogleModal) onOpenBindGoogleModal();
             }}
             disabled={bindingGoogle}
           >
@@ -116,7 +134,7 @@ export default function AccountSecurityCard({
 
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <View>
+              <View style={{ flex: 1 }}>
                 <Text style={styles.modalTitle}>{hasPassword ? "CHANGE LOGIN PASSWORD" : "SET A LOGIN PASSWORD"}</Text>
                 <Text style={styles.modalSub}>Minimum 8 characters with both letters and numbers</Text>
               </View>
@@ -168,7 +186,7 @@ export default function AccountSecurityCard({
               />
               <WireButton
                 label={savingPassword ? "SAVING..." : hasPassword ? "UPDATE PASSWORD" : "SET PASSWORD"}
-                onPress={() => onSavePassword(pwdNotify)}
+                onPress={() => onSavePassword && onSavePassword(pwdNotify)}
                 disabled={savingPassword}
                 style={{ flex: 1.4 }}
               />
@@ -177,40 +195,109 @@ export default function AccountSecurityCard({
         </View>
       </Modal>
 
-      {/* Modal 2: Bind Google Account */}
-      <Modal visible={Boolean(showBindGoogleModal)} transparent={true} animationType="fade" onRequestClose={onCloseBindGoogleModal}>
+      {/* Modal 2: Bind Google Account via Real Google OAuth 2.0 */}
+      <Modal
+        visible={Boolean(showBindGoogleModal)}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          playUiSound("pop");
+          if (onCloseBindGoogleModal) onCloseBindGoogleModal();
+        }}
+      >
         <View style={styles.modalOverlay}>
           <FloatingToast toast={googleToast} slideAnim={googleSlideAnim} />
 
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>BIND GOOGLE ACCOUNT</Text>
-              <TouchableOpacity onPress={onCloseBindGoogleModal}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>BIND GOOGLE ACCOUNT</Text>
+                <Text style={styles.modalSub}>Verify with Google OAuth 2.0 for 1-tap sign in</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  playUiSound("pop");
+                  if (onCloseBindGoogleModal) onCloseBindGoogleModal();
+                }}
+              >
                 <X size={18} color={COLORS.text} strokeWidth={2.5} />
               </TouchableOpacity>
             </View>
 
-            <Text style={[styles.modalSub, { marginBottom: 10 }]}>Enter the Google email address you want to bind to your Ka-Ching! account:</Text>
+            <Text style={[styles.modalSub, { marginBottom: 12, lineHeight: 13 }]}>
+              Sign in with the Google account you want to link. Your Ka-Ching! email will sync with that verified Google address (if it is not already
+              used by another account).
+            </Text>
 
-            <Text style={styles.inputLabel}>GOOGLE EMAIL ADDRESS</Text>
-            <TextInput
-              style={styles.textInput}
-              value={bindGoogleEmailInput}
-              onChangeText={onChangeBindGoogleEmail}
-              placeholder="yourname@gmail.com"
-              placeholderTextColor={COLORS.textMuted}
-              keyboardType="email-address"
-              autoCapitalize="none"
+            <TouchableOpacity
+              style={styles.googleBlackBtn}
+              onPress={() => onConfirmBindGoogle && onConfirmBindGoogle(googleNotify)}
+              disabled={bindingGoogle}
+              activeOpacity={0.85}
+            >
+              <View style={styles.googleWhiteBadge}>
+                <GoogleColorfulIcon size={16} />
+              </View>
+              <Text style={styles.googleBlackBtnText}>{bindingGoogle ? "VERIFYING GOOGLE..." : "CONTINUE WITH GOOGLE"}</Text>
+            </TouchableOpacity>
+
+            <WireButton
+              label="CANCEL"
+              variant="outline"
+              onPress={() => {
+                playUiSound("pop");
+                if (onCloseBindGoogleModal) onCloseBindGoogleModal();
+              }}
+              style={{ marginTop: 8 }}
             />
+          </View>
+        </View>
+      </Modal>
 
-            <View style={{ flexDirection: "row", gap: 8, marginTop: 6 }}>
-              <WireButton label="CANCEL" variant="outline" onPress={onCloseBindGoogleModal} style={{ flex: 1 }} />
+      {/* Modal 3: Confirm Unbind Google Account */}
+      <Modal
+        visible={showUnbindConfirm}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          playUiSound("pop");
+          setShowUnbindConfirm(false);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>UNBIND GOOGLE ACCOUNT?</Text>
+                <Text style={styles.modalSub}>Disconnect {profileUser?.email} from Google OAuth</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  playUiSound("pop");
+                  setShowUnbindConfirm(false);
+                }}
+              >
+                <X size={18} color={COLORS.text} strokeWidth={2.5} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.modalSub, { marginBottom: 14, lineHeight: 13.5 }]}>
+              After unbinding, you will sign in using your email and password instead. You can re-bind a Google account anytime later.
+            </Text>
+
+            <View style={{ flexDirection: "row", gap: 8 }}>
               <WireButton
-                label={bindingGoogle ? "BINDING..." : "CONFIRM BIND"}
-                onPress={() => onConfirmBindGoogle(googleNotify)}
-                disabled={bindingGoogle}
+                label="CANCEL"
+                variant="outline"
+                onPress={() => {
+                  playUiSound("pop");
+                  setShowUnbindConfirm(false);
+                }}
                 style={{ flex: 1 }}
               />
+              <TouchableOpacity style={styles.confirmUnbindBtn} activeOpacity={0.85} onPress={handleConfirmUnbind} disabled={bindingGoogle}>
+                <Text style={styles.confirmUnbindBtnText}>{bindingGoogle ? "UNBINDING..." : "UNBIND GOOGLE"}</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -353,23 +440,49 @@ const getStyles = () =>
       color: COLORS.textMuted,
       marginTop: 2,
     },
-    inputLabel: {
-      fontFamily: FONTS.mono,
-      fontSize: 9,
-      fontWeight: "bold",
-      color: COLORS.text,
-      marginBottom: 4,
+    googleBlackBtn: {
+      width: "100%",
+      backgroundColor: "#111111",
+      borderRadius: SHAPES.buttonRadius,
+      paddingVertical: 11,
+      paddingHorizontal: 14,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      position: "relative",
     },
-    textInput: {
-      borderWidth: SHAPES.borderWidth,
-      borderColor: COLORS.border,
-      borderRadius: SHAPES.inputRadius,
-      backgroundColor: COLORS.inputBg,
-      paddingHorizontal: 10,
-      paddingVertical: 8,
+    googleWhiteBadge: {
+      position: "absolute",
+      left: 12,
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      backgroundColor: "#FFFFFF",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    googleBlackBtnText: {
+      color: "#FFFFFF",
       fontFamily: FONTS.mono,
       fontSize: 10.5,
-      color: COLORS.text,
-      marginBottom: 10,
+      fontWeight: "bold",
+      letterSpacing: 0.4,
+    },
+    confirmUnbindBtn: {
+      flex: 1.2,
+      backgroundColor: COLORS.danger,
+      borderWidth: SHAPES.borderWidth,
+      borderColor: COLORS.danger,
+      borderRadius: SHAPES.buttonRadius,
+      paddingVertical: 11,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    confirmUnbindBtnText: {
+      fontFamily: FONTS.mono,
+      fontSize: 10,
+      fontWeight: "bold",
+      color: "#FFFFFF",
+      letterSpacing: 0.4,
     },
   });

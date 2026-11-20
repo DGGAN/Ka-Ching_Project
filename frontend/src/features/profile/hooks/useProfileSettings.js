@@ -1,20 +1,26 @@
 /**
  * @file frontend/src/features/profile/hooks/useProfileSettings.js
- * @layer Custom Hook (Profile & Account Security State Management + Real-Time OS Push Permission Sync)
- * @description Manages popup modals for editing Username/Email, setting/changing Password, binding/unbinding Google OAuth, and real-time OS push notification preferences.
+ * @layer Custom Hook (Profile & Account Security State Management + Real Google OAuth 2.0 Binding & OS Push Sync)
+ * @description Manages popup modals for editing Username/Email, setting/changing Password, real Google OAuth 2.0 binding/unbinding, Auto-Capture sync, and real-time OS push notification preferences.
  * @exports useProfileSettings
  */
 
 import { useState, useEffect } from "react";
-import { AppState } from "react-native";
+import { AppState, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as WebBrowser from "expo-web-browser";
+import { makeRedirectUri } from "expo-auth-session";
+import apiClient from "../../../api/apiClient";
 import { playUiSound } from "../../../utils/soundEffects";
+import { fetchGoogleUserInfoApi } from "../../auth/services/authService";
 import {
   checkActualOsNotificationPermission,
   syncNotificationStatusWithOS,
   handleTogglePushNotificationSwitch,
 } from "../../../utils/systemNotifications";
 import { fetchUserProfileApi, updateUserProfileApi, fetchAutoCaptureStatusApi } from "../services/profileService";
+
+WebBrowser.maybeCompleteAuthSession();
 
 export function useProfileSettings(user, onUserUpdated, showToast) {
   const [profileUser, setProfileUser] = useState(user || {});
@@ -49,20 +55,28 @@ export function useProfileSettings(user, onUserUpdated, showToast) {
     }
   }, [user?.id]);
 
-  // Keep local state in sync if parent App.js updates user.isNotificationEnabled
+  // Keep local state in sync if parent App.js updates user flags
   useEffect(() => {
-    if (user && typeof user.isNotificationEnabled === "boolean") {
+    if (user) {
       setProfileUser((prev) => ({ ...prev, ...user }));
-      setNotificationsEnabled(user.isNotificationEnabled);
+      if (typeof user.isNotificationEnabled === "boolean") {
+        setNotificationsEnabled(user.isNotificationEnabled);
+      }
+      if (typeof user.autoCaptureEnabled === "boolean") {
+        setAutoCaptureEnabled(user.autoCaptureEnabled);
+      }
     }
-  }, [user?.isNotificationEnabled]);
+  }, [user?.isNotificationEnabled, user?.autoCaptureEnabled]);
 
   // Re-verify real OS notification permission whenever user returns from Phone Settings
   useEffect(() => {
     const subscription = AppState.addEventListener("change", async (nextAppState) => {
       if (nextAppState === "active" && profileUser?.id) {
         const effectiveEnabled = await syncNotificationStatusWithOS(profileUser, async (syncedUser) => {
-          await syncUserToStorageAndParent(syncedUser);
+          await syncUserToStorageAndParent({
+            ...syncedUser,
+            autoCaptureEnabled,
+          });
         });
         setNotificationsEnabled(effectiveEnabled);
       }
@@ -71,7 +85,7 @@ export function useProfileSettings(user, onUserUpdated, showToast) {
     return () => {
       subscription.remove();
     };
-  }, [profileUser]);
+  }, [profileUser, autoCaptureEnabled]);
 
   const syncUserToStorageAndParent = async (updatedUserObj) => {
     const osPerm = await checkActualOsNotificationPermission();
@@ -80,6 +94,7 @@ export function useProfileSettings(user, onUserUpdated, showToast) {
     const normalizedUser = {
       ...updatedUserObj,
       isNotificationEnabled: effectiveNotifEnabled,
+      autoCaptureEnabled: Boolean(updatedUserObj.autoCaptureEnabled),
     };
 
     setProfileUser(normalizedUser);
@@ -91,6 +106,7 @@ export function useProfileSettings(user, onUserUpdated, showToast) {
 
     try {
       await AsyncStorage.setItem("userData", JSON.stringify(normalizedUser));
+      await AsyncStorage.setItem("kaching_autocapture_enabled", normalizedUser.autoCaptureEnabled ? "true" : "false");
     } catch (e) {
       // Ignore storage error
     }
@@ -127,6 +143,16 @@ export function useProfileSettings(user, onUserUpdated, showToast) {
     } catch (e) {
       // Fallback to local user prop
     }
+  };
+
+  // Sync AutoCaptureModal toggle directly into profileUser, AsyncStorage, and App.js parent state
+  const handleAutoCaptureStatusChanged = async (nextState) => {
+    const boolState = Boolean(nextState);
+    setAutoCaptureEnabled(boolState);
+    await syncUserToStorageAndParent({
+      ...profileUser,
+      autoCaptureEnabled: boolState,
+    });
   };
 
   // Open Identity Edit Modal and pre-fill current values
@@ -222,43 +248,142 @@ export function useProfileSettings(user, onUserUpdated, showToast) {
     }
   };
 
-  // 3. Bind Google Account
+  // Helper: Verify real Google access_token and bind verified email + sub to current user
+  const completeVerifiedGoogleBind = async (accessToken) => {
+    const profile = await fetchGoogleUserInfoApi(accessToken);
+    if (!profile?.email || !profile?.sub) {
+      throw new Error("Could not verify your Google account details.");
+    }
+
+    const res = await updateUserProfileApi(user.id, {
+      bindGoogle: {
+        email: profile.email.trim().toLowerCase(),
+        oauthId: String(profile.sub),
+      },
+    });
+
+    if (res?.user) {
+      await syncUserToStorageAndParent(res.user);
+    }
+    setShowBindGoogleModal(false);
+    playUiSound("edit");
+    showToast("success", `Bound to Google (${profile.email})!`);
+  };
+
+  // 3. Bind Google Account via Real Google OAuth 2.0 (Web Popup + Mobile System Browser)
   const handleBindGoogle = async (modalNotify) => {
     const notifyFn = typeof modalNotify === "function" ? modalNotify : showToast;
-    const cleanGoogleEmail = bindGoogleEmailInput.trim().toLowerCase();
-    if (!cleanGoogleEmail || !cleanGoogleEmail.includes("@")) {
-      notifyFn("error", "Please enter a valid Google email address.");
+    playUiSound("pop");
+
+    const rawClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "";
+    const clientId = rawClientId.replace(/['"\s]/g, "").trim();
+
+    if (!clientId.endsWith(".apps.googleusercontent.com")) {
+      notifyFn("error", "Google OAuth Client ID is not configured.");
       return;
     }
 
+    const scope = encodeURIComponent("openid email profile");
+
+    // A. Web Browser OAuth Popup Flow
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const redirectUri = window.location.origin;
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(
+        redirectUri,
+      )}&response_type=token&scope=${scope}&prompt=select_account`;
+
+      const width = 500;
+      const height = 620;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2;
+
+      const popup = window.open(authUrl, "google_bind_popup", `width=${width},height=${height},left=${left},top=${top}`);
+
+      if (popup) {
+        setBindingGoogle(true);
+        const pollTimer = setInterval(async () => {
+          try {
+            if (popup.closed) {
+              clearInterval(pollTimer);
+              setBindingGoogle(false);
+              return;
+            }
+            if (popup.location.href.includes("error=")) {
+              popup.close();
+              clearInterval(pollTimer);
+              setBindingGoogle(false);
+              notifyFn("error", "Google authorization was cancelled.");
+              return;
+            }
+            if (popup.location.href.includes("access_token=")) {
+              const hash = popup.location.hash.substring(1);
+              const params = new URLSearchParams(hash);
+              const accessToken = params.get("access_token");
+              popup.close();
+              clearInterval(pollTimer);
+
+              if (accessToken) {
+                try {
+                  await completeVerifiedGoogleBind(accessToken);
+                } catch (err) {
+                  notifyFn("error", err.response?.data?.message || err.message || "Failed to bind Google account.");
+                } finally {
+                  setBindingGoogle(false);
+                }
+              } else {
+                setBindingGoogle(false);
+              }
+            }
+          } catch (err) {
+            // Ignore cross-origin frame errors while user is on accounts.google.com
+          }
+        }, 400);
+        return;
+      }
+    }
+
+    // B. Mobile (Android / iOS) Real Google OAuth Flow via Render Callback Bridge
     try {
       setBindingGoogle(true);
-      const res = await updateUserProfileApi(user.id, {
-        bindGoogle: {
-          email: cleanGoogleEmail,
-          oauthId: `google_${cleanGoogleEmail}`,
-        },
-      });
+      const baseApiUrl = (apiClient.defaults?.baseURL || "https://kaching-backend-27o2.onrender.com/api").replace(/\/$/, "");
+      const backendRedirectUri = `${baseApiUrl}/auth/google/callback`;
+      const appReturnUrl = makeRedirectUri({ scheme: "kaching", path: "auth" });
+      const statePayload = encodeURIComponent(appReturnUrl);
 
-      if (res?.user) {
-        await syncUserToStorageAndParent(res.user);
+      const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(
+        backendRedirectUri,
+      )}&response_type=token&scope=${scope}&state=${statePayload}&prompt=select_account`;
+
+      const result = await WebBrowser.openAuthSessionAsync(googleAuthUrl, appReturnUrl);
+
+      if (result.type === "success" && result.url) {
+        const hashPart = result.url.split("#")[1] || "";
+        const queryPart = result.url.split("?")[1]?.split("#")[0] || "";
+        const params = new URLSearchParams(hashPart || queryPart);
+        const accessToken = params.get("access_token");
+
+        if (accessToken) {
+          await completeVerifiedGoogleBind(accessToken);
+          return;
+        }
       }
-      setShowBindGoogleModal(false);
-      playUiSound("edit");
-      showToast("success", `Bound to Google (${cleanGoogleEmail})!`);
+
+      if (result.type !== "cancel" && result.type !== "dismiss") {
+        notifyFn("error", "Google verification did not complete. Please try again.");
+      }
     } catch (error) {
-      notifyFn("error", error.response?.data?.message || "Failed to bind Google account.");
+      notifyFn("error", error.response?.data?.message || error.message || "Failed to bind Google account.");
     } finally {
       setBindingGoogle(false);
     }
   };
 
-  // 4. Unbind Google Account
+  // 4. Unbind Google Account (Requires password set first)
   const handleUnbindGoogle = async () => {
     if (!profileUser?.hasPassword) {
       handleOpenPasswordModal();
       showToast("error", "Please set a login password first before unbinding Google!");
-      return;
+      return false;
     }
 
     try {
@@ -271,9 +396,11 @@ export function useProfileSettings(user, onUserUpdated, showToast) {
         await syncUserToStorageAndParent(res.user);
       }
       playUiSound("delete");
-      showToast("info", "Google account unbound. You can log in via password.");
+      showToast("info", "Google account unbound. You can now log in using your email & password.");
+      return true;
     } catch (error) {
       showToast("error", error.response?.data?.message || "Could not unbind Google account.");
+      return false;
     } finally {
       setBindingGoogle(false);
     }
@@ -324,6 +451,7 @@ export function useProfileSettings(user, onUserUpdated, showToast) {
     notificationsEnabled,
     autoCaptureEnabled,
     setAutoCaptureEnabled,
+    handleAutoCaptureStatusChanged,
     showAutoCaptureModal,
     setShowAutoCaptureModal,
     showThemeModal,

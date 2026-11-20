@@ -1,6 +1,6 @@
 /**
  * @file frontend/scripts/generateSoundAssets.js
- * @description Synthesizes the 9 SOUND_PROFILES into standard 44.1kHz 16-bit Stereo PCM .wav files inside frontend/assets/sounds/.
+ * @description Synthesizes the 12 SOUND_PROFILES into standard 44.1kHz 16-bit Stereo PCM .wav files inside frontend/assets/sounds/.
  *
  * Usage (run from frontend directory):
  *   node scripts/generateSoundAssets.js
@@ -11,7 +11,7 @@ const path = require("path");
 
 const OUTPUT_DIR = path.join(__dirname, "..", "assets", "sounds");
 
-// 9 Sound Profiles
+// 12 Finalized Sound Profiles (1-to-1 with generated WAV filenames)
 const SOUND_PROFILES = {
   income: {
     durationMs: 300,
@@ -44,7 +44,7 @@ const SOUND_PROFILES = {
       { fStart: 1174.66, fEnd: 1174.66, start: 0.085, dur: 0.12, wave: "sine", vol: 0.19, harmonic: 1.5 },
     ],
   },
-  profile: {
+  theme: {
     durationMs: 160,
     notes: [
       { fStart: 220, fEnd: 440, start: 0, dur: 0.065, wave: "triangle", vol: 0.16 },
@@ -68,6 +68,26 @@ const SOUND_PROFILES = {
       { fStart: 311.13, fEnd: 311.13, start: 0, dur: 0.055, wave: "triangle", vol: 0.21 },
       { fStart: 233.08, fEnd: 220, start: 0.07, dur: 0.095, wave: "triangle", vol: 0.24 },
     ],
+  },
+  check_one: {
+    durationMs: 155,
+    notes: [
+      { fStart: 380, fEnd: 220, start: 0, dur: 0.022, wave: "triangle", vol: 0.17 },
+      { fStart: 1046.5, fEnd: 1046.5, start: 0.025, dur: 0.12, wave: "sine", vol: 0.21, harmonic: 1.5 },
+    ],
+  },
+  check_all: {
+    durationMs: 420,
+    notes: [
+      { fStart: 587.33, fEnd: 587.33, start: 0, dur: 0.055, wave: "triangle", vol: 0.18 },
+      { fStart: 739.99, fEnd: 739.99, start: 0.055, dur: 0.055, wave: "sine", vol: 0.2 },
+      { fStart: 880, fEnd: 880, start: 0.11, dur: 0.06, wave: "sine", vol: 0.22, harmonic: 1.5 },
+      { fStart: 1174.66, fEnd: 1174.66, start: 0.17, dur: 0.24, wave: "sine", vol: 0.26, harmonic: 2 },
+    ],
+  },
+  typing: {
+    durationMs: 22,
+    notes: [{ fStart: 390, fEnd: 150, start: 0, dur: 0.018, wave: "triangle", vol: 0.18 }],
   },
 };
 
@@ -154,7 +174,7 @@ function generateAllSounds() {
     fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   }
 
-  console.log("[INFO] Generating 9 finalized WAV files into frontend/assets/sounds/ ...");
+  console.log("[INFO] Generating 12 finalized WAV files into frontend/assets/sounds/ ...");
 
   Object.entries(SOUND_PROFILES).forEach(([name, profile]) => {
     const wavBuffer = buildStereoWavBuffer(profile);
@@ -163,7 +183,7 @@ function generateAllSounds() {
     console.log(`  [OK] Created assets/sounds/${name}.wav (${(wavBuffer.length / 1024).toFixed(1)} KB)`);
   });
 
-  console.log("\n[OK] All 9 WAV sound assets generated successfully!");
+  console.log("\n[OK] All 12 WAV sound assets generated successfully!");
 }
 
 generateAllSounds();

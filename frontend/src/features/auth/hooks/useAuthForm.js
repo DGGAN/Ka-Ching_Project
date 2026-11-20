@@ -1,7 +1,7 @@
 /**
  * @file frontend/src/features/auth/hooks/useAuthForm.js
- * @layer Hook (Authentication State, Real Google OAuth 2.0 & 5-Tap Secret Dev Panel)
- * @description Manages Login/Register state, 5-tap duck logo secret unlock, and real Google OAuth 2.0 authentication on both Web and Mobile (Android/iOS).
+ * @layer Hook (Authentication State, 2-Step Email OTP Registration, Real Google OAuth 2.0 & 5-Tap Secret Dev Panel)
+ * @description Manages Login/Register state, 6-digit email OTP verification for new accounts, 5-tap duck logo secret unlock, and real Google OAuth 2.0 authentication on Web and Mobile.
  * @exports useAuthForm, DEV_TEST_ACCOUNTS
  */
 
@@ -12,35 +12,35 @@ import * as WebBrowser from "expo-web-browser";
 import { makeRedirectUri } from "expo-auth-session";
 import apiClient from "../../../api/apiClient";
 import { playUiSound } from "../../../utils/soundEffects";
-import { loginWithEmailApi, registerWithEmailApi, authenticateGoogleBackendApi, fetchGoogleUserInfoApi } from "../services/authService";
+import { loginWithEmailApi, authenticateGoogleBackendApi, fetchGoogleUserInfoApi } from "../services/authService";
 
 WebBrowser.maybeCompleteAuthSession();
 
-// 4 Preset Developer Test Accounts loaded from .env
+// 4 Preset Developer Test Accounts synced with backend/scripts/seedTestUsers.js
 export const DEV_TEST_ACCOUNTS = [
   {
     tag: "1. Balanced",
-    email: process.env.EXPO_PUBLIC_GOOGLE_EMAIL,
-    username: process.env.EXPO_PUBLIC_GOOGLE_USERNAME,
-    oauthId: process.env.EXPO_PUBLIC_GOOGLE_OAUTH_ID,
+    email: "kaching.pfmapp@gmail.com",
+    username: "Ka-Ching Demo",
+    oauthId: "109283746554321098765",
   },
   {
     tag: "2. 92% Risk",
-    email: process.env.EXPO_PUBLIC_GOOGLE_ALT_EMAIL,
-    username: process.env.EXPO_PUBLIC_GOOGLE_ALT_USERNAME,
-    oauthId: process.env.EXPO_PUBLIC_GOOGLE_ALT_OAUTH_ID,
+    email: "meiling.student@gmail.com",
+    username: "Mei Ling Tan",
+    oauthId: "109283746554321098888",
   },
   {
     tag: "3. Fast Saver",
-    email: process.env.EXPO_PUBLIC_GOOGLE_SAVER_EMAIL,
-    username: process.env.EXPO_PUBLIC_GOOGLE_SAVER_USERNAME,
-    oauthId: process.env.EXPO_PUBLIC_GOOGLE_SAVER_OAUTH_ID,
+    email: "aiman.saver@gmail.com",
+    username: "Aiman Saver",
+    oauthId: "109283746554321098777",
   },
   {
     tag: "4. Empty New",
-    email: process.env.EXPO_PUBLIC_GOOGLE_FRESH_EMAIL,
-    username: process.env.EXPO_PUBLIC_GOOGLE_FRESH_USERNAME,
-    oauthId: process.env.EXPO_PUBLIC_GOOGLE_FRESH_OAUTH_ID,
+    email: "chloe.fresh@gmail.com",
+    username: "Chloe Fresh",
+    oauthId: "109283746554321098666",
   },
 ];
 
@@ -49,7 +49,15 @@ export function useAuthForm(onLoginSuccess, showToast) {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+
+  // 2-Step Registration Email OTP Modal State
+  const [showRegisterOtpModal, setShowRegisterOtpModal] = useState(false);
+  const [registerOtpCode, setRegisterOtpCode] = useState("");
+  const [verifyingRegisterOtp, setVerifyingRegisterOtp] = useState(false);
+  const [resendingRegisterOtp, setResendingRegisterOtp] = useState(false);
+  const [registerResendCooldown, setRegisterResendCooldown] = useState(0);
 
   // Secret 5-Tap Logo Unlock State (Hidden from normal users by default)
   const [showSecretDevPanel, setShowSecretDevPanel] = useState(false);
@@ -57,6 +65,15 @@ export function useAuthForm(onLoginSuccess, showToast) {
   const tapTimerRef = useRef(null);
 
   const isDevFeatureAllowed = process.env.EXPO_PUBLIC_ENABLE_DEV_SHORTCUTS !== "false";
+
+  // Countdown timer for registration OTP resend button
+  useEffect(() => {
+    if (registerResendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setRegisterResendCooldown((prev) => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [registerResendCooldown]);
 
   // Check if returning from a same-tab Web Google OAuth redirect (#access_token=...)
   useEffect(() => {
@@ -96,23 +113,38 @@ export function useAuthForm(onLoginSuccess, showToast) {
     }, 2000);
   };
 
-  // 1. Handle standard Email/Password Login or Register
+  // 1. Handle Email/Password Login OR Step 1 of Registration (Send 6-Digit Email OTP)
   const handleSubmit = async () => {
+    if (submitting) return;
     playUiSound("pop");
+
     if (!email.trim() || !password || (isRegistering && !username.trim())) {
       showToast("error", "Please fill in all required fields.");
       return;
     }
 
     try {
-      const data = isRegistering
-        ? await registerWithEmailApi(username.trim(), email.trim(), password)
-        : await loginWithEmailApi(email.trim(), password);
+      setSubmitting(true);
 
+      if (isRegistering) {
+        const res = await apiClient.post("/auth/register-request-otp", {
+          username: username.trim(),
+          email: email.trim().toLowerCase(),
+          password,
+        });
+
+        setRegisterOtpCode("");
+        setRegisterResendCooldown(60);
+        setShowRegisterOtpModal(true);
+        showToast("success", res.data?.message || "Verification code sent to your email!");
+        return;
+      }
+
+      const data = await loginWithEmailApi(email.trim(), password);
       await AsyncStorage.setItem("userToken", data.token);
       await AsyncStorage.setItem("userData", JSON.stringify(data.user));
 
-      showToast("success", isRegistering ? "Account registered!" : "Welcome back!");
+      showToast("success", "Welcome back!");
       setTimeout(() => {
         onLoginSuccess(data.user);
       }, 300);
@@ -120,6 +152,63 @@ export function useAuthForm(onLoginSuccess, showToast) {
       const targetUrl = apiClient.defaults.baseURL;
       const backendMessage = error.response?.data?.message || `Cannot reach server (${targetUrl}). Check Wi-Fi & backend.`;
       showToast("error", backendMessage);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // 1.5 Step 2 of Registration: Verify 6-Digit Email OTP & Create Account
+  const handleVerifyRegisterOtp = async (modalNotify) => {
+    const notifyFn = typeof modalNotify === "function" ? modalNotify : showToast;
+    if (verifyingRegisterOtp) return;
+
+    if (!registerOtpCode || registerOtpCode.trim().length !== 6) {
+      notifyFn("error", "Please enter the 6-digit verification code.");
+      return;
+    }
+
+    try {
+      setVerifyingRegisterOtp(true);
+      const res = await apiClient.post("/auth/register-verify-otp", {
+        email: email.trim().toLowerCase(),
+        otpCode: registerOtpCode.trim(),
+      });
+
+      const data = res.data;
+      await AsyncStorage.setItem("userToken", data.token);
+      await AsyncStorage.setItem("userData", JSON.stringify(data.user));
+
+      setShowRegisterOtpModal(false);
+      setRegisterOtpCode("");
+      showToast("success", "Email verified! Welcome to Ka-Ching!");
+      setTimeout(() => {
+        onLoginSuccess(data.user);
+      }, 300);
+    } catch (error) {
+      notifyFn("error", error.response?.data?.message || "Verification failed. Please check your code.");
+    } finally {
+      setVerifyingRegisterOtp(false);
+    }
+  };
+
+  // 1.6 Resend Registration 6-Digit OTP
+  const handleResendRegisterOtp = async (modalNotify) => {
+    const notifyFn = typeof modalNotify === "function" ? modalNotify : showToast;
+    if (resendingRegisterOtp || registerResendCooldown > 0) return;
+
+    try {
+      setResendingRegisterOtp(true);
+      const res = await apiClient.post("/auth/register-request-otp", {
+        username: username.trim(),
+        email: email.trim().toLowerCase(),
+        password,
+      });
+      setRegisterResendCooldown(60);
+      notifyFn("success", res.data?.message || "A new 6-digit code has been sent.");
+    } catch (error) {
+      notifyFn("error", error.response?.data?.message || "Could not resend verification code.");
+    } finally {
+      setResendingRegisterOtp(false);
     }
   };
 
@@ -230,7 +319,6 @@ export function useAuthForm(onLoginSuccess, showToast) {
       const backendRedirectUri = `${baseApiUrl}/auth/google/callback`;
       const appReturnUrl = makeRedirectUri({ scheme: "kaching", path: "auth" });
 
-      // Pass appReturnUrl inside OAuth `state` so the Render callback bounces straight back into the app
       const statePayload = encodeURIComponent(appReturnUrl);
       const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(
         backendRedirectUri,
@@ -269,7 +357,17 @@ export function useAuthForm(onLoginSuccess, showToast) {
     setEmail,
     password,
     setPassword,
+    submitting,
     googleLoading,
+    showRegisterOtpModal,
+    setShowRegisterOtpModal,
+    registerOtpCode,
+    setRegisterOtpCode,
+    verifyingRegisterOtp,
+    resendingRegisterOtp,
+    registerResendCooldown,
+    handleVerifyRegisterOtp,
+    handleResendRegisterOtp,
     showSecretDevPanel,
     setShowSecretDevPanel,
     handleSecretLogoTap,
