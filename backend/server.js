@@ -6,6 +6,7 @@
 
 // Import core dependencies and environment configuration
 const express = require("express");
+const fs = require("fs");
 const path = require("path");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -36,10 +37,17 @@ app.use("/api/analytics", require("./routes/analyticsRoutes"));
 app.use("/api/ocr", require("./routes/ocrRoutes"));
 app.use("/api/notifications", require("./routes/notificationRoutes"));
 
-// 5. Serve public legal pages (index.html, privacy.html, terms.html) for Google OAuth verification
+// Helper: Inject APP_SUPPORT_EMAIL from backend/.env into public legal HTML pages
+const renderLegalHtml = (filename) => {
+  const supportEmail = process.env.APP_SUPPORT_EMAIL.trim();
+  const filePath = path.join(__dirname, "public", filename);
+  return fs.readFileSync(filePath, "utf8").replace(/\{\{SUPPORT_EMAIL\}\}/g, supportEmail);
+};
+
+// 5. Serve public legal pages (with dynamic support email injection) for Google OAuth verification
+app.get(["/privacy", "/privacy.html"], (req, res) => res.type("html").send(renderLegalHtml("privacy.html")));
+app.get(["/terms", "/terms.html"], (req, res) => res.type("html").send(renderLegalHtml("terms.html")));
 app.use(express.static(path.join(__dirname, "public")));
-app.get("/privacy", (req, res) => res.sendFile(path.join(__dirname, "public", "privacy.html")));
-app.get("/terms", (req, res) => res.sendFile(path.join(__dirname, "public", "terms.html")));
 
 // 6. Health check & Home Page endpoint
 app.get("/", (req, res) => {

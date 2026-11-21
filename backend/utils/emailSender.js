@@ -1,10 +1,10 @@
 /**
  * @file backend/utils/emailSender.js
- * @description Sends branded pure-HTML OTP emails (Password Reset & New Account Registration Verification) via Nodemailer (Gmail SMTP) with zero file/image attachments and structured logger support.
+ * @description Sends branded pure-HTML OTP emails (Password Reset & New Account Registration Verification) via Brevo HTTPS REST API (Port 443) with zero file/image attachments and structured logger support.
  * @exports isEmailServiceConfigured, sendPasswordResetEmail, sendRegistrationOtpEmail
  */
 
-const nodemailer = require("nodemailer");
+const axios = require("axios");
 const logger = require("./logger");
 
 /**
@@ -71,45 +71,58 @@ const buildOtpEmailHtml = ({ pageTitle, headerSubtitle, username, introText, otp
 `;
 
 /**
- * Creates a configured Nodemailer Gmail SMTP transporter or throws if credentials are missing.
+ * Checks whether Brevo HTTPS API is configured in environment variables.
  */
-const createGmailTransporter = (errorMessage) => {
-  const smtpUser = process.env.SMTP_USER?.trim();
-  const smtpPass = process.env.SMTP_PASS?.trim();
+exports.isEmailServiceConfigured = () => {
+  return Boolean(process.env.BREVO_API_KEY?.trim());
+};
 
-  if (!smtpUser || !smtpPass) {
-    logger.warn("EMAIL_OTP", "SMTP credentials missing in backend/.env");
-    const configErr = new Error(errorMessage);
+/**
+ * Unified email dispatcher via Brevo HTTPS REST API (Port 443 — works on both localhost and Render Free Tier).
+ */
+const dispatchEmail = async ({ toEmail, subject, html, unavailableMsg, logLabel }) => {
+  const brevoKey = process.env.BREVO_API_KEY?.trim();
+  const senderEmail = process.env.APP_SUPPORT_EMAIL.trim();
+
+  if (!brevoKey) {
+    logger.warn("EMAIL_OTP", "BREVO_API_KEY is missing in environment variables");
+    const configErr = new Error(unavailableMsg);
     configErr.code = "EMAIL_SERVICE_UNAVAILABLE";
     throw configErr;
   }
 
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: smtpUser,
-      pass: smtpPass,
-    },
-  });
+  try {
+    await axios.post(
+      "https://api.brevo.com/v3/smtp/email",
+      {
+        sender: { name: "Ka-Ching!", email: senderEmail },
+        to: [{ email: toEmail }],
+        subject,
+        htmlContent: html,
+      },
+      {
+        headers: {
+          "api-key": brevoKey,
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        timeout: 10000,
+      },
+    );
 
-  return { transporter, smtpUser };
+    logger.info("EMAIL_OTP", `${logLabel} sent via Brevo HTTPS API to ${toEmail}`);
+    return { deliveredVia: "BREVO_HTTPS_API" };
+  } catch (apiErr) {
+    const apiDetail = apiErr.response?.data || apiErr.message;
+    logger.error("EMAIL_OTP", `Brevo HTTPS API failed for ${toEmail}`, apiDetail);
+    throw apiErr;
+  }
 };
 
 /**
- * Checks whether SMTP email service is configured in backend/.env.
- */
-exports.isEmailServiceConfigured = () => {
-  const smtpUser = process.env.SMTP_USER?.trim();
-  const smtpPass = process.env.SMTP_PASS?.trim();
-  return Boolean(smtpUser && smtpPass);
-};
-
-/**
- * Sends the 6-digit password reset OTP email via Gmail SMTP.
+ * Sends the 6-digit password reset OTP email.
  */
 exports.sendPasswordResetEmail = async ({ toEmail, username, otpCode }) => {
-  const { transporter, smtpUser } = createGmailTransporter("Password recovery email service is currently unavailable.");
-
   const html = buildOtpEmailHtml({
     pageTitle: "Ka-Ching! Password Reset",
     headerSubtitle: "ACCOUNT SECURITY &amp; PASSWORD RECOVERY",
@@ -119,31 +132,19 @@ exports.sendPasswordResetEmail = async ({ toEmail, username, otpCode }) => {
     securityNotice: "If you did not request a password reset, you can safely ignore this email. Your account and financial records remain secure.",
   });
 
-  try {
-    await transporter.sendMail({
-      from: `"Ka-Ching!" <${smtpUser}>`,
-      to: toEmail,
-      subject: `[Ka-Ching!] ${otpCode} is your password reset code`,
-      html,
-    });
-
-    logger.info("EMAIL_OTP", `Password reset verification email sent to ${toEmail}`);
-
-    return {
-      deliveredVia: "SMTP_EMAIL",
-    };
-  } catch (smtpErr) {
-    logger.error("EMAIL_OTP", `Failed to send password reset OTP email to ${toEmail}`, smtpErr);
-    throw smtpErr;
-  }
+  return dispatchEmail({
+    toEmail,
+    subject: `[Ka-Ching!] ${otpCode} is your password reset code`,
+    html,
+    unavailableMsg: "Password recovery email service is currently unavailable.",
+    logLabel: "Password reset OTP email",
+  });
 };
 
 /**
- * Sends the 6-digit email verification OTP for new user registration via Gmail SMTP.
+ * Sends the 6-digit email verification OTP for new user registration.
  */
 exports.sendRegistrationOtpEmail = async ({ toEmail, username, otpCode }) => {
-  const { transporter, smtpUser } = createGmailTransporter("Verification email service is currently unavailable.");
-
   const html = buildOtpEmailHtml({
     pageTitle: "Welcome to Ka-Ching! — Verify Your Email",
     headerSubtitle: "WELCOME TO KA-CHING! &bull; EMAIL VERIFICATION",
@@ -154,21 +155,11 @@ exports.sendRegistrationOtpEmail = async ({ toEmail, username, otpCode }) => {
     securityNotice: "If you did not attempt to create a Ka-Ching! account, you can safely ignore this email and no account will be created.",
   });
 
-  try {
-    await transporter.sendMail({
-      from: `"Ka-Ching!" <${smtpUser}>`,
-      to: toEmail,
-      subject: `[Ka-Ching!] ${otpCode} is your verification code`,
-      html,
-    });
-
-    logger.info("EMAIL_OTP", `Registration verification email sent to ${toEmail}`);
-
-    return {
-      deliveredVia: "SMTP_EMAIL",
-    };
-  } catch (smtpErr) {
-    logger.error("EMAIL_OTP", `Failed to send registration OTP email to ${toEmail}`, smtpErr);
-    throw smtpErr;
-  }
+  return dispatchEmail({
+    toEmail,
+    subject: `[Ka-Ching!] ${otpCode} is your verification code`,
+    html,
+    unavailableMsg: "Verification email service is currently unavailable.",
+    logLabel: "Registration OTP email",
+  });
 };

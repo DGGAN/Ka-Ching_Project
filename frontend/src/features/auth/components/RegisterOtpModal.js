@@ -5,7 +5,7 @@
  * @exports default RegisterOtpModal
  */
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, Modal, TouchableOpacity, StyleSheet } from "react-native";
 import { MailCheck, X } from "lucide-react-native";
 import { COLORS, SHAPES, FONTS } from "../../../theme/colors";
@@ -29,6 +29,19 @@ export default function RegisterOtpModal({
 }) {
   const styles = getStyles();
   const { toast: modalToast, slideAnim: modalSlideAnim, showToast: modalNotify } = useFloatingToast();
+  const [loadingDots, setLoadingDots] = useState(".");
+
+  // Smoothly animate loading dots (. -> .. -> ...) while verifying or resending OTP
+  useEffect(() => {
+    if (!verifying && !resending) {
+      setLoadingDots(".");
+      return;
+    }
+    const timer = setInterval(() => {
+      setLoadingDots((prev) => (prev.length >= 3 ? "." : prev + "."));
+    }, 350);
+    return () => clearInterval(timer);
+  }, [verifying, resending]);
 
   const handleClose = () => {
     playUiSound("pop");
@@ -80,7 +93,7 @@ export default function RegisterOtpModal({
               }}
             >
               <Text style={[styles.resendLink, (resendCooldown > 0 || resending) && styles.resendLinkDisabled]}>
-                {resending ? "Sending..." : resendCooldown > 0 ? `Resend (${resendCooldown}s)` : "Resend Code"}
+                {resending ? `Sending${loadingDots}` : resendCooldown > 0 ? `Resend (${resendCooldown}s)` : "Resend Code"}
               </Text>
             </TouchableOpacity>
           </View>
@@ -88,7 +101,7 @@ export default function RegisterOtpModal({
           <View style={styles.btnRow}>
             <WireButton label="CANCEL" variant="outline" onPress={handleClose} style={{ flex: 1 }} />
             <WireButton
-              label={verifying ? "VERIFYING..." : "VERIFY & CREATE"}
+              label={verifying ? `VERIFYING${loadingDots}` : "VERIFY & CREATE"}
               onPress={() => onVerify && onVerify(modalNotify)}
               disabled={verifying}
               style={{ flex: 1.5 }}

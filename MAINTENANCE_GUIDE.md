@@ -73,7 +73,7 @@ eas update --branch preview --environment preview --message "chore(env): update 
 
 ### Workflow D: Updating Backend Environment Variables (backend/.env)
 
-If you update `MONGO_URI`, `GOOGLE_VISION_API_KEY`, `GEMINI_API_KEY`, `SMTP_PASS`, or `DEBUG_LOGS`:
+If you update `MONGO_URI`, `GOOGLE_VISION_API_KEY`, `GEMINI_API_KEY`, `BREVO_API_KEY`, or `DEBUG_LOGS`:
 
 **1.** Update your local `backend/.env` for local testing.
 

@@ -1,7 +1,7 @@
 /**
  * @file frontend/src/features/profile/components/FeedbackCard.js
  * @layer Profile Feature Card Component
- * @description Renders a Feedback & Support card inside ProfileScreen that opens the user's native mail app pre-addressed to kaching.pfmapp@gmail.com.
+ * @description Renders a Feedback & Support card inside ProfileScreen that opens the user's native mail app pre-addressed to the official support email.
  * @exports default FeedbackCard
  */
 
@@ -11,7 +11,7 @@ import { Mail, MessageSquareHeart, ExternalLink } from "lucide-react-native";
 import { COLORS, SHAPES, FONTS } from "../../../theme/colors";
 import { playUiSound } from "../../../utils/soundEffects";
 
-const SUPPORT_EMAIL = "kaching.pfmapp@gmail.com";
+const SUPPORT_EMAIL = process.env.EXPO_PUBLIC_SUPPORT_EMAIL.trim();
 
 export default function FeedbackCard({ user, showToast }) {
   const styles = getStyles();

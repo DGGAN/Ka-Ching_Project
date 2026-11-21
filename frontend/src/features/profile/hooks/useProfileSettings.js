@@ -275,7 +275,7 @@ export function useProfileSettings(user, onUserUpdated, showToast) {
     const notifyFn = typeof modalNotify === "function" ? modalNotify : showToast;
     playUiSound("pop");
 
-    const rawClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "";
+    const rawClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || "";
     const clientId = rawClientId.replace(/['"\s]/g, "").trim();
 
     if (!clientId.endsWith(".apps.googleusercontent.com")) {

@@ -16,33 +16,33 @@ import { loginWithEmailApi, authenticateGoogleBackendApi, fetchGoogleUserInfoApi
 
 WebBrowser.maybeCompleteAuthSession();
 
-// 4 Preset Developer Test Accounts synced with backend/scripts/seedTestUsers.js
+// 4 Preset Developer Test Accounts loaded strictly from frontend/.env (no hardcoded emails/IDs in source)
 export const DEV_TEST_ACCOUNTS = [
   {
     tag: "1. Balanced",
-    email: "kaching.pfmapp@gmail.com",
-    username: "Ka-Ching Demo",
-    oauthId: "109283746554321098765",
+    email: (process.env.EXPO_PUBLIC_GOOGLE_EMAIL || "").trim(),
+    username: (process.env.EXPO_PUBLIC_GOOGLE_USERNAME || "").trim(),
+    oauthId: (process.env.EXPO_PUBLIC_GOOGLE_OAUTH_ID || "").trim(),
   },
   {
     tag: "2. 92% Risk",
-    email: "meiling.student@gmail.com",
-    username: "Mei Ling Tan",
-    oauthId: "109283746554321098888",
+    email: (process.env.EXPO_PUBLIC_GOOGLE_ALT_EMAIL || "").trim(),
+    username: (process.env.EXPO_PUBLIC_GOOGLE_ALT_USERNAME || "").trim(),
+    oauthId: (process.env.EXPO_PUBLIC_GOOGLE_ALT_OAUTH_ID || "").trim(),
   },
   {
     tag: "3. Fast Saver",
-    email: "aiman.saver@gmail.com",
-    username: "Aiman Saver",
-    oauthId: "109283746554321098777",
+    email: (process.env.EXPO_PUBLIC_GOOGLE_SAVER_EMAIL || "").trim(),
+    username: (process.env.EXPO_PUBLIC_GOOGLE_SAVER_USERNAME || "").trim(),
+    oauthId: (process.env.EXPO_PUBLIC_GOOGLE_SAVER_OAUTH_ID || "").trim(),
   },
   {
     tag: "4. Empty New",
-    email: "chloe.fresh@gmail.com",
-    username: "Chloe Fresh",
-    oauthId: "109283746554321098666",
+    email: (process.env.EXPO_PUBLIC_GOOGLE_FRESH_EMAIL || "").trim(),
+    username: (process.env.EXPO_PUBLIC_GOOGLE_FRESH_USERNAME || "").trim(),
+    oauthId: (process.env.EXPO_PUBLIC_GOOGLE_FRESH_OAUTH_ID || "").trim(),
   },
-];
+].filter((acc) => acc.email && acc.oauthId);
 
 export function useAuthForm(onLoginSuccess, showToast) {
   const [isRegistering, setIsRegistering] = useState(false);
@@ -256,7 +256,7 @@ export function useAuthForm(onLoginSuccess, showToast) {
   const handleRealUserGoogleLogin = async () => {
     playUiSound("pop");
 
-    const rawClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "";
+    const rawClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || "";
     const clientId = rawClientId.replace(/['"\s]/g, "").trim();
 
     if (!clientId.endsWith(".apps.googleusercontent.com")) {

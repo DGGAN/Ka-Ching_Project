@@ -6,7 +6,7 @@
  * @exports default AuthScreen
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, Image, TouchableOpacity, StyleSheet, ScrollView, LayoutAnimation, Platform, UIManager } from "react-native";
 import { COLORS, SHAPES, FONTS } from "../theme/colors";
 import { playUiSound } from "../utils/soundEffects";
@@ -32,6 +32,7 @@ export default function AuthScreen({ onLoginSuccess }) {
   const { toast, slideAnim, showToast } = useFloatingToast();
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [legalModalTab, setLegalModalTab] = useState(null); // "privacy" | "terms" | null
+  const [loadingDots, setLoadingDots] = useState(".");
 
   const {
     isRegistering,
@@ -60,6 +61,18 @@ export default function AuthScreen({ onLoginSuccess }) {
     authenticateWithGoogleBackend,
     handleRealUserGoogleLogin,
   } = useAuthForm(onLoginSuccess, showToast);
+
+  // Smoothly animate loading dots (. -> .. -> ...) while sending verification email or logging in
+  useEffect(() => {
+    if (!submitting) {
+      setLoadingDots(".");
+      return;
+    }
+    const timer = setInterval(() => {
+      setLoadingDots((prev) => (prev.length >= 3 ? "." : prev + "."));
+    }, 350);
+    return () => clearInterval(timer);
+  }, [submitting]);
 
   // Smoothly animate layout when switching between Login and Register
   const handleToggleAuthMode = (nextRegistering) => {
@@ -131,7 +144,15 @@ export default function AuthScreen({ onLoginSuccess }) {
           )}
 
           <WireButton
-            label={submitting ? (isRegistering ? "Sending Verification Code..." : "Logging in...") : isRegistering ? "Register Account" : "Login"}
+            label={
+              submitting
+                ? isRegistering
+                  ? `Sending Verification Code${loadingDots}`
+                  : `Logging in${loadingDots}`
+                : isRegistering
+                  ? "Register Account"
+                  : "Login"
+            }
             onPress={handleSubmit}
             disabled={submitting}
             variant="filled"

@@ -1,7 +1,7 @@
 /**
  * @file frontend/src/screens/ProfileScreen.js
  * @layer Screen (Top-Level Page Skeleton)
- * @description Assembles ProfileIdentityCard (with popup edit modal), AccountSecurityCard (with popup password & Google modals), PreferencesCard, LegalPolicyModal, AutoCaptureModal, and Sign Out button.
+ * @description Assembles ProfileIdentityCard (with popup edit modal), AccountSecurityCard (with popup password & Google modals), PreferencesCard, FeedbackCard, LegalLinksCard, LegalPolicyModal, AutoCaptureModal, and Sign Out button.
  * @exports default ProfileScreen
  */
 
@@ -19,6 +19,7 @@ import { useProfileSettings } from "../features/profile/hooks/useProfileSettings
 import ProfileIdentityCard from "../features/profile/components/ProfileIdentityCard";
 import AccountSecurityCard from "../features/profile/components/AccountSecurityCard";
 import PreferencesCard from "../features/profile/components/PreferencesCard";
+import FeedbackCard from "../features/profile/components/FeedbackCard";
 import LegalLinksCard from "../features/profile/components/LegalLinksCard";
 import AutoCaptureModal from "../features/profile/components/AutoCaptureModal";
 
@@ -148,17 +149,20 @@ export default function ProfileScreen({ user, activeThemeKey, onChangeTheme, onU
           onToggleNotifications={handleToggleNotifications}
         />
 
-        {/* 4. Legal & PDPA 2010 Privacy Links Card */}
+        {/* 4. Feedback & Email Support Card */}
+        <FeedbackCard user={profileUser} showToast={showToast} />
+
+        {/* 5. Legal & PDPA 2010 Privacy Links Card */}
         <LegalLinksCard onOpenLegalModal={(tab) => setLegalModalTab(tab)} />
 
-        {/* 5. Sign Out Button */}
+        {/* 6. Sign Out Button */}
         <TouchableOpacity style={styles.logoutBtn} activeOpacity={0.85} onPress={handlePressLogout}>
           <LogOut size={15} color={COLORS.danger} strokeWidth={2.5} />
           <Text style={styles.logoutBtnText}>SIGN OUT OF KA-CHING!</Text>
         </TouchableOpacity>
       </ScrollView>
 
-      {/* 6. Smart Auto-Capture Setup & Verification Modal */}
+      {/* 7. Smart Auto-Capture Setup & Verification Modal */}
       <AutoCaptureModal
         visible={showAutoCaptureModal}
         onClose={() => setShowAutoCaptureModal(false)}
@@ -167,7 +171,7 @@ export default function ProfileScreen({ user, activeThemeKey, onChangeTheme, onU
         onStatusChanged={handleAutoCaptureStatusChanged}
       />
 
-      {/* 7. In-App Privacy Policy & Terms of Service Modal */}
+      {/* 8. In-App Privacy Policy & Terms of Service Modal */}
       <LegalPolicyModal visible={Boolean(legalModalTab)} initialTab={legalModalTab || "privacy"} onClose={() => setLegalModalTab(null)} />
     </View>
   );

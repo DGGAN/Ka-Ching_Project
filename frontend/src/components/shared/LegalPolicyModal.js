@@ -10,7 +10,9 @@ import { View, Text, Modal, ScrollView, TouchableOpacity, StyleSheet } from "rea
 import { ShieldCheck, FileText, X } from "lucide-react-native";
 import { COLORS, SHAPES, FONTS } from "../../theme/colors";
 import { playUiSound } from "../../utils/soundEffects";
-import WireButton from "./WireButton";
+import WireButton from "./WireButton";  
+
+const SUPPORT_EMAIL = process.env.EXPO_PUBLIC_SUPPORT_EMAIL.trim();
 
 export default function LegalPolicyModal({ visible = false, initialTab = "privacy", onClose }) {
   const styles = getStyles();
@@ -105,7 +107,7 @@ export default function LegalPolicyModal({ visible = false, initialTab = "privac
                 <Text style={styles.sectionTitle}>4. YOUR RIGHTS &amp; CONTACT</Text>
                 <Text style={styles.bodyText}>
                   You are always in control. You can turn off Auto-Capture, mute notifications, unlink Google Sign-In, or edit/delete your
-                  transactions anytime in the app. For data or privacy questions, email us at kaching.pfmapp@gmail.com.
+                  transactions anytime in the app. For data or privacy questions, email us at {SUPPORT_EMAIL}.
                 </Text>
               </View>
             ) : (
@@ -131,8 +133,7 @@ export default function LegalPolicyModal({ visible = false, initialTab = "privac
 
                 <Text style={styles.sectionTitle}>4. ACCOUNT SAFETY &amp; SUPPORT</Text>
                 <Text style={styles.bodyText}>
-                  Please keep your login password private. If you spot a bug or need help with your account, contact us anytime at
-                  kaching.pfmapp@gmail.com.
+                  Please keep your login password private. If you spot a bug or need help with your account, contact us anytime at {SUPPORT_EMAIL}.
                 </Text>
               </View>
             )}
